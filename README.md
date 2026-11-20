@@ -25,11 +25,12 @@ WebRTC may require STUN/TURN depending on the networks. This repository starts w
 2. Paste `gas/Code.gs`, save, and run `setupDatabase()` once.
 3. Deploy as a Web App (execute as you, access according to your private-use needs) and copy the `/exec` URL.
 4. Replace `GAS_EXEC_URL_HERE` in `config.json` with that URL.
-5. Also set `GAS_EXEC_URL_HERE` in `android/app/src/main/java/jp/a09848281/remotecamera/Config.kt` or keep the remote config URL pointed at this repository's raw `config.json`.
-6. Enable GitHub Pages for this repository (Settings → Pages; deploy from GitHub Actions).
-7. Open the Pages URL on iPad / PC. On Android, install the debug APK from the latest successful Actions run.
-8. Open the Android app while it is visible, grant requested permissions, choose the background polling interval, and tap **監視待機を開始**.
-9. Enter the displayed 8-digit, one-use, 10-minute pairing code on the Web page.
+5. Android reads the same URL from this repository's raw `config.json`; no separate APK URL edit is needed.
+6. Open Settings → Pages and set Build and deployment → Source to **GitHub Actions**. This one-time repository setting must be done by the repository owner.
+7. Open Actions → Deploy PWA to GitHub Pages → Run workflow. After the first successful deployment, the PWA URL is `https://a09848281-prog.github.io/web2/`.
+8. Open the PWA URL on iPad / PC. On Android, install the debug APK from the latest successful Android APK Build run.
+9. Open the Android app while it is visible, grant camera/microphone permissions (location is optional), choose the background polling interval, and tap **監視待機を開始**.
+10. Enter the displayed 8-digit, one-use, 10-minute pairing code on the Web page.
 
 ## APK build
 
