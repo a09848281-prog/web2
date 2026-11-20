@@ -81,7 +81,7 @@ class MainActivity : Activity() {
         })
         pollIntervalInput = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
-            singleLine = true
+            setSingleLine(true)
             setText(prefs.getInt("pollIntervalSeconds", AppConfig.POLL_SECONDS.toInt()).toString())
             hint = "例：30"
         }
