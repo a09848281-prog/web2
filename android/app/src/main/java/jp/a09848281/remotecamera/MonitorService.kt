@@ -13,6 +13,8 @@ import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -68,6 +70,7 @@ class MonitorService : Service() {
     private var lastTrafficTx = 0L
     private var lastTrafficRx = 0L
     private var lastTrafficAt = 0L
+    private var lastNetworkError = ""
     private val apiReady = CompletableDeferred<Unit>()
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -275,9 +278,10 @@ class MonitorService : Service() {
                     }
                 } catch (e: Exception) {
                     Log.e("RemoteCameraService", "Polling iteration failed; foreground service remains active", e)
+                    lastNetworkError=e.message ?: "Polling iteration failed"
                     notifyState("通信または接続処理に失敗しました。待機を継続して再試行します")
                 }
-                delay(pollIntervalSeconds*1000L)
+                delay(if (rtc?.hasPeers()==true) 1000L else pollIntervalSeconds*1000L)
             }
         } catch (e: Exception) {
             if (!apiReady.isCompleted) apiReady.completeExceptionally(e)
@@ -294,7 +298,10 @@ class MonitorService : Service() {
                 lastTrafficTx=0L;lastTrafficRx=0L;lastTrafficAt=System.currentTimeMillis()
                 notifyState("監視中・DataChannel直接通信")
             }
-            "FAILED","CLOSED","DISCONNECTED" -> notifyState("RTC "+state+"：再接続を待機します")
+            "FAILED","CLOSED","DISCONNECTED" -> {
+                lastNetworkError="WebRTC ICE状態: "+state
+                notifyState("RTC "+state+"：再接続を待機します")
+            }
         }
     }
     private fun handleDataChannelMessage(sessionId:String,raw:String) {
@@ -311,6 +318,8 @@ class MonitorService : Service() {
                 if(name=="disconnect"){delay(150L);rtc?.closeSession(sessionId)}
             } catch(e:Exception) {
                 try{rtc?.sendControl(sessionId,JSONObject().put("type","ack").put("requestId",requestId).put("ok",false).put("message",e.message?:"命令を適用できませんでした"))}catch(_:Exception){}
+                lastNetworkError="DataChannel命令エラー: "+(e.message?:"不明")
+                sendNetworkDiagnostic(sessionId,lastNetworkError)
                 notifyState("DataChannel命令エラー："+(e.message?:"不明"))
             }
         }
@@ -318,6 +327,7 @@ class MonitorService : Service() {
     private suspend fun executeDataChannelCommand(sessionId:String,name:String,payload:JSONObject):String {
         when(name) {
             "camera" -> (rtc?:error("WebRTCが終了しています。")).switchCamera(payload.optString("facing","back"))
+            "torch" -> setTorch(payload.optBoolean("enabled",false))
             "volume","speaker_volume" -> {
                 val pct=payload.optInt("percent",70).coerceIn(0,100)
                 val audio=getSystemService(AUDIO_SERVICE) as AudioManager
@@ -336,9 +346,11 @@ class MonitorService : Service() {
                 val stream=AudioManager.STREAM_VOICE_CALL
                 audio.setStreamVolume(stream,(audio.getStreamMaxVolume(stream)*pct/100.0).toInt(),0)
                 rtc?.setNightMode(payload.optBoolean("nightMode",false))
-                prefs.edit().putInt("micNoise",payload.optInt("micNoise",70).coerceIn(0,100))
+                prefs.edit().putString("quality",currentQuality).putString("dataMode",currentDataMode)
+                    .putInt("micNoise",payload.optInt("micNoise",70).coerceIn(0,100))
                     .putInt("micSensitivity",payload.optInt("micSensitivity",70).coerceIn(0,100))
                     .putInt("micGain",payload.optInt("micGain",100).coerceIn(0,100))
+                    .putInt("speakerVolume",pct)
                     .putBoolean("nightMode",payload.optBoolean("nightMode",false)).apply()
             }
             "mic_noise" -> rtc?.setNoiseSuppressionLevel(payload.optInt("strength",70))
@@ -378,10 +390,22 @@ class MonitorService : Service() {
             .put("localIpAddresses",JSONArray(ips))
             .put("networkInterface",links?.interfaceName?:"")
     }
-    private fun sendNetworkDiagnostic(sessionId:String) {
+    private fun setTorch(enabled:Boolean) {
+        val manager=getSystemService(CAMERA_SERVICE) as CameraManager
+        val backId=manager.cameraIdList.firstOrNull { id ->
+            val chars=manager.getCameraCharacteristics(id)
+            chars.get(CameraCharacteristics.LENS_FACING)==CameraCharacteristics.LENS_FACING_BACK &&
+                chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE)==true
+        } ?: error("ライト対応の背面カメラが見つかりません。")
+        manager.setTorchMode(backId,enabled)
+    }
+
+    private fun sendNetworkDiagnostic(sessionId:String,reason:String=lastNetworkError) {
         val data=networkInfo().put("androidVersion",Build.VERSION.RELEASE).put("apiLevel",Build.VERSION.SDK_INT)
             .put("deviceModel",Build.MODEL?:"Android").put("rtcControlChannelOpen",rtc?.hasOpenControlChannel()==true)
+            .put("recentError",reason)
         rtc?.sendControl(sessionId,JSONObject().put("type","network_diagnostic").put("data",data))
+        lastNetworkError=""
     }
     private fun sendTelemetry() {
         val uid=Process.myUid()

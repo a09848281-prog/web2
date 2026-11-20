@@ -119,7 +119,8 @@ class RtcEngine(
         try {
             peers.remove(sessionId)?.close()
             ensureMedia()
-            val config = PeerConnection.RTCConfiguration(emptyList()).apply {
+            val iceServers = listOf(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
+            val config = PeerConnection.RTCConfiguration(iceServers).apply {
                 sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
                 bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
             }

@@ -17,7 +17,7 @@ This repository is a clean successor project. The existing `a09848281-prog/web` 
 
 GAS is used only before / during WebRTC establishment for pairing and SDP/ICE signaling. Once the WebRTC control DataChannel is open, normal camera, audio, setting, status, and diagnostic messages use the DataChannel. GAS polling pauses while that channel is open and resumes only after a connection loss that requires re-signaling.
 
-WebRTC may require STUN/TURN depending on the networks. This repository starts with STUN-only configuration; connections across restrictive NATs may fail without a TURN relay.
+WebRTC uses a public Google STUN endpoint. Restrictive NATs may still require a TURN relay; TURN is not included in this initial version.
 
 ## First setup
 

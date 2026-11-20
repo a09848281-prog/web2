@@ -4,3 +4,8 @@
 .telemetry b,.telemetry span,.telemetry strong{display:block;margin-bottom:5px}
 .telemetry pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;font-size:11px;color:#43536a}
 @media(max-width:760px){.telemetry{grid-template-columns:1fr}}
+
+#reserveAt{width:100%;min-height:40px;border:1px solid #ccd6e3;border-radius:8px;padding:8px}
+#reservationStatus{overflow-wrap:anywhere}
+#torch{border:1px solid #b8c8dc}
+.telemetry span{font-variant-numeric:tabular-nums}

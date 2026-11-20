@@ -16,7 +16,7 @@ const S = {
   map: null,
   marker: null,
   route: null,
-  history: [], control: null, statsTimer: null, statsLast: null
+  history: [], control: null, statsTimer: null, statsLast: null, reconnectTimer: null, reconnectAttempts: 0, everConnected: false, torchEnabled: false, reservationTimer: null
 };
 
 function rid() {
@@ -154,11 +154,12 @@ function renderDevices() {
   });
 }
 function setControlsEnabled(enabled) {
-  ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair"].forEach(id => {
+  ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair", "reserveConnection"].forEach(id => {
     $(id).disabled = !enabled;
   });
   $("connect").disabled = !enabled || !!S.pc;
   $("disconnect").disabled = !S.pc;
+  $("torch").disabled = !S.pc || !S.control || S.control.readyState !== "open";
   $("camera").disabled = !enabled || !S.pc;
   $("ptt").disabled = !S.pc;
 }
@@ -169,6 +170,7 @@ function selectDevice(device) {
   $("deviceMeta").textContent = "端末ID: " + device.deviceId + " / このiPadにペアリング済み";
   renderDevices();
   setControlsEnabled(true);
+  refreshReservationUi();
   status("ペアリング済み");
   loadSettings().catch(error => toast(error.message));
 }
@@ -252,18 +254,19 @@ async function connect() {
     stream.getAudioTracks().forEach(track => { track.enabled = false; });
     S.session = rid();
     S.seq = 0;
-    const pc = new RTCPeerConnection({ iceServers: [] });
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
     S.pc = pc;
     const control = pc.createDataChannel("remote-control", { ordered: true });
     S.control = control;
     control.onopen = () => {
       $("diagnostics").disabled = false;
+      $("torch").disabled = false;
       status("監視中・DataChannel直接接続", true);
       $("streamState").textContent = "映像・音声・DataChannel接続中";
       startRtcStats();
       sendControl("settings_update", readLiveSettings());
     };
-    control.onclose = () => { $("diagnostics").disabled = true; stopRtcStats(); status("制御チャネル切断"); };
+    control.onclose = () => { $("diagnostics").disabled = true; $("torch").disabled = true; stopRtcStats(); status("制御チャネル切断"); };
     control.onmessage = event => handleControlMessage(event.data);
     control.onerror = () => toast("DataChannel通信エラー");
     $("camera").disabled = false;
@@ -288,6 +291,14 @@ async function connect() {
       $("iceState").textContent = "ICE: " + state;
       status(state === "connected" ? "監視中" : state, state === "connected");
       $("streamState").textContent = state === "connected" ? "映像・音声接続中" : "接続処理中";
+      if (state === "connected") {
+        S.everConnected = true;
+        S.reconnectAttempts = 0;
+        if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
+        S.reconnectTimer = null;
+      } else if ((state === "failed" || state === "disconnected") && S.everConnected) {
+        scheduleReconnect(pc);
+      }
     };
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -306,10 +317,27 @@ async function connect() {
     $("streamState").textContent = "Android応答待ち";
     status("接続要求中");
     pollAnswers();
+    return true;
   } catch (error) {
     await disconnect(false);
     toast("接続開始失敗: " + error.message);
+    if (S.everConnected) scheduleReconnect(null);
+    return false;
   }
+}
+function scheduleReconnect(expectedPc) {
+  if (S.reconnectTimer || !S.everConnected || !S.device) return;
+  if (S.reconnectAttempts >= 5) {
+    toast("自動再接続を5回試しました。手動で接続してください。");
+    return;
+  }
+  S.reconnectTimer = setTimeout(async () => {
+    S.reconnectTimer = null;
+    if (expectedPc && S.pc !== expectedPc) return;
+    S.reconnectAttempts += 1;
+    const ok = await connect(true);
+    if (!ok) scheduleReconnect(null);
+  }, 5000);
 }
 async function pollAnswers() {
   while (S.pc && S.session && S.device && (!S.control || S.control.readyState !== "open")) {
@@ -335,6 +363,12 @@ async function pollAnswers() {
   }
 }
 async function disconnect(sendCommand = true) {
+  if (sendCommand) {
+    S.everConnected = false;
+    S.reconnectAttempts = 0;
+    if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
+    S.reconnectTimer = null;
+  }
   if (sendCommand && S.pc && S.device) {
     if (S.control && S.control.readyState === "open") sendControl("disconnect", {});
     else {
@@ -358,6 +392,7 @@ async function disconnect(sendCommand = true) {
   $("connect").disabled = !S.device;
   $("disconnect").disabled = true;
   $("camera").disabled = true;
+  $("torch").disabled = true;
   $("ptt").disabled = true;
   $("ptt").classList.remove("active");
   $("ptt").textContent = "押している間だけ話す";
@@ -408,14 +443,15 @@ async function saveSettings() {
     micNoise:Number($("micNoise").value), micSensitivity:Number($("micSensitivity").value),
     micGain:Number($("micGain").value), speakerVolume:Number($("volume").value), nightMode:$("nightMode").checked
   };
-  await api("save_settings", {
-    controllerToken: S.device.controllerToken,
-    deviceId: S.device.deviceId,
-    settings
-  });
-  if(S.control?.readyState==="open") sendControl("settings_update",settings);
-  else await api("send_command",{controllerToken:S.device.controllerToken,deviceId:S.device.deviceId,command:"quality",payload:{quality:settings.quality,dataMode:settings.dataMode}});
-  toast("設定を保存しました。");
+  if(S.control?.readyState==="open") {
+    sendControl("settings_update",settings);
+    localStorage.setItem("rc_live_settings_"+S.device.deviceId,JSON.stringify(settings));
+    toast("DataChannelでAndroidへ直接反映しました。");
+  } else {
+    await api("save_settings",{controllerToken:S.device.controllerToken,deviceId:S.device.deviceId,settings});
+    await api("send_command",{controllerToken:S.device.controllerToken,deviceId:S.device.deviceId,command:"quality",payload:{quality:settings.quality,dataMode:settings.dataMode}});
+    toast("設定を保存しました。次回接続時に反映します。");
+  }
 }
 function sendControl(name,payload={}) {
   if(!S.control||S.control.readyState!=="open"){toast("DataChannelが未接続です。");return false;}
@@ -544,6 +580,34 @@ async function deleteHistory() {
   toast("履歴を " + (result.deleted || 0) + " 件削除しました。");
 }
 
+
+const RESERVATION_KEY="rc_connection_reservation_v1";
+function readReservation(){try{return JSON.parse(localStorage.getItem(RESERVATION_KEY)||"null");}catch(_){return null;}}
+function refreshReservationUi(){
+ const r=readReservation();const valid=r&&Number.isFinite(Number(r.when));
+ $("reservationStatus").textContent=valid?"予約中："+new Date(Number(r.when)).toLocaleString()+(S.device&&r.deviceId===S.device.deviceId?"":"（別端末の予約）"):"予約なし";
+ $("cancelReservation").disabled=!valid;
+}
+async function reserveConnection(){
+ if(!S.device)throw Error("先にAndroid端末をペアリングしてください。");
+ const input=$("reserveAt").value;const when=new Date(input).getTime();
+ if(!Number.isFinite(when)||when<Date.now()+15000)throw Error("15秒以上先の日時を指定してください。");
+ // Request microphone permission during the user gesture; no track is kept while waiting.
+ if(!navigator.mediaDevices?.getUserMedia)throw Error("このブラウザーではマイクを利用できません。");
+ const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+ stream.getTracks().forEach(track=>track.stop());
+ localStorage.setItem(RESERVATION_KEY,JSON.stringify({deviceId:S.device.deviceId,when}));
+ refreshReservationUi();toast("接続予約を保存しました。予約時刻にこのWeb画面が動作している必要があります。");
+}
+function cancelConnectionReservation(){localStorage.removeItem(RESERVATION_KEY);refreshReservationUi();toast("接続予約を解除しました。");}
+function checkConnectionReservation(){
+ const r=readReservation();if(!r||!Number.isFinite(Number(r.when))||Date.now()<Number(r.when))return;
+ localStorage.removeItem(RESERVATION_KEY);refreshReservationUi();
+ if(!S.device||S.device.deviceId!==r.deviceId){toast("予約時刻になりましたが、対象Androidが選択されていません。");return;}
+ if(S.pc){toast("予約時刻になりましたが、すでに接続中です。");return;}
+ toast("予約した接続を開始します。");connect(true);
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(error => console.warn("PWA service worker unavailable", error));
   $("refresh").addEventListener("click", refreshDeviceList);
@@ -564,6 +628,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("mapTab").addEventListener("click", showMap);
   ["volume","micNoise","micSensitivity","micGain"].forEach(id=>$(id).addEventListener("input",updateSliderLabels));
   $("diagnostics").addEventListener("click",()=>command("diagnostics").catch(e=>toast(e.message)));
+  $("torch").addEventListener("click",()=>{S.torchEnabled=!S.torchEnabled;command("torch",{enabled:S.torchEnabled}).then(()=>{$("torch").textContent=S.torchEnabled?"ライトをOFF":"ライトをON";}).catch(e=>{S.torchEnabled=!S.torchEnabled;toast(e.message);});});
+  $("reserveConnection").addEventListener("click",()=>reserveConnection().catch(e=>toast(e.message)));
+  $("cancelReservation").addEventListener("click",cancelConnectionReservation);
   $("micNoise").addEventListener("change",e=>command("mic_noise",{strength:Number(e.target.value)}).catch(x=>toast(x.message)));
   $("micSensitivity").addEventListener("change",e=>command("mic_sensitivity",{percent:Number(e.target.value)}).catch(x=>toast(x.message)));
   $("micGain").addEventListener("change",e=>command("mic_gain",{percent:Number(e.target.value)}).catch(x=>toast(x.message)));

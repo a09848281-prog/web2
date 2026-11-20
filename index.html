@@ -30,6 +30,7 @@
     <h3>監視操作</h3>
     <button id="connect" type="button" class="primary wide" disabled>接続</button>
     <button id="disconnect" type="button" class="wide" disabled>切断</button>
+    <button id="torch" type="button" class="wide" disabled>ライトをON</button>
     <label>画質<select id="quality"><option value="auto">自動（720p基準）</option><option value="360">360p</option><option value="480">480p</option><option value="720" selected>720p</option><option value="1080">1080p</option></select></label>
     <label>通信量モード<select id="dataMode"><option value="auto">自動</option><option value="ultra">超節約</option><option value="save">節約</option><option value="standard" selected>標準</option><option value="high">高画質</option></select></label>
     <label>Androidスピーカー音量 <output id="volumeValue">70%</output><input id="volume" type="range" min="0" max="100" value="70"></label>
@@ -39,6 +40,12 @@
 <label class="check"><input id="nightMode" type="checkbox"> 夜間モード（対応範囲で適用）</label>
 <button id="diagnostics" type="button" class="wide" disabled>Androidネットワーク診断</button>
     <label>カメラ<select id="camera"><option value="back">背面</option><option value="front">前面</option></select></label>
+    <hr>
+    <h3>接続予約</h3>
+    <label>接続予定日時<input id="reserveAt" type="datetime-local"></label>
+    <button id="reserveConnection" type="button" class="wide" disabled>この端末への接続を予約</button>
+    <button id="cancelReservation" type="button" class="wide" disabled>予約を解除</button>
+    <p id="reservationStatus" class="hint">予約なし</p>
     <hr>
     <h3>位置情報</h3>
     <button id="locate" type="button" class="wide" disabled>現在位置を1回取得</button>
@@ -65,7 +72,7 @@
       <footer><span id="streamState">待機中</span><span id="iceState">ICE: --</span></footer>
     </div>
     <section class="telemetry">
-<div><b>Android通信量（接続開始から）</b><span id="deviceTx">送信 --</span><span id="deviceRx">受信 --</span><strong id="deviceTotal">合計 --</strong></div>
+<div><b>Android通信量（接続開始から）</b><span id="deviceTx">送信 --</span><span id="deviceRx">受信 --</span><span id="deviceTxSpeed">送信速度 --</span><span id="deviceRxSpeed">受信速度 --</span><strong id="deviceTotal">合計 --</strong></div>
 <div><b>WebRTC通信</b><span id="rtcStats">RTT -- / 損失 --</span><span id="networkSummary">ネットワーク情報待ち</span></div>
 <div><b>Android端末</b><span id="deviceHealth">バッテリー -- / 温度 --</span></div>
 <div><b>ネットワーク診断</b><pre id="diagnosticOutput">接続後に診断情報を表示します。</pre></div>
