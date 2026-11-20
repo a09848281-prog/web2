@@ -1,0 +1,571 @@
+/**
+ * Remote Camera GAS API v3.2
+ * Account-free camera-first API.
+ * Web controller access is granted only by an expiring Android pairing code.
+ */
+const TABLES = {
+  Devices: ["deviceId","ownerUserId","deviceName","deviceSecretHash","codeHash","codeExpiresAt","createdAt","registeredAt","lastSeen","status","controllerSecretHash"],
+  Commands: ["commandId","deviceId","ownerUserId","command","payloadJson","createdAt","expiresAt","status"],
+  Signals: ["seq","sessionId","deviceId","sender","recipient","kind","sdp","candidateJson","createdAt","expiresAt"],
+  Settings: ["deviceId","settingsJson","updatedAt"],
+  LocationHistory: ["locationId","userId","deviceId","lat","lng","accuracy","timestamp","mode"],
+  SecurityLog: ["timestamp","userId","deviceId","eventType","success","detail"]
+};
+const SESSION_DAYS = 7;
+const CODE_MINUTES = 10;
+const COMMAND_MINUTES = 3;
+const SIGNAL_MINUTES = 3;
+const PAIR_FAIL_LIMIT = 25;
+const PAIR_FAIL_WINDOW_MS = 10 * 60 * 1000;
+const DEVICE_BEGIN_LIMIT = 5;
+const DEVICE_BEGIN_WINDOW_MS = 60 * 60 * 1000;
+
+/** Public health check. */
+function doGet() {
+  return ContentService.createTextOutput(JSON.stringify(health_()))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function health_() {
+  const version = "4.0.0";
+  const spreadsheetId = PropertiesService.getScriptProperties().getProperty("DB_SPREADSHEET_ID");
+  if (!spreadsheetId) {
+    return {
+      ok: true, service: "Remote Camera API", version: version, auth: "pairing",
+      databaseReady: false, setupRequired: true,
+      message: "setupDatabase()をもう一度実行してください。"
+    };
+  }
+  try {
+    const ss = SpreadsheetApp.openById(spreadsheetId);
+    const missingSheets = [];
+    const schemaErrors = [];
+    Object.keys(TABLES).forEach(function(name) {
+      const sh = ss.getSheetByName(name);
+      if (!sh) {
+        missingSheets.push(name);
+        return;
+      }
+      const expected = TABLES[name];
+      const actual = sh.getRange(1, 1, 1, expected.length).getDisplayValues()[0];
+      expected.forEach(function(header, index) {
+        if (actual[index] !== header) schemaErrors.push(name + " の " + (index + 1) + " 列目");
+      });
+    });
+    return {
+      ok: true, service: "Remote Camera API", version: version, auth: "pairing",
+      databaseReady: missingSheets.length === 0 && schemaErrors.length === 0,
+      missingSheets: missingSheets, schemaErrors: schemaErrors
+    };
+  } catch (err) {
+    return {
+      ok: true, service: "Remote Camera API", version: version, auth: "pairing",
+      databaseReady: false, setupRequired: true,
+      message: safeError_(err)
+    };
+  }
+}
+
+function doPost(e) {
+  let req = {};
+  try {
+    const params = e && e.parameter ? e.parameter : {};
+    const raw = params.payload || "";
+    if (!raw) throw Error("payload がありません。");
+    req = JSON.parse(raw);
+    const result = dispatch_(req);
+    if (params.mode === "json") {
+      return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+    }
+    return bridge_(req.requestId || "", result);
+  } catch (err) {
+    const result = { ok: false, error: safeError_(err) };
+    if (e && e.parameter && e.parameter.mode === "json") {
+      return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+    }
+    return bridge_(req.requestId || "", result);
+  }
+}
+
+/**
+ * Google HtmlService is sandboxed. Post to the top-level GitHub Pages origin,
+ * not to the intermediate sandbox parent.
+ */
+function bridge_(id, result) {
+  const json = JSON.stringify({
+    channel: "remote-camera-gas", requestId: String(id || ""), result: result
+  }).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026");
+  return HtmlService.createHtmlOutput(
+    "<!doctype html><html><head><meta charset='utf-8'></head><body>" +
+    "<script>window.top.postMessage(" + json + ",'https://a09848281-prog.github.io');</script>" +
+    "<p>処理が完了しました。</p></body></html>"
+  ).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function dispatch_(r) {
+  switch (String(r.action || "")) {
+    case "health": return health_();
+    case "device_begin": return deviceBegin_(r);
+    case "device_refresh_code": return refreshDeviceCode_(r);
+    case "claim_device": return claimDevice_(r);
+    case "unpair_device": return unpairDevice_(r);
+    case "device_poll": return devicePoll_(r);
+    case "send_signal": return sendSignal_(r);
+    case "poll_signals": return pollSignals_(r);
+    case "send_command": return sendCommand_(r);
+    case "ack_command": return ackCommand_(r);
+    case "get_settings": return getSettings_(r);
+    case "save_settings": return saveSettings_(r);
+    case "add_location": return addLocation_(r);
+    case "get_locations": return getLocations_(r);
+    case "delete_locations": return deleteLocations_(r);
+    default: throw Error("未対応のAPIです: " + r.action);
+  }
+}
+
+/**
+ * Safe, non-destructive schema setup:
+ * - Keeps existing data.
+ * - Adds newly required trailing columns.
+ * - Never clears a sheet when headers differ.
+ * Legacy Users/Sessions sheets, if present, are left untouched and are no longer used.
+ */
+function setupDatabase() {
+  const props = PropertiesService.getScriptProperties();
+  let ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) {
+    const savedId = props.getProperty("DB_SPREADSHEET_ID");
+    if (savedId) ss = SpreadsheetApp.openById(savedId);
+  }
+  if (!ss) throw Error("対象スプレッドシートから「拡張機能 → Apps Script」で作成してください。");
+  Object.keys(TABLES).forEach(function(name) {
+    let sh = ss.getSheetByName(name);
+    if (!sh) sh = ss.insertSheet(name);
+    const headers = TABLES[name];
+    const lastColumn = sh.getLastColumn();
+    if (sh.getLastRow() === 0 || lastColumn === 0 ||
+        sh.getRange(1, 1).getValue() === "") {
+      sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    } else {
+      const existing = sh.getRange(1, 1, 1, Math.max(lastColumn, headers.length)).getValues()[0];
+      for (let i = 0; i < Math.min(lastColumn, headers.length); i++) {
+        if (existing[i] && existing[i] !== headers[i]) {
+          throw Error(name + " シートの " + (i + 1) + " 列目の見出しが想定と異なります。データ保護のため初期化を中止しました。");
+        }
+      }
+      for (let i = lastColumn; i < headers.length; i++) {
+        sh.getRange(1, i + 1).setValue(headers[i]);
+      }
+    }
+    sh.setFrozenRows(1);
+  });
+  props.setProperty("DB_SPREADSHEET_ID", ss.getId());
+  return "Remote Camera database ready (existing rows preserved; spreadsheet ID saved).";
+}
+
+function db_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty("DB_SPREADSHEET_ID");
+  if (id) return SpreadsheetApp.openById(id);
+  const active = SpreadsheetApp.getActiveSpreadsheet();
+  if (!active) throw Error("DB接続情報がありません。Apps ScriptでsetupDatabase()を実行してください。");
+  props.setProperty("DB_SPREADSHEET_ID", active.getId());
+  return active;
+}
+function sheet_(name) {
+  const sh = db_().getSheetByName(name);
+  if (!sh) throw Error("シートがありません。setupDatabase()を実行してください: " + name);
+  return sh;
+}
+function rows_(name) {
+  const sh = sheet_(name);
+  const last = sh.getLastRow();
+  return last < 2 ? [] : sh.getRange(2, 1, last - 1, TABLES[name].length).getValues();
+}
+function find_(name, column, value) {
+  const data = rows_(name);
+  for (let i = 0; i < data.length; i++) {
+    if (String(data[i][column]) === String(value)) return { row: i + 2, v: data[i] };
+  }
+  return null;
+}
+function append_(name, values) {
+  const sh = sheet_(name);
+  sh.appendRow(values);
+  return sh.getLastRow();
+}
+function now_() { return new Date(); }
+function iso_(value) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  return isNaN(date.getTime()) ? "" : date.toISOString();
+}
+function randomToken_() {
+  return Utilities.getUuid().replace(/-/g, "") + Utilities.getUuid().replace(/-/g, "");
+}
+function hash_(value) {
+  return Utilities.base64EncodeWebSafe(
+    Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(value), Utilities.Charset.UTF_8)
+  );
+}
+function safeError_(err) {
+  return String(err && err.message ? err.message : err).slice(0, 300);
+}
+function log_(deviceId, eventType, success, detail) {
+  append_("SecurityLog", [now_(), "", deviceId || "", eventType, !!success, String(detail || "").slice(0, 240)]);
+}
+function newCode_() {
+  const bytes = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    randomToken_(),
+    Utilities.Charset.UTF_8
+  );
+  let number = 0;
+  for (let i = 0; i < 4; i++) number = (number * 256 + (bytes[i] & 255)) >>> 0;
+  return String(10000000 + (number % 90000000));
+}
+function checkPairRate_() {
+  const props = PropertiesService.getScriptProperties();
+  const key = "PAIR_ATTEMPTS";
+  const now = Date.now();
+  const raw = props.getProperty(key) || "";
+  const parts = raw.split(":");
+  let start = Number(parts[0] || 0);
+  let count = Number(parts[1] || 0);
+  if (!start || now - start >= PAIR_FAIL_WINDOW_MS) {
+    start = now;
+    count = 0;
+  }
+  if (count >= PAIR_FAIL_LIMIT) throw Error("ペアリング試行が多すぎます。10分ほど待ってください。");
+  props.setProperty(key, start + ":" + (count + 1));
+}
+function clearPairRate_() {
+  PropertiesService.getScriptProperties().deleteProperty("PAIR_ATTEMPTS");
+}
+
+function checkDeviceBeginRate_() {
+  const props = PropertiesService.getScriptProperties();
+  const key = "DEVICE_BEGIN_ATTEMPTS";
+  const now = Date.now();
+  const parts = String(props.getProperty(key) || "").split(":");
+  let start = Number(parts[0] || 0);
+  let count = Number(parts[1] || 0);
+  if (!start || now - start >= DEVICE_BEGIN_WINDOW_MS) {
+    start = now;
+    count = 0;
+  }
+  if (count >= DEVICE_BEGIN_LIMIT) {
+    throw Error("端末の初回登録回数が上限に達しました。1時間後に再試行してください。");
+  }
+  props.setProperty(key, start + ":" + (count + 1));
+}
+
+function authDevice_(deviceId, secret) {
+  const d = find_("Devices", 0, deviceId);
+  if (!d || !secret || hash_(secret) !== d.v[3] || !["pending", "active"].includes(String(d.v[9]))) {
+    throw Error("Android端末の認証に失敗しました。");
+  }
+  return { deviceId: d.v[0], row: d.row, v: d.v };
+}
+function authController_(r) {
+  const id = String(r.deviceId || "");
+  const token = String(r.controllerToken || "");
+  if (!id || !token) throw Error("Androidとのペアリングが必要です。");
+  const d = find_("Devices", 0, id);
+  if (!d || d.v[9] !== "active" || !d.v[10] || hash_(token) !== d.v[10]) {
+    throw Error("操作権限がありません。Androidのペアリングコードで再接続してください。");
+  }
+  return { deviceId: d.v[0], row: d.row, v: d.v };
+}
+function ownerController_(r) { return authController_(r); }
+
+function deviceBegin_(r) {
+  const id = String(r.deviceId || Utilities.getUuid());
+  const name = String(r.deviceName || "Android端末").slice(0, 40);
+  const secret = randomToken_();
+  const code = newCode_();
+  const expiry = new Date(Date.now() + CODE_MINUTES * 60000);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    checkDeviceBeginRate_();
+    if (find_("Devices", 0, id)) throw Error("端末IDが既に登録されています。アプリのデータを確認してください。");
+    append_("Devices", [id, "", name, hash_(secret), hash_(code), expiry, now_(), "", "", "pending", ""]);
+  } finally {
+    lock.releaseLock();
+  }
+  log_(id, "device_begin", true, "Android device initialized");
+  return { ok: true, deviceId: id, deviceSecret: secret, registrationCode: code, expiresAt: expiry.toISOString() };
+}
+
+function refreshDeviceCode_(r) {
+  const id = String(r.deviceId || "");
+  const device = authDevice_(id, String(r.deviceSecret || ""));
+  const code = newCode_();
+  const expiry = new Date(Date.now() + CODE_MINUTES * 60000);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const current = find_("Devices", 0, id);
+    if (!current || current.v[3] !== device.v[3]) throw Error("端末状態が変更されました。再試行してください。");
+    sheet_("Devices").getRange(current.row, 5, 1, 2).setValues([[hash_(code), expiry]]);
+  } finally {
+    lock.releaseLock();
+  }
+  log_(id, "pair_code_refresh", true, "pairing code refreshed");
+  return { ok: true, registrationCode: code, expiresAt: expiry.toISOString() };
+}
+
+function claimDevice_(r) {
+  const code = String(r.code || "").trim();
+  if (!/^\d{8}$/.test(code)) throw Error("登録コードは8桁の数字です。");
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  let deviceId = "";
+  try {
+    checkPairRate_();
+    const data = rows_("Devices");
+    let hit = null;
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i];
+      const expiry = new Date(v[5]).getTime();
+      if (v[4] && v[4] === hash_(code) && expiry > Date.now() && ["pending", "active"].includes(String(v[9]))) {
+        hit = { row: i + 2, v: v };
+        break;
+      }
+    }
+    if (!hit) {
+      log_("", "pair_claim", false, "invalid or expired code");
+      throw Error("登録コードが無効または期限切れです。Android側で再発行してください。");
+    }
+    const name = String(r.deviceName || hit.v[2] || "Android端末").trim().slice(0, 40) || "Android端末";
+    const controllerToken = randomToken_();
+    const sh = sheet_("Devices");
+    sh.getRange(hit.row, 2).setValue("");
+    sh.getRange(hit.row, 3).setValue(name);
+    sh.getRange(hit.row, 5, 1, 2).setValues([["", ""]]); // one-time code is consumed
+    sh.getRange(hit.row, 8, 1, 3).setValues([[now_(), hit.v[8], "active"]]);
+    sh.getRange(hit.row, 11).setValue(hash_(controllerToken));
+    deviceId = String(hit.v[0]);
+    clearPairRate_();
+    log_(deviceId, "pair_claim", true, "viewer paired");
+    return { ok: true, deviceId: deviceId, deviceName: name, controllerToken: controllerToken };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function unpairDevice_(r) {
+  const d = authController_(r);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const current = find_("Devices", 0, d.deviceId);
+    if (!current || !current.v[10] || current.v[10] !== hash_(String(r.controllerToken || ""))) {
+      throw Error("ペアリング状態が変更されています。端末一覧を更新してください。");
+    }
+    const sh = sheet_("Devices");
+    sh.getRange(current.row, 5, 1, 2).clearContent();
+    sh.getRange(current.row, 10).setValue("pending");
+    sh.getRange(current.row, 11).clearContent();
+  } finally {
+    lock.releaseLock();
+  }
+  log_(d.deviceId, "unpair_device", true, "controller pairing revoked");
+  return { ok: true, deviceId: d.deviceId, unpaired: true };
+}
+
+function devicePoll_(r) {
+  const id = String(r.deviceId || "");
+  const secret = String(r.deviceSecret || "");
+  const d = authDevice_(id, secret);
+  if (d.v[9] === "pending") {
+    const codeActive = !!d.v[4] && new Date(d.v[5]).getTime() > Date.now();
+    return {
+      ok: true, registered: false, needsPairing: true,
+      pairingCodeActive: codeActive, commands: [], signals: [],
+      latestSeq: Number(r.afterSeq || 0)
+    };
+  }
+  sheet_("Devices").getRange(d.row, 9).setValue(now_());
+  const commandRows = rows_("Commands");
+  const commands = [];
+  for (let i = 0; i < commandRows.length; i++) {
+    const v = commandRows[i];
+    if (v[1] !== id || v[7] !== "pending") continue;
+    if (new Date(v[6]).getTime() < Date.now()) {
+      sheet_("Commands").getRange(i + 2, 8).setValue("expired");
+      continue;
+    }
+    commands.push({ commandId: v[0], command: v[3], payload: JSON.parse(v[4] || "{}") });
+  }
+  const after = Number(r.afterSeq || 0);
+  const allSignals = rows_("Signals");
+  const signals = [];
+  for (let i = 0; i < allSignals.length; i++) {
+    const v = allSignals[i];
+    const seq = Number(v[0] || i + 2);
+    if (v[2] === id && v[3] === "viewer" && v[4] === "device" &&
+        seq > after && new Date(v[9]).getTime() > Date.now()) {
+      signals.push({ seq: seq, sessionId: v[1], kind: v[5], sdp: v[6], candidate: v[7] ? JSON.parse(v[7]) : null });
+    }
+  }
+  const settingsHit = find_("Settings", 0, id);
+  let settings = { quality: "720", dataMode: "standard", connectedLocationEnabled: false, idleLocationEnabled: false, connectedInterval: 30, idleInterval: 300 };
+  if (settingsHit) {
+    try { settings = Object.assign(settings, JSON.parse(settingsHit.v[1] || "{}")); } catch (err) {}
+  }
+  return {
+    ok: true, registered: true,
+    needsPairing: !d.v[10],
+    pairingCodeActive: !!d.v[4] && new Date(d.v[5]).getTime() > Date.now(),
+    commands: commands, signals: signals,
+    latestSeq: signals.reduce(function(max, signal) { return Math.max(max, signal.seq); }, after),
+    settings: settings
+  };
+}
+
+function sendSignal_(r) {
+  const id = String(r.deviceId || "");
+  const recipient = String(r.recipient || "");
+  if (!["device", "viewer"].includes(recipient)) throw Error("recipientが不正です。");
+  let sender = "";
+  if (r.deviceSecret) {
+    authDevice_(id, String(r.deviceSecret));
+    sender = "device";
+  } else {
+    authController_(r);
+    sender = "viewer";
+  }
+  const session = String(r.sessionId || "");
+  const kind = String(r.kind || "");
+  if (!/^[A-Za-z0-9._:-]{8,100}$/.test(session)) throw Error("sessionIdが不正です。");
+  if (!["offer", "answer", "candidate", "error", "bye"].includes(kind)) throw Error("signal kindが不正です。");
+  if ((sender === "viewer" && recipient !== "device") || (sender === "device" && recipient !== "viewer")) {
+    throw Error("送信先が不正です。");
+  }
+  const sdp = String(r.sdp || "").slice(0, 200000);
+  const candidate = r.candidate ? JSON.stringify(r.candidate).slice(0, 10000) : "";
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  let seq = 0;
+  try {
+    seq = append_("Signals", [0, session, id, sender, recipient, kind, sdp, candidate, now_(), new Date(Date.now() + SIGNAL_MINUTES * 60000)]);
+    sheet_("Signals").getRange(seq, 1).setValue(seq);
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, seq: seq };
+}
+
+function pollSignals_(r) {
+  const d = authController_(r);
+  const session = String(r.sessionId || "");
+  const after = Math.max(0, Number(r.afterSeq || 0));
+  const data = rows_("Signals");
+  const signals = [];
+  for (let i = 0; i < data.length; i++) {
+    const v = data[i];
+    const seq = Number(v[0] || i + 2);
+    if (v[1] === session && v[2] === d.deviceId && v[4] === "viewer" && seq > after && new Date(v[9]).getTime() > Date.now()) {
+      signals.push({ seq: seq, kind: v[5], sdp: v[6], candidate: v[7] ? JSON.parse(v[7]) : null });
+    }
+  }
+  return { ok: true, signals: signals };
+}
+
+function sendCommand_(r) {
+  const d = authController_(r);
+  const command = String(r.command || "");
+  const allowed = ["location_once", "location_settings", "camera", "volume", "quality", "data_mode", "disconnect"];
+  if (!allowed.includes(command)) throw Error("許可されていない命令です。");
+  const commandId = Utilities.getUuid();
+  append_("Commands", [commandId, d.deviceId, "", command, JSON.stringify(r.payload || {}).slice(0, 5000), now_(), new Date(Date.now() + COMMAND_MINUTES * 60000), "pending"]);
+  return { ok: true, commandId: commandId };
+}
+
+function ackCommand_(r) {
+  const d = authDevice_(String(r.deviceId || ""), String(r.deviceSecret || ""));
+  const commandId = String(r.commandId || "");
+  const found = find_("Commands", 0, commandId);
+  if (!found || found.v[1] !== d.deviceId || !["pending", "failed"].includes(String(found.v[7]))) {
+    return { ok: true, ignored: true };
+  }
+  const status = r.success === false ? "failed" : "done";
+  sheet_("Commands").getRange(found.row, 8).setValue(status);
+  return { ok: true, status: status };
+}
+
+function clamp_(value, min, max, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(min, Math.min(max, Math.round(number))) : fallback;
+}
+function getSettings_(r) {
+  const d = authController_(r);
+  const found = find_("Settings", 0, d.deviceId);
+  let settings = { quality: "720", dataMode: "standard", connectedLocationEnabled: false, idleLocationEnabled: false, connectedInterval: 30, idleInterval: 300 };
+  if (found) {
+    try { settings = Object.assign(settings, JSON.parse(found.v[1] || "{}")); } catch (err) {}
+  }
+  return { ok: true, settings: settings };
+}
+function saveSettings_(r) {
+  const d = authController_(r);
+  const s = r.settings || {};
+  const clean = {
+    quality: ["auto", "360", "480", "720", "1080"].includes(String(s.quality)) ? String(s.quality) : "720",
+    dataMode: ["auto", "ultra", "save", "standard", "high"].includes(String(s.dataMode)) ? String(s.dataMode) : "standard",
+    connectedLocationEnabled: s.connectedLocationEnabled === true,
+    idleLocationEnabled: s.idleLocationEnabled === true,
+    connectedInterval: clamp_(s.connectedInterval, 10, 3600, 30),
+    idleInterval: clamp_(s.idleInterval, 10, 3600, 300)
+  };
+  const found = find_("Settings", 0, d.deviceId);
+  const sh = sheet_("Settings");
+  const json = JSON.stringify(clean);
+  if (found) sh.getRange(found.row, 2, 1, 2).setValues([[json, now_()]]);
+  else append_("Settings", [d.deviceId, json, now_()]);
+  return { ok: true, settings: clean };
+}
+function addLocation_(r) {
+  const d = authDevice_(String(r.deviceId || ""), String(r.deviceSecret || ""));
+  const lat = Number(r.lat);
+  const lng = Number(r.lng);
+  const accuracy = Number(r.accuracy || 0);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    throw Error("位置情報が不正です。");
+  }
+  const mode = ["manual", "connected", "background"].includes(String(r.mode)) ? String(r.mode) : "manual";
+  const timestamp = r.timestamp ? new Date(Number(r.timestamp)) : now_();
+  if (isNaN(timestamp.getTime()) || timestamp.getTime() > Date.now() + 60000) throw Error("取得日時が不正です。");
+  append_("LocationHistory", [Utilities.getUuid(), "", d.deviceId, lat, lng, Math.max(0, accuracy), timestamp, mode]);
+  return { ok: true };
+}
+function getLocations_(r) {
+  const d = authController_(r);
+  const limit = clamp_(r.limit, 1, 1000, 500);
+  const data = rows_("LocationHistory");
+  const locations = [];
+  for (let i = data.length - 1; i >= 0 && locations.length < limit; i--) {
+    const v = data[i];
+    if (v[2] === d.deviceId) {
+      locations.push({ id: v[0], lat: v[3], lng: v[4], accuracy: v[5], timestamp: iso_(v[6]), mode: v[7] });
+    }
+  }
+  return { ok: true, locations: locations.reverse() };
+}
+function deleteLocations_(r) {
+  const d = authController_(r);
+  const sh = sheet_("LocationHistory");
+  const data = rows_("LocationHistory");
+  let deleted = 0;
+  for (let i = data.length - 1; i >= 0; i--) {
+    const v = data[i];
+    if (v[2] === d.deviceId && (r.all === true || !r.before || new Date(v[6]).getTime() <= new Date(r.before).getTime())) {
+      sh.deleteRow(i + 2);
+      deleted++;
+    }
+  }
+  log_(d.deviceId, "location_delete", true, String(deleted));
+  return { ok: true, deleted: deleted };
+}

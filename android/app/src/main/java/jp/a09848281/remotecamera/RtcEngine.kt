@@ -1,0 +1,327 @@
+package jp.a09848281.remotecamera
+
+import android.content.Context
+import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import org.json.JSONObject
+import org.webrtc.*
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.nio.ByteBuffer
+
+class RtcEngine(
+    private val context: Context,
+    private val api: ApiClient,
+    private val deviceId: String,
+    private val secret: String,
+    private val scope: CoroutineScope,
+    private val onState: (String) -> Unit,
+    private val onDataChannelMessage: (String, String) -> Unit,
+    private val onConnectionState: (String, String) -> Unit
+) {
+    private val peers = ConcurrentHashMap<String, PeerConnection>()
+    private val videoSenders = ConcurrentHashMap<String, RtpSender>()
+    private val controlChannels = ConcurrentHashMap<String, DataChannel>()
+    private val disposed = AtomicBoolean(false)
+    @Volatile private var noiseSuppressionLevel=70
+    @Volatile private var micSensitivity=70
+    @Volatile private var micGain=100
+    @Volatile private var nightModeEnabled=false
+    private var factory: PeerConnectionFactory? = null
+    private var egl: EglBase? = null
+    private var capturer: CameraVideoCapturer? = null
+    private var helper: SurfaceTextureHelper? = null
+    private var videoSource: VideoSource? = null
+    private var audioSource: AudioSource? = null
+    private var videoTrack: VideoTrack? = null
+    private var audioTrack: AudioTrack? = null
+    private var frontCamera = false
+    private var currentQuality = "720"
+    private var currentDataMode = "standard"
+    private var captureWidth = 1280
+    private var captureHeight = 720
+    private var captureFps = 24
+
+    private data class VideoProfile(
+        val width: Int, val height: Int, val fps: Int, val bitrate: Int
+    )
+
+    private fun profileFor(quality: String, dataMode: String): VideoProfile {
+        // Conservative default for mid-range Android 13 devices.
+        val base = when (quality) {
+            "360" -> VideoProfile(640, 360, 15, 350000)
+            "480" -> VideoProfile(640, 480, 15, 550000)
+            "1080" -> VideoProfile(1920, 1080, 24, 1800000)
+            else -> VideoProfile(640, 480, 15, 550000)
+        }
+        return when (dataMode) {
+            "ultra" -> VideoProfile(640, 360, 10, 280000)
+            "save" -> VideoProfile(640, 360, 15, 550000)
+            "high" -> base.copy(fps = 30, bitrate = 2400000)
+            else -> base
+        }
+    }
+
+    @Synchronized
+    private fun ensureMedia() {
+        check(!disposed.get()) { "RTC engine is already disposed." }
+        if (factory != null && videoTrack != null && audioTrack != null && capturer != null) return
+        if (factory == null) {
+            PeerConnectionFactory.initialize(
+                PeerConnectionFactory.InitializationOptions.builder(context.applicationContext).createInitializationOptions()
+            )
+            egl = EglBase.create()
+            factory = PeerConnectionFactory.builder()
+                .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl!!.eglBaseContext, true, true))
+                .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl!!.eglBaseContext))
+                .createPeerConnectionFactory()
+        }
+        videoSource = factory!!.createVideoSource(false)
+        val enumerator = Camera2Enumerator(context)
+        val names = enumerator.deviceNames
+        val selected = names.firstOrNull { enumerator.isBackFacing(it) }
+            ?: names.firstOrNull { enumerator.isFrontFacing(it) }
+            ?: names.firstOrNull()
+            ?: error("利用できるカメラがありません。")
+        frontCamera = enumerator.isFrontFacing(selected)
+        capturer = enumerator.createCapturer(selected, null) ?: error("カメラを開けません。")
+        helper = SurfaceTextureHelper.create("RemoteCameraCapture", egl!!.eglBaseContext)
+        capturer!!.initialize(helper, context.applicationContext, videoSource!!.capturerObserver)
+        val profile = profileFor(currentQuality, currentDataMode)
+        captureWidth = profile.width
+        captureHeight = profile.height
+        captureFps = profile.fps
+        try {
+            capturer!!.startCapture(profile.width, profile.height, profile.fps)
+        } catch (first: Exception) {
+            Log.w("RemoteCameraRTC", "Preferred camera format failed; retrying conservative VGA mode", first)
+            try { capturer?.dispose() } catch (_: Exception) {}
+            capturer = enumerator.createCapturer(selected, null) ?: throw first
+            capturer!!.initialize(helper, context.applicationContext, videoSource!!.capturerObserver)
+            capturer!!.startCapture(640, 480, 15)
+            captureWidth = 640
+            captureHeight = 480
+            captureFps = 15
+        }
+        videoTrack = factory!!.createVideoTrack("remote-camera-video", videoSource).apply { setEnabled(true) }
+        val constraints=MediaConstraints()
+        constraints.mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression",(noiseSuppressionLevel>0).toString()))
+        constraints.mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl",(micSensitivity>0).toString()))
+        constraints.mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation","true"))
+        audioSource=factory!!.createAudioSource(constraints)
+        audioTrack = factory!!.createAudioTrack("remote-camera-audio", audioSource).apply { setEnabled(true) }
+        onState("カメラ・マイクを起動しました")
+    }
+
+    fun handleOffer(sessionId: String, sdp: String) {
+        try {
+            peers.remove(sessionId)?.close()
+            ensureMedia()
+            val config = PeerConnection.RTCConfiguration(emptyList()).apply {
+                sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+                bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
+            }
+            val answerSent = AtomicBoolean(false)
+            lateinit var peer: PeerConnection
+            val observer = object : PeerConnection.Observer {
+                override fun onSignalingChange(state: PeerConnection.SignalingState) {}
+                override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
+                    onState("WebRTC: " + state.name)
+                    onConnectionState(sessionId,state.name)
+                    if (state == PeerConnection.IceConnectionState.FAILED ||
+                        state == PeerConnection.IceConnectionState.CLOSED) {
+                        peers.remove(sessionId)
+                        videoSenders.remove(sessionId)
+                        if (peers.isEmpty()) stopMedia()
+                    }
+                }
+                override fun onIceConnectionReceivingChange(receiving: Boolean) {}
+                override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {
+                    if (state == PeerConnection.IceGatheringState.COMPLETE && answerSent.compareAndSet(false, true)) {
+                        val local = peer.localDescription
+                        if (local != null) scope.launch(Dispatchers.IO) {
+                            try {
+                                api.call("send_signal", JSONObject()
+                                    .put("deviceId", deviceId).put("deviceSecret", secret)
+                                    .put("sessionId", sessionId).put("recipient", "viewer")
+                                    .put("kind", "answer").put("sdp", local.description))
+                            } catch (e: Exception) {
+                                onState("応答送信失敗: " + (e.message ?: "通信エラー"))
+                            }
+                        }
+                    }
+                }
+                override fun onIceCandidate(candidate: IceCandidate) { }
+                override fun onIceCandidatesRemoved(candidates: Array<IceCandidate>) {}
+                override fun onAddStream(stream: MediaStream) {}
+                override fun onRemoveStream(stream: MediaStream) {}
+                override fun onDataChannel(channel: DataChannel) {
+                    try {
+                        controlChannels.put(sessionId,channel)?.dispose()
+                        channel.registerObserver(object:DataChannel.Observer {
+                            override fun onBufferedAmountChange(previousAmount:Long) {}
+                            override fun onStateChange() {
+                                if(channel.state()==DataChannel.State.OPEN)onConnectionState(sessionId,"DATA_CHANNEL_OPEN")
+                            }
+                            override fun onMessage(buffer:DataChannel.Buffer) {
+                                if(buffer.binary)return
+                                try {
+                                    val data=buffer.data.slice();val bytes=ByteArray(data.remaining());data.get(bytes)
+                                    onDataChannelMessage(sessionId,String(bytes,Charsets.UTF_8))
+                                } catch(e:Exception){Log.w("RemoteCameraRTC","Invalid DataChannel message",e)}
+                            }
+                        })
+                        if(channel.state()==DataChannel.State.OPEN)onConnectionState(sessionId,"DATA_CHANNEL_OPEN")
+                    } catch(e:Exception){Log.e("RemoteCameraRTC","DataChannel observer failed",e);onState("DataChannel初期化失敗："+(e.message?:"不明"))}
+                }
+                override fun onRenegotiationNeeded() {}
+                override fun onAddTrack(receiver: RtpReceiver, streams: Array<MediaStream>) {}
+            }
+            peer = factory!!.createPeerConnection(config, observer)
+                ?: error("PeerConnectionを作成できません。")
+            peers[sessionId] = peer
+            videoSenders[sessionId] = peer.addTrack(videoTrack, listOf("remote-camera"))
+            peer.addTrack(audioTrack, listOf("remote-camera"))
+            peer.setRemoteDescription(object : SdpObserver {
+                override fun onSetSuccess() {
+                    peer.createAnswer(object : SdpObserver {
+                        override fun onCreateSuccess(answer: SessionDescription) {
+                            peer.setLocalDescription(object : SdpObserver {
+                                override fun onSetSuccess() { onState("接続応答を作成中…") }
+                                override fun onSetFailure(error: String) { onState("SDP設定失敗: $error") }
+                                override fun onCreateSuccess(desc: SessionDescription) {}
+                                override fun onCreateFailure(error: String) {}
+                            }, answer)
+                        }
+                        override fun onCreateFailure(error: String) { onState("SDP応答作成失敗: $error") }
+                        override fun onSetSuccess() {}
+                        override fun onSetFailure(error: String) {}
+                    }, MediaConstraints())
+                }
+                override fun onSetFailure(error: String) { onState("SDP受信失敗: $error") }
+                override fun onCreateSuccess(desc: SessionDescription) {}
+                override fun onCreateFailure(error: String) {}
+            }, SessionDescription(SessionDescription.Type.OFFER, sdp))
+        } catch (e: Exception) {
+            Log.e("RemoteCameraRTC", "Offer processing failed; cleaning partial RTC state", e)
+            try { peers.remove(sessionId)?.close() } catch (_: Exception) {}
+            try { videoSenders.remove(sessionId) } catch (_: Exception) {}
+            if (peers.isEmpty()) {
+                try { stopMedia() } catch (_: Exception) {}
+            }
+            onState("WebRTC開始失敗：" + (e.message ?: "不明") + "。アプリの待機は継続します")
+            scope.launch(Dispatchers.IO) {
+                try {
+                    api.call("send_signal", JSONObject()
+                        .put("deviceId", deviceId).put("deviceSecret", secret)
+                        .put("sessionId", sessionId).put("recipient", "viewer")
+                        .put("kind", "error").put("sdp", e.message ?: "RTC error"))
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    @Synchronized
+    fun closeSession(sessionId: String) {
+        val peer=peers.remove(sessionId)
+        videoSenders.remove(sessionId)
+        try{controlChannels.remove(sessionId)?.dispose()}catch(_:Exception){}
+        try{peer?.close()}catch(_:Exception){}
+        try{peer?.dispose()}catch(_:Exception){}
+        if (peers.isEmpty()) stopMedia()
+    }
+
+    fun hasPeers():Boolean=peers.isNotEmpty()
+    fun hasOpenControlChannel():Boolean=controlChannels.values.any{it.state()==DataChannel.State.OPEN}
+    fun sendControl(sessionId:String,message:JSONObject):Boolean {
+        val channel=controlChannels[sessionId]?:return false
+        return try{if(channel.state()!=DataChannel.State.OPEN)return false
+            channel.send(DataChannel.Buffer(ByteBuffer.wrap(message.toString().toByteArray(Charsets.UTF_8)),false))
+        }catch(e:Exception){Log.w("RemoteCameraRTC","DataChannel send failed",e);false}
+    }
+    fun sendControlToOpenDataChannels(message:JSONObject){controlChannels.keys.toList().forEach{id->sendControl(id,message)}}
+    fun setNoiseSuppressionLevel(level:Int){noiseSuppressionLevel=level.coerceIn(0,100);onState("ノイズ抑制要求 "+noiseSuppressionLevel+"%（実効値は端末依存・次回音声初期化時に反映）")}
+    fun setMicSensitivity(level:Int){micSensitivity=level.coerceIn(0,100);onState("マイク感度要求 "+micSensitivity+"%（自動ゲインは対応範囲・次回音声初期化時に反映）")}
+    fun setMicGain(level:Int){micGain=level.coerceIn(0,100);try{audioTrack?.setVolume(micGain/100.0)}catch(e:Exception){Log.w("RemoteCameraRTC","Mic gain update failed",e)}}
+    fun setNightMode(enabled:Boolean){nightModeEnabled=enabled;onState(if(enabled)"夜間モード要求ON（露出制御は端末依存）" else "夜間モードOFF")}
+
+    fun switchCamera(facing: String) {
+        val camera = capturer ?: return
+        val wantFront = facing == "front"
+        if (wantFront == frontCamera) return
+        camera.switchCamera(object : CameraVideoCapturer.CameraSwitchHandler {
+            override fun onCameraSwitchDone(isFrontCamera: Boolean) {
+                frontCamera = isFrontCamera
+                onState(if (isFrontCamera) "前面カメラ" else "背面カメラ")
+            }
+            override fun onCameraSwitchError(error: String) { onState("カメラ切替失敗: $error") }
+        })
+    }
+
+    fun setQuality(quality: String, dataMode: String) {
+        currentQuality = quality
+        currentDataMode = dataMode
+        val profile = profileFor(currentQuality, currentDataMode)
+        val camera = capturer
+        if (camera != null &&
+            (profile.width != captureWidth || profile.height != captureHeight || profile.fps != captureFps)
+        ) {
+            try {
+                camera.changeCaptureFormat(profile.width, profile.height, profile.fps)
+                captureWidth = profile.width
+                captureHeight = profile.height
+                captureFps = profile.fps
+            } catch (e: Exception) {
+                Log.w("RemoteCameraRTC", "Could not change camera capture format", e)
+                onState("画質変更に失敗しました。端末が対応する画質を確認してください。")
+            }
+        }
+        videoSenders.values.forEach { sender ->
+            try {
+                val params = sender.parameters
+                params.encodings.forEach {
+                    it.maxBitrateBps = profile.bitrate
+                    it.maxFramerate = profile.fps
+                }
+                if (!sender.setParameters(params)) {
+                    Log.w("RemoteCameraRTC", "Video sender rejected quality parameters")
+                }
+            } catch (e: Exception) {
+                Log.w("RemoteCameraRTC", "Could not change video bitrate", e)
+            }
+        }
+    }
+
+    @Synchronized
+    private fun stopMedia() {
+        try { capturer?.stopCapture() } catch (_: Exception) {}
+        try { capturer?.dispose() } catch (_: Exception) {}
+        capturer = null
+        try { helper?.dispose() } catch (_: Exception) {}
+        helper = null
+        try { videoTrack?.dispose() } catch (_: Exception) {}
+        videoTrack = null
+        try { audioTrack?.dispose() } catch (_: Exception) {}
+        audioTrack = null
+        try { videoSource?.dispose() } catch (_: Exception) {}
+        videoSource = null
+        try { audioSource?.dispose() } catch (_: Exception) {}
+        audioSource = null
+    }
+
+    fun dispose(){
+        if(!disposed.compareAndSet(false,true))return
+        controlChannels.values.forEach{try{it.dispose()}catch(_:Exception){}}
+        controlChannels.clear()
+        peers.values.forEach{try{it.close()}catch(_:Exception){};try{it.dispose()}catch(_:Exception){}}
+        peers.clear()
+        videoSenders.clear()
+        stopMedia()
+        try { factory?.dispose() } catch (_: Exception) {}
+        factory = null
+        try { egl?.release() } catch (_: Exception) {}
+        egl = null
+    }
+}
