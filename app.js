@@ -904,6 +904,7 @@ async function connect(automatic = false) {
       sendControl("settings_update", readLiveSettings());
       $("remoteMute").disabled = false;
       $("pttLock").disabled = false;
+      $("keepAwake").disabled = false;
       if (S.keepAwakeWanted && !S.wakeLock) enableScreenWakeLock().catch(() => {});
     };
     control.onclose = () => {
@@ -1132,6 +1133,8 @@ async function disconnect(sendCommand = true, preserveMic = false) {
   $("diagnostics").disabled = true;
   $("remoteMute").disabled = true;
   $("ptt").disabled = true;
+  $("pttLock").disabled = true;
+  $("keepAwake").disabled = true;
   $("ptt").classList.remove("active");
   $("ptt").textContent = "🎙 押している間だけ話す";
   $("audioState").textContent = "Androidマイク待機中";
