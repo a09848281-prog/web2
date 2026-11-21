@@ -728,9 +728,11 @@ function renderDevices() {
   });
 }
 function setControlsEnabled(enabled) {
-  ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair", "reserveConnection", "motionHistory", "motionExport", "motionClear"].forEach(id => {
+  ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair", "reserveConnection", "motionHistory", "motionExport", "motionClear", "remoteMute"].forEach(id => {
     $(id).disabled = !enabled;
   });
+  $("pttLock").disabled = !enabled || !S.pc;
+  $("keepAwake").disabled = !enabled || !S.pc;
   $("connect").disabled = !enabled || !!S.pc || S.connecting;
   $("disconnect").disabled = !S.pc;
   $("torch").disabled = !S.pc || !S.control || S.control.readyState !== "open";
@@ -1056,10 +1058,13 @@ async function loadSettings() {
   $("idleLoc").checked = !!settings.idleLocationEnabled;
   $("connectedInterval").value = String(settings.connectedInterval || 30);
   $("idleInterval").value = String(settings.idleInterval || 300);
-  $("micNoise").value=String(settings.micNoise ?? 70);
-  $("micSensitivity").value=String(settings.micSensitivity ?? 70);
+  $("micNoise").value=String(settings.micNoise ?? 0);
+  $("micSensitivity").value=String(settings.micSensitivity ?? 0);
   $("micGain").value=String(settings.micGain ?? 100);
-  $("volume").value=String(settings.speakerVolume ?? 70);
+  $("androidSpeakerVolume").value=String(settings.speakerVolume ?? 70);
+  $("micMode").value=["ambient","balanced","voice"].includes(settings.micMode) ? settings.micMode : "ambient";
+  const storedReceive = localStorage.getItem("rc_receive_volume_v1");
+  setReceiveVolume(storedReceive === null ? 70 : Number(storedReceive), false);
   $("nightMode").checked=localStorage.getItem(nightViewStorageKey()) === "true";
   applyNightViewFilter();
   $("fps").value=String(settings.fps || 24);
@@ -1067,6 +1072,17 @@ async function loadSettings() {
   applyAspectRatio($("aspectRatio").value);
   updateSliderLabels();
 }
+function queueDeviceSettingsSave(device, settings) {
+  const work = () => api("save_settings", {
+    controllerToken: device.controllerToken,
+    deviceId: device.deviceId,
+    settings: settings
+  });
+  const next = S.settingsSaveQueue.catch(() => {}).then(work);
+  S.settingsSaveQueue = next.catch(() => {});
+  return next;
+}
+
 async function saveSettings() {
   const device = S.device;
   if (!device) return toast("Android端末をペアリングしてください。");
@@ -1080,20 +1096,20 @@ async function saveSettings() {
     connectedInterval: Number($("connectedInterval").value),
     idleInterval: Number($("idleInterval").value),
     micNoise:Number($("micNoise").value), micSensitivity:Number($("micSensitivity").value),
-    micGain:Number($("micGain").value), speakerVolume:Number($("volume").value)
+    micGain:Number($("micGain").value), speakerVolume:Number($("androidSpeakerVolume").value),
+    micMode:$("micMode").value
   };
   if(S.control?.readyState==="open") {
     if (!sendControl("settings_update",settings)) throw Error("DataChannelへの設定送信に失敗しました。");
-    localStorage.setItem("rc_live_settings_"+device.deviceId,JSON.stringify(settings));
-    // Live application stays on DataChannel. GAS/Sheets is used only to persist
-    // the device's defaults for future sessions and other paired controllers.
-    api("save_settings",{controllerToken:device.controllerToken,deviceId:device.deviceId,settings})
-      .then(()=>toast("DataChannelで即時反映し、GASに設定を保存しました。"))
-      .catch(error=>toast("設定は反映済みですが、保存に失敗しました: "+error.message));
+    try { localStorage.setItem("rc_live_settings_"+device.deviceId,JSON.stringify(settings)); }
+    catch (storageError) { console.warn("Local setting cache unavailable", storageError); }
+    queueDeviceSettingsSave(device, settings)
+      .then(()=>toast(settings.micMode !== "ambient" ? "設定を保存しました。マイク集音モードは次回接続から反映します。" : "設定をDataChannelで反映し、GASへ保存しました。"))
+      .catch(error=>toast("設定は反映済みですが、GAS保存に失敗しました: "+error.message));
   } else {
-    await api("save_settings",{controllerToken:device.controllerToken,deviceId:device.deviceId,settings});
+    await queueDeviceSettingsSave(device, settings);
     if (S.device && S.device.deviceId === device.deviceId) {
-      await api("send_command",{controllerToken:device.controllerToken,deviceId:device.deviceId,command:"quality",payload:{quality:settings.quality,dataMode:settings.dataMode}});
+      await api("send_command",{controllerToken:device.controllerToken,deviceId:device.deviceId,command:"quality",payload:{quality:settings.quality,dataMode:settings.dataMode,fps:settings.fps,aspectRatio:settings.aspectRatio}});
     }
     toast("設定を保存しました。次回接続時に反映します。");
   }
@@ -1102,9 +1118,9 @@ function sendControl(name,payload={}) {
   if(!S.control||S.control.readyState!=="open"){toast("DataChannelが未接続です。");return false;}
   S.control.send(JSON.stringify({type:"command",command:name,requestId:rid(),payload}));return true;
 }
-function readLiveSettings(){return {quality:$("quality").value,dataMode:$("dataMode").value,fps:Number($("fps").value),aspectRatio:$("aspectRatio").value,micNoise:Number($("micNoise").value),micSensitivity:Number($("micSensitivity").value),micGain:Number($("micGain").value),speakerVolume:Number($("volume").value)};}
+function readLiveSettings(){return {quality:$("quality").value,dataMode:$("dataMode").value,fps:Number($("fps").value),aspectRatio:$("aspectRatio").value,micNoise:Number($("micNoise").value),micSensitivity:Number($("micSensitivity").value),micGain:Number($("micGain").value),speakerVolume:Number($("androidSpeakerVolume").value),micMode:$("micMode").value};}
 function bytesText(value){const b=Math.max(0,Number(value)||0);if(b<1024)return b.toFixed(0)+" B";if(b<1048576)return (b/1024).toFixed(1)+" KB";return (b/1048576).toFixed(2)+" MB";}
-function updateSliderLabels(){$("volumeValue").value=$("volume").value+"%";$("micNoiseValue").value=$("micNoise").value+"%";$("micSensitivityValue").value=$("micSensitivity").value+"%";$("micGainValue").value=$("micGain").value+"%";}
+function updateSliderLabels(){$("androidSpeakerVolumeValue").value=$("androidSpeakerVolume").value+"%";$("micNoiseValue").value=$("micNoise").value+"%";$("micSensitivityValue").value=$("micSensitivity").value+"%";$("micGainValue").value=$("micGain").value+"%";$("receiveVolumeValue").value=S.receiveVolume+"%";}
 function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;}
  if(d.type==="ack"){$("networkSummary").textContent=d.message||(d.ok?"Android受信済み":"適用失敗");if(!d.ok)toast(d.message||"Android側で適用失敗");}
  else if(d.type==="camera_capabilities"){
