@@ -23,15 +23,25 @@
     const level = Math.max(1, Math.min(5, Math.round(Number(sensitivity) || 3)));
     const thresholds = [13, 17, 22, 28, 35];
     let totalDelta = 0;
+    let signedDelta = 0;
+    let globallyChangedPixels = 0;
     for (let i = 0; i < current.length; i += 1) {
-      totalDelta += Math.abs(current[i] - previous[i]);
+      const delta = current[i] - previous[i];
+      const absolute = Math.abs(delta);
+      totalDelta += absolute;
+      signedDelta += delta;
+      if (absolute >= thresholds[level - 1]) globallyChangedPixels += 1;
     }
     const averageDelta = totalDelta / current.length;
-    // A near-uniform brightness jump is usually auto-exposure or a lighting change.
-    if (averageDelta > 20) {
+    const globalChangeShare = globallyChangedPixels / current.length;
+    const exposureDirectionShare = totalDelta > 0 ? Math.abs(signedDelta) / totalDelta : 0;
+    // Exposure/flicker affects most pixels in the same direction. A moving
+    // object usually creates both entering and leaving edges or remains local.
+    if (averageDelta > 20 && globalChangeShare > 0.7 && exposureDirectionShare > 0.75) {
       return { score: 0, changedPixels: 0, averageDelta: averageDelta, valid: true };
     }
-    const pixelThreshold = Math.max(thresholds[level - 1], averageDelta * 1.65 + 4);
+    // Cap the adaptive threshold so a large localized object is not filtered out.
+    const pixelThreshold = Math.max(thresholds[level - 1], Math.min(32, averageDelta * 0.8 + 4));
     let changedPixels = 0;
     for (let i = 0; i < current.length; i += 1) {
       if (Math.abs(current[i] - previous[i]) >= pixelThreshold) changedPixels += 1;
