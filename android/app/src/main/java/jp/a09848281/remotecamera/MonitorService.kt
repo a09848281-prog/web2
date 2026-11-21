@@ -277,7 +277,8 @@ class MonitorService : Service() {
                             broadcastCode("", deviceId)
                         }
                         applySettings(response.optJSONObject("settings") ?: JSONObject())
-                        val signals = response.optJSONArray("signals") ?: JSONArray()
+                        // Ignore pending offers/commands once all Web controllers have been revoked.
+                        val signals = if (needsPairing) JSONArray() else (response.optJSONArray("signals") ?: JSONArray())
                         for (i in 0 until signals.length()) {
                             val signal = signals.optJSONObject(i) ?: continue
                             when (signal.optString("kind")) {
@@ -317,7 +318,7 @@ class MonitorService : Service() {
                                 }
                             }
                         }
-                        val commands = response.optJSONArray("commands") ?: JSONArray()
+                        val commands = if (needsPairing) JSONArray() else (response.optJSONArray("commands") ?: JSONArray())
                         for (i in 0 until commands.length()) processCommand(commands.optJSONObject(i) ?: continue)
                         // Advance only after this poll's signals and commands have been handed to the handlers.
                         afterSeq = maxOf(afterSeq, response.optInt("latestSeq", afterSeq))
@@ -714,10 +715,17 @@ class MonitorService : Service() {
                 "adaptive_quality" -> applyAdaptiveQuality(payload)
                 "quality", "data_mode" -> applyVideoSettings(payload)
                 "disconnect" -> {
-                    rtc?.dispose()
-                    rtc = null
-                    updateStreamWakeLock(false)
-                    notifyState("監視待機中")
+                    val sessionId = payload.optString("sessionId", "")
+                    if (sessionId.isNotBlank()) {
+                        // A Web viewer may only close its own PeerConnection.
+                        rtc?.closeSession(sessionId)
+                    } else {
+                        // Legacy unscoped disconnect is retained only for older clients.
+                        rtc?.dispose()
+                        rtc = null
+                    }
+                    updateStreamWakeLock(rtc?.hasPeers() == true)
+                    notifyState(if (rtc?.hasPeers() == true) "ほかのWeb端末は監視を継続中" else "監視待機中")
                 }
             }
         } catch (e: Exception) {
