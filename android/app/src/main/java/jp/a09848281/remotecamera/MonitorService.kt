@@ -62,6 +62,8 @@ class MonitorService : Service() {
     private var idleInterval = 300L
     private var currentQuality = "720"
     private var currentDataMode = "standard"
+    private var currentFps = 24
+    private var lastDevicePollAt = 0L
     private var lastLocationAttempt = 0L
     private var lastCodeRefresh = 0L
     private var pollIntervalSeconds = AppConfig.POLL_SECONDS
@@ -200,11 +202,24 @@ class MonitorService : Service() {
             ensureDevice()
             if (!apiReady.isCompleted) apiReady.complete(Unit)
             while (scope.isActive) {
-                if (rtc?.hasOpenControlChannel()==true) {
+                val controlOpen = rtc?.hasOpenControlChannel() == true
+                if (controlOpen) {
                     sendTelemetry()
-                    delay(2000L)
-                    continue
+                    // Existing viewers use DataChannel directly. Keep only the
+                    // selected low-frequency GAS check while a slot remains so
+                    // a second/third paired browser can establish its own RTC session.
+                    if ((rtc?.peerCount() ?: 0) >= 3) {
+                        delay(2000L)
+                        continue
+                    }
+                    val elapsed = System.currentTimeMillis() - lastDevicePollAt
+                    val untilNextPoll = pollIntervalSeconds * 1000L - elapsed
+                    if (untilNextPoll > 0L) {
+                        delay(minOf(2000L, untilNextPoll))
+                        continue
+                    }
                 }
+                lastDevicePollAt = System.currentTimeMillis()
                 try {
                     val deviceId = prefs.getString("deviceId", "") ?: ""
                     val secret = prefs.getString("deviceSecret", "") ?: ""
@@ -281,7 +296,7 @@ class MonitorService : Service() {
                     lastNetworkError=e.message ?: "Polling iteration failed"
                     notifyState("通信または接続処理に失敗しました。待機を継続して再試行します")
                 }
-                delay(if (rtc?.hasPeers()==true) 1000L else pollIntervalSeconds*1000L)
+                delay(if (rtc?.hasOpenControlChannel()==true) 2000L else pollIntervalSeconds*1000L)
             }
         } catch (e: Exception) {
             if (!apiReady.isCompleted) apiReady.completeExceptionally(e)
@@ -337,7 +352,8 @@ class MonitorService : Service() {
             "quality","data_mode","settings_update" -> {
                 currentQuality=payload.optString("quality",currentQuality)
                 currentDataMode=payload.optString("dataMode",currentDataMode)
-                rtc?.setQuality(currentQuality,currentDataMode)
+                currentFps=payload.optInt("fps",currentFps).coerceIn(10,60)
+                rtc?.setQuality(currentQuality,currentDataMode,currentFps)
                 rtc?.setNoiseSuppressionLevel(payload.optInt("micNoise",prefs.getInt("micNoise",70)))
                 rtc?.setMicSensitivity(payload.optInt("micSensitivity",prefs.getInt("micSensitivity",70)))
                 rtc?.setMicGain(payload.optInt("micGain",prefs.getInt("micGain",100)))
@@ -347,6 +363,8 @@ class MonitorService : Service() {
                 audio.setStreamVolume(stream,(audio.getStreamMaxVolume(stream)*pct/100.0).toInt(),0)
                 rtc?.setNightMode(payload.optBoolean("nightMode",false))
                 prefs.edit().putString("quality",currentQuality).putString("dataMode",currentDataMode)
+                    .putInt("fps",currentFps)
+                    .putString("aspectRatio",payload.optString("aspectRatio","16:9"))
                     .putInt("micNoise",payload.optInt("micNoise",70).coerceIn(0,100))
                     .putInt("micSensitivity",payload.optInt("micSensitivity",70).coerceIn(0,100))
                     .putInt("micGain",payload.optInt("micGain",100).coerceIn(0,100))
@@ -482,7 +500,8 @@ class MonitorService : Service() {
         idleInterval = settings.optLong("idleInterval", 300).coerceIn(10, 3600)
         currentQuality = settings.optString("quality", "720")
         currentDataMode = settings.optString("dataMode", "standard")
-        rtc?.setQuality(currentQuality, currentDataMode)
+        currentFps = settings.optInt("fps", prefs.getInt("fps", 24)).coerceIn(10, 60)
+        rtc?.setQuality(currentQuality, currentDataMode, currentFps)
     }
 
     private suspend fun processCommand(command: JSONObject) {
@@ -511,7 +530,8 @@ class MonitorService : Service() {
                 "quality", "data_mode" -> {
                     currentQuality = payload.optString("quality", currentQuality)
                     currentDataMode = payload.optString("dataMode", currentDataMode)
-                    rtc?.setQuality(currentQuality, currentDataMode)
+                    currentFps = payload.optInt("fps", currentFps).coerceIn(10, 60)
+                    rtc?.setQuality(currentQuality, currentDataMode, currentFps)
                 }
                 "disconnect" -> {
                     rtc?.dispose()
