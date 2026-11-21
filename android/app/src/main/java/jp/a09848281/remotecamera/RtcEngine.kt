@@ -225,7 +225,11 @@ class RtcEngine(
         observer: VideoSource.CapturerObserver,
         requested: VideoProfile
     ): StartedCapture {
-        val sizes = (listOf(requested.width to requested.height) + fallbackCaptureSizes()).distinct()
+        val requestedSize = requested.width to requested.height
+        val alternativeSizes = fallbackCaptureSizes()
+            .filter { it != requestedSize }
+            .sortedBy { it.first.toLong() * it.second.toLong() }
+        val sizes = listOf(requestedSize) + alternativeSizes
         val fpsOptions = listOf(requested.fps, 30, 24, 20, 15, 10)
             .distinct()
             .filter { it in 10..requested.fps }
