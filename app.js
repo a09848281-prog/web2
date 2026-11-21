@@ -233,10 +233,10 @@ async function enableScreenWakeLock() {
     S.wakeLock.addEventListener("release", () => {
       S.wakeLock = null;
       $("keepAwake").classList.remove("active");
-      $("keepAwake").textContent = "画面スリープ防止 OFF";
+      $("keepAwake").textContent = "操作画面のスリープ防止 OFF";
     }, { once: true });
     $("keepAwake").classList.add("active");
-    $("keepAwake").textContent = "画面スリープ防止 ON";
+    $("keepAwake").textContent = "操作画面のスリープ防止 ON";
     return true;
   } catch (error) {
     S.wakeLock = null;
@@ -253,12 +253,12 @@ async function toggleScreenWakeLock() {
       S.wakeLock = null;
     }
     $("keepAwake").classList.remove("active");
-    $("keepAwake").textContent = "画面スリープ防止 OFF";
+    $("keepAwake").textContent = "操作画面のスリープ防止 OFF";
     return;
   }
   if (!S.pc || S.pc.connectionState !== "connected") {
     S.keepAwakeWanted = false;
-    toast("画面スリープ防止は接続中に有効にできます。");
+    toast("操作端末（iPad/PC）の画面を点灯維持する機能です。接続中に有効にできます。");
     return;
   }
   if (!await enableScreenWakeLock()) S.keepAwakeWanted = false;
@@ -1159,7 +1159,7 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
     S.wakeLock = null;
     S.keepAwakeWanted = false;
     $("keepAwake").classList.remove("active");
-    $("keepAwake").textContent = "画面スリープ防止 OFF";
+    $("keepAwake").textContent = "操作画面のスリープ防止 OFF";
   }
 
   S.pc = null;
