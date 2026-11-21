@@ -31,6 +31,23 @@ class RtcEngine(
     private val microphoneMode: String = "ambient",
     private val captureAspectRatio: String = "16:9"
 ) {
+    companion object {
+        private val initializationLock = Any()
+        @Volatile private var webRtcInitialized = false
+
+        private fun ensureWebRtcInitialized(context: Context) {
+            if (webRtcInitialized) return
+            synchronized(initializationLock) {
+                if (webRtcInitialized) return
+                PeerConnectionFactory.initialize(
+                    PeerConnectionFactory.InitializationOptions.builder(context.applicationContext)
+                        .createInitializationOptions()
+                )
+                webRtcInitialized = true
+            }
+        }
+    }
+
     private val peers = ConcurrentHashMap<String, PeerConnection>()
     private val videoSenders = ConcurrentHashMap<String, RtpSender>()
     private val controlChannels = ConcurrentHashMap<String, DataChannel>()
@@ -262,9 +279,7 @@ class RtcEngine(
         if (factory != null && videoTrack != null && audioTrack != null && capturer != null) return
         try {
             if (factory == null) {
-                PeerConnectionFactory.initialize(
-                    PeerConnectionFactory.InitializationOptions.builder(context.applicationContext).createInitializationOptions()
-                )
+                ensureWebRtcInitialized(context.applicationContext)
                 egl = EglBase.create()
                 try {
                     (context.getSystemService(Context.AUDIO_SERVICE) as AudioManager).mode = AudioManager.MODE_NORMAL
