@@ -1,6 +1,6 @@
 {
   "gasUrl": "GAS_EXEC_URL_HERE",
-  "appVersion": "4.1.0",
+  "appVersion": "1.1.0",
   "pollIntervalMs": 2500,
   "pollIntervalSeconds": 10,
   "minPollIntervalSeconds": 1,
