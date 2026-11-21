@@ -67,7 +67,9 @@ function handleQuickLaunch() {
 }
 
 const MOTION_SETTINGS_KEY = "rc_motion_settings_v1";
-const MOTION_PENDING_KEY = "rc_motion_pending_v1";
+function motionPendingKey(deviceId) {
+  return "rc_motion_pending_v1_" + String(deviceId || "unpaired");
+}
 function loadMotionSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem(MOTION_SETTINGS_KEY) || "{}");
@@ -142,9 +144,9 @@ function startMotionDetection() {
     }
   }, 600);
 }
-function readPendingMotionEvents() {
+function readPendingMotionEvents(deviceId) {
   try {
-    const value = JSON.parse(localStorage.getItem(MOTION_PENDING_KEY) || "[]");
+    const value = JSON.parse(localStorage.getItem(motionPendingKey(deviceId || (S.device && S.device.deviceId))) || "[]");
     return Array.isArray(value) ? value.filter(item => item && typeof item.eventId === "string") : [];
   } catch (_) { return []; }
 }
@@ -162,8 +164,8 @@ async function recordMotionEvent(score) {
     motionScore: Math.min(100, Math.max(0, Math.round(score * 10) / 10)),
     sensitivity: S.motion.sensitivity, source: "browser-motion-v1"
   };
-  const pending = readPendingMotionEvents(); pending.push(event);
-  localStorage.setItem(MOTION_PENDING_KEY, JSON.stringify(pending.slice(-100)));
+  const pending = readPendingMotionEvents(S.device && S.device.deviceId); pending.push(event);
+  localStorage.setItem(motionPendingKey(S.device && S.device.deviceId), JSON.stringify(pending.slice(-100)));
   $("motionStatus").textContent = "動きを検知しました：" + event.motionScore.toFixed(1) + "%";
   toast("動体を検知しました。");
   if ("Notification" in window && Notification.permission === "granted") {
@@ -178,12 +180,13 @@ async function flushMotionEvents() {
   if (S.motion.sending || !S.device) return;
   S.motion.sending = true;
   try {
-    let pending = readPendingMotionEvents();
-    while (pending.length && S.device) {
+    const targetDeviceId = S.device.deviceId;
+    let pending = readPendingMotionEvents(targetDeviceId);
+    while (pending.length && S.device && S.device.deviceId === targetDeviceId) {
       await syncMotionEvent(pending[0]);
       const id = pending[0].eventId;
       pending = pending.filter(item => item.eventId !== id);
-      localStorage.setItem(MOTION_PENDING_KEY, JSON.stringify(pending));
+      localStorage.setItem(motionPendingKey(targetDeviceId), JSON.stringify(pending));
     }
   } catch (error) {
     $("motionStatus").textContent = "検知イベントを一時保存中。接続回復後に再送します。";
@@ -191,12 +194,12 @@ async function flushMotionEvents() {
   } finally { S.motion.sending = false; }
 }
 function csvCell(value) { return '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"'; }
-async function loadMotionHistory() {
+async function loadMotionHistory(showDialog = true) {
   if (!S.device) throw Error("Android端末をペアリングしてください。");
   const result = await api("get_motion_events", {
     controllerToken: S.device.controllerToken, deviceId: S.device.deviceId, limit: 500
   });
-  const all = [...(result.events || []), ...readPendingMotionEvents().map(item => ({
+  const all = [...(result.events || []), ...readPendingMotionEvents(S.device.deviceId).map(item => ({
     eventId: item.eventId, detectedAt: new Date(item.detectedAt).toISOString(),
     motionScore: item.motionScore, sensitivity: item.sensitivity, source: item.source, pending: true
   }))];
@@ -214,10 +217,11 @@ async function loadMotionHistory() {
     const empty=document.createElement("p"); empty.className="muted";
     empty.textContent="検知履歴はありません。"; $("motionRows").append(empty);
   }
-  $("motionDialog").showModal(); return events;
+  if (showDialog) $("motionDialog").showModal();
+  return events;
 }
 async function exportMotionCsv() {
-  const events=await loadMotionHistory();
+  const events=await loadMotionHistory(false);
   const rows=[["検知日時","動体スコア(%)","検知感度","記録元"]];
   events.forEach(event=>rows.push([new Date(event.detectedAt).toISOString(),Number(event.motionScore).toFixed(1),event.sensitivity,event.source||"browser-motion-v1"]));
   const csv="\uFEFF"+rows.map(row=>row.map(csvCell).join(",")).join("\r\n");
@@ -230,7 +234,7 @@ async function exportMotionCsv() {
 async function clearMotionHistory() {
   if (!S.device || !confirm("このAndroid端末の動体検知履歴を削除しますか？")) return;
   const result=await api("delete_motion_events",{controllerToken:S.device.controllerToken,deviceId:S.device.deviceId});
-  localStorage.removeItem(MOTION_PENDING_KEY);
+  localStorage.removeItem(motionPendingKey(S.device.deviceId));
   $("motionRows").replaceChildren();
   $("motionRows").textContent="検知履歴を "+(result.deleted||0)+" 件削除しました。";
   toast("動体検知履歴を削除しました。");
@@ -239,6 +243,11 @@ function applyViewerZoom() {
   const zoom=Math.max(100,Math.min(300,Number($("zoom").value)||100));
   $("zoomValue").value=zoom+"%";
   $("remoteVideo").style.transform="scale("+(zoom/100)+")";
+}
+function applyNightViewFilter() {
+  $("remoteVideo").style.filter = $("nightMode").checked
+    ? "brightness(1.35) contrast(1.08) saturate(0.92)"
+    : "";
 }
 
 function status(text, online = false) {
@@ -654,6 +663,7 @@ async function loadSettings() {
   $("micGain").value=String(settings.micGain ?? 100);
   $("volume").value=String(settings.speakerVolume ?? 70);
   $("nightMode").checked=!!settings.nightMode;
+  applyNightViewFilter();
   $("fps").value=String(settings.fps || 24);
   $("aspectRatio").value=settings.aspectRatio || "16:9";
   applyAspectRatio($("aspectRatio").value);
@@ -1011,10 +1021,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("micNoise").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
   $("micSensitivity").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
   $("micGain").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
-  $("nightMode").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
+  $("nightMode").addEventListener("change",()=>{applyNightViewFilter();saveSettings().catch(x=>toast(x.message));});
   updateSliderLabels();
   applyAspectRatio($("aspectRatio").value);
   applyViewerZoom();
+  applyNightViewFilter();
   loadMotionSettings();
   $("volume").addEventListener("change", event => {
     command("volume", { percent: Number(event.target.value) }).catch(error => toast(error.message));
