@@ -1740,7 +1740,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
     ptt(true);
   });
-  ["pointerup", "pointerleave", "pointercancel", "lostpointercapture"].forEach(name => {
+  ["pointerup", "pointercancel", "lostpointercapture"].forEach(name => {
     $("ptt").addEventListener(name, () => { if (!S.pttLocked) ptt(false); });
   });
   $("pttLock").addEventListener("click", togglePttLock);
@@ -1812,18 +1812,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       stopMotionDetection("映像一時停止中");
     }
   });
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) {
-      stopMotionDetection("画面がバックグラウンドです。復帰後に再開します。");
-      // Never leave the local microphone sending while the controller is hidden.
-      if (S.pttActive) {
-        S.pttLocked = false;
-        $("pttLock").textContent = "送話ロック OFF";
-        $("pttLock").classList.remove("active");
-        ptt(false);
-      }
-    } else if (S.motion.enabled) startMotionDetection();
-  });
   $("bookmarkletOpen").addEventListener("click", openBookmarkletDialog);
   $("copyBookmarklet").addEventListener("click", copyBookmarkletCode);
   const restoreAfterViewportChange = () => {
@@ -1842,6 +1830,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       stopMotionDetection("画面がバックグラウンドです。復帰後に再開します。");
+      // A hidden controller must never keep its PTT microphone transmitting.
+      if (S.pttActive) {
+        S.pttLocked = false;
+        S.pttKeyActive = false;
+        $("pttLock").textContent = "送話ロック OFF";
+        $("pttLock").classList.remove("active");
+        ptt(false);
+      }
       if (S.wakeLock) {
         S.wakeLock.release().catch(() => {});
         S.wakeLock = null;
@@ -1884,11 +1880,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("sessionDuration").textContent = "未接続";
   const storedVolume = localStorage.getItem("rc_receive_volume_v1");
   setReceiveVolume(storedVolume === null ? 70 : Number(storedVolume), false);
-  $("fitMode").addEventListener("click", () => {
-    const video = $("remoteVideo");
-    video.style.objectFit = video.style.objectFit === "cover" ? "contain" : "cover";
-    $("fitMode").textContent = video.style.objectFit === "cover" ? "画面に合わせる" : "全体表示";
-  });
   $("camera").addEventListener("change", event => {
     const option=event.target.selectedOptions && event.target.selectedOptions[0];
     command("camera", { cameraId: event.target.value, facing: option?.dataset.facing || event.target.value }).catch(error => toast(error.message));
@@ -1902,7 +1893,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     try {
       const health = await api("health");
       S.apiVersion = String(health.version || "unknown");
-      if (S.cfg.appVersion && S.apiVersion !== String(S.cfg.appVersion)) {
+      const expectedApiVersion = S.cfg.apiVersion || S.cfg.appVersion;
+      if (expectedApiVersion && S.apiVersion !== String(expectedApiVersion)) {
         toast("Web v" + S.cfg.appVersion + " と GAS API v" + S.apiVersion +
           " が一致していません。最新版の gas/Code.gs を貼り付けて再デプロイしてください。");
       }
