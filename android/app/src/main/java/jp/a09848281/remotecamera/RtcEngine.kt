@@ -113,7 +113,7 @@ class RtcEngine(
         constraints.mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl",(micSensitivity>0).toString()))
         constraints.mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation","true"))
         audioSource=factory!!.createAudioSource(constraints)
-        audioTrack = factory!!.createAudioTrack("remote-camera-audio", audioSource).apply { setEnabled(true) }
+        audioTrack = factory!!.createAudioTrack("remote-camera-audio", audioSource).apply { setEnabled(true); setVolume(micGain / 100.0) }
         onState("カメラ・マイクを起動しました")
     }
 
