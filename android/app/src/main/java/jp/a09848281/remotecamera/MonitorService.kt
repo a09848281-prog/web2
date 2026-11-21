@@ -241,6 +241,7 @@ class MonitorService : Service() {
                         "device_poll",
                         JSONObject().put("deviceId", deviceId).put("deviceSecret", secret).put("afterSeq", afterSeq)
                     )
+                    rtc?.setIceServers(response.optJSONArray("iceServers"))
                     if (!response.optBoolean("registered", false)) {
                         prefs.edit().putBoolean("serverPaired", false).apply()
                         // A controller can revoke pairing remotely. Stop media immediately on the next poll.
@@ -298,6 +299,7 @@ class MonitorService : Service() {
                                 }
                                 "bye" -> {
                                     rtc?.closeSession(signal.optString("sessionId"))
+                                    updateStreamWakeLock(rtc?.hasPeers() == true)
                                     notifyState("Web側から切断要求を受信しました")
                                 }
                             }
@@ -346,6 +348,7 @@ class MonitorService : Service() {
     private fun onRtcConnectionState(sessionId:String,state:String) {
         when(state) {
             "DATA_CHANNEL_OPEN" -> {
+                updateStreamWakeLock(true)
                 if (trafficBaselineTx < 0L || trafficBaselineRx < 0L) {
                     trafficBaselineTx=TrafficStats.getUidTxBytes(Process.myUid())
                     trafficBaselineRx=TrafficStats.getUidRxBytes(Process.myUid())
@@ -364,6 +367,10 @@ class MonitorService : Service() {
             "FAILED","CLOSED","DISCONNECTED" -> {
                 lastNetworkError="WebRTC ICE状態: "+state
                 notifyState("RTC "+state+"：再接続を待機します")
+                scope.launch {
+                    delay(8500L)
+                    updateStreamWakeLock(rtc?.hasPeers() == true)
+                }
             }
         }
     }
@@ -464,6 +471,25 @@ class MonitorService : Service() {
             .put("localIpAddresses",JSONArray(ips))
             .put("networkInterface",links?.interfaceName?:"")
     }
+    private fun updateStreamWakeLock(active: Boolean) {
+        try {
+            val power = getSystemService(POWER_SERVICE) as PowerManager
+            if (active) {
+                var lock = streamWakeLock
+                if (lock == null) {
+                    lock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, packageName + ":remote-camera-stream")
+                    lock.setReferenceCounted(false)
+                    streamWakeLock = lock
+                }
+                if (!lock.isHeld) lock.acquire()
+            } else {
+                streamWakeLock?.let { if (it.isHeld) it.release() }
+            }
+        } catch (error: Exception) {
+            Log.w("RemoteCameraService", "Could not update stream wake lock", error)
+        }
+    }
+
     private fun setTorch(enabled:Boolean) {
         val manager=getSystemService(CAMERA_SERVICE) as CameraManager
         val backId=manager.cameraIdList.firstOrNull { id ->
