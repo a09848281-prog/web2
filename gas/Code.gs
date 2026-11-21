@@ -10,7 +10,8 @@ const TABLES = {
   Settings: ["deviceId","settingsJson","updatedAt"],
   Controllers: ["controllerId","deviceId","controllerTokenHash","createdAt","lastSeen","status"],
   LocationHistory: ["locationId","userId","deviceId","lat","lng","accuracy","timestamp","mode"],
-  SecurityLog: ["timestamp","userId","deviceId","eventType","success","detail"]
+  SecurityLog: ["timestamp","userId","deviceId","eventType","success","detail"],
+  MotionEvents: ["eventId","deviceId","detectedAt","motionScore","sensitivity","source"]
 };
 const SESSION_DAYS = 7;
 const CODE_MINUTES = 10;
@@ -28,7 +29,7 @@ function doGet() {
 }
 
 function health_() {
-  const version = "4.1.0";
+  const version = "1.1.0";
   const spreadsheetId = PropertiesService.getScriptProperties().getProperty("DB_SPREADSHEET_ID");
   if (!spreadsheetId) {
     return {
@@ -120,6 +121,10 @@ function dispatch_(r) {
     case "add_location": return addLocation_(r);
     case "get_locations": return getLocations_(r);
     case "delete_locations": return deleteLocations_(r);
+    case "add_motion_event": return addMotionEvent_(r);
+    case "get_motion_events": return getMotionEvents_(r);
+    case "delete_motion_events": return deleteMotionEvents_(r);
+    case "get_ice_config": return getIceConfig_(r);
     default: throw Error("未対応のAPIです: " + r.action);
   }
 }
@@ -482,7 +487,8 @@ function devicePoll_(r) {
     pairingCodeActive: !!d.v[4] && new Date(d.v[5]).getTime() > Date.now(),
     commands: commands, signals: signals,
     latestSeq: signals.reduce(function(max, signal) { return Math.max(max, signal.seq); }, after),
-    settings: settings
+    settings: settings,
+    iceServers: iceServers_()
   };
 }
 
@@ -636,4 +642,86 @@ function deleteLocations_(r) {
   }
   log_(d.deviceId, "location_delete", true, String(deleted));
   return { ok: true, deleted: deleted };
+}
+
+function addMotionEvent_(r) {
+  const controller = authController_(r);
+  const eventId = String(r.eventId || "");
+  if (!/^[A-Za-z0-9._:-]{8,100}$/.test(eventId)) throw Error("検知イベントIDが不正です。");
+  const detectedAt = new Date(Number(r.detectedAt));
+  if (isNaN(detectedAt.getTime()) || detectedAt.getTime() > Date.now() + 60000 || detectedAt.getTime() < Date.now() - 86400000 * 30) {
+    throw Error("検知日時が不正です。");
+  }
+  const score = Number(r.motionScore);
+  if (!Number.isFinite(score) || score < 0 || score > 100) throw Error("動体スコアが不正です。");
+  const sensitivity = clamp_(r.sensitivity, 1, 5, 3);
+  const source = String(r.source || "browser-motion-v1").slice(0, 40);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const existing = find_("MotionEvents", 0, eventId);
+    if (existing) return { ok: true, duplicate: true, eventId: eventId };
+    append_("MotionEvents", [eventId, controller.deviceId, detectedAt, Math.round(score * 10) / 10, sensitivity, source]);
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: true, eventId: eventId };
+}
+
+function getMotionEvents_(r) {
+  const controller = authController_(r);
+  const limit = clamp_(r.limit, 1, 500, 200);
+  const data = rows_("MotionEvents");
+  const events = [];
+  for (let i = data.length - 1; i >= 0 && events.length < limit; i--) {
+    const row = data[i];
+    if (String(row[1]) !== controller.deviceId) continue;
+    events.push({
+      eventId: String(row[0]),
+      detectedAt: iso_(row[2]),
+      motionScore: Number(row[3]) || 0,
+      sensitivity: Number(row[4]) || 3,
+      source: String(row[5] || "browser-motion-v1")
+    });
+  }
+  return { ok: true, events: events };
+}
+
+function deleteMotionEvents_(r) {
+  const controller = authController_(r);
+  const sh = sheet_("MotionEvents");
+  const data = rows_("MotionEvents");
+  let deleted = 0;
+  for (let i = data.length - 1; i >= 0; i--) {
+    if (String(data[i][1]) === controller.deviceId) {
+      sh.deleteRow(i + 2);
+      deleted++;
+    }
+  }
+  log_(controller.deviceId, "motion_history_delete", true, String(deleted));
+  return { ok: true, deleted: deleted };
+}
+
+function iceServers_() {
+  const props = PropertiesService.getScriptProperties();
+  const servers = [{ urls: ["stun:stun.l.google.com:19302"] }];
+  const rawUrls = String(props.getProperty("TURN_URLS") || "").trim();
+  const username = String(props.getProperty("TURN_USERNAME") || "").trim();
+  const credential = String(props.getProperty("TURN_CREDENTIAL") || "");
+  if (!rawUrls || !username || !credential) return servers;
+  let urls = [];
+  try {
+    const parsed = JSON.parse(rawUrls);
+    urls = Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
+  } catch (err) {
+    urls = rawUrls.split(",").map(function(value) { return value.trim(); });
+  }
+  urls = urls.filter(function(url) { return /^(turn|turns):/i.test(url); }).slice(0, 8);
+  if (urls.length) servers.push({ urls: urls, username: username, credential: credential });
+  return servers;
+}
+
+function getIceConfig_(r) {
+  const controller = authController_(r);
+  return { ok: true, iceServers: iceServers_(), turnConfigured: iceServers_().length > 1 };
 }
