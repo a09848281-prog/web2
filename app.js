@@ -37,7 +37,7 @@ const S = {
   videoWatchdogTimer: null, videoFrameCallbackId: null, videoUsesFrameCallback: false,
   hasReceivedVideoFrame: false, lastVideoFrameAt: 0, connectedAt: 0, sessionTimer: null,
   statsLast: null, manualDisconnect: false, reconnectResetTimer: null,
-  settingsSaveQueue: Promise.resolve()
+  settingsSaveQueue: Promise.resolve(), pendingCommands: new Map(), cameraTxEnabled: true, micTxEnabled: true
 };
 
 
@@ -1249,44 +1249,48 @@ async function saveSettings() {
   if (!device) return toast("Android端末をペアリングしてください。");
   const settings = {
     quality: $("quality").value,
-    dataMode: $("dataMode").value,
     fps: Number($("fps").value),
     aspectRatio: $("aspectRatio").value,
+    maxBitrateKbps: Number($("maxBitrate").value),
     connectedLocationEnabled: $("connectedLoc").checked,
     idleLocationEnabled: $("idleLoc").checked,
     connectedInterval: Number($("connectedInterval").value),
     idleInterval: Number($("idleInterval").value),
-    micNoise:Number($("micNoise").value), micSensitivity:Number($("micSensitivity").value),
-    micGain:Number($("micGain").value), speakerVolume:Number($("androidSpeakerVolume").value),
-    micMode:$("micMode").value
+    micNoise:Number($("micNoise").value),
+    speakerVolume:Number($("androidSpeakerVolume").value)
   };
   if(S.control?.readyState==="open") {
-    if (!sendControl("settings_update",settings)) throw Error("DataChannelへの設定送信に失敗しました。");
+    const ack=await sendControlAwait("settings_update",settings);
+    if(!ack.ok)throw Error(ack.message||"Androidで設定を適用できませんでした。");
     try { localStorage.setItem("rc_live_settings_"+device.deviceId,JSON.stringify(settings)); }
     catch (storageError) { console.warn("Local setting cache unavailable", storageError); }
     queueDeviceSettingsSave(device, settings)
-      .then(()=>toast(settings.micMode !== "ambient" ? "設定を保存しました。マイク集音モードは次回接続から反映します。" : "設定をDataChannelで反映し、GASへ保存しました。"))
+      .then(()=>toast("設定をDataChannelでAndroidへ反映し、GASへ保存しました。"))
       .catch(error=>toast("設定は反映済みですが、GAS保存に失敗しました: "+error.message));
   } else {
     await queueDeviceSettingsSave(device, settings);
     if (S.device && S.device.deviceId === device.deviceId) {
-      await api("send_command",{controllerToken:device.controllerToken,deviceId:device.deviceId,command:"quality",payload:{quality:settings.quality,dataMode:settings.dataMode,fps:settings.fps,aspectRatio:settings.aspectRatio}});
+      await api("send_command",{controllerToken:device.controllerToken,deviceId:device.deviceId,command:"quality",payload:{quality:settings.quality,fps:settings.fps,aspectRatio:settings.aspectRatio,maxBitrateKbps:settings.maxBitrateKbps}});
     }
     toast("設定を保存しました。次回接続時に反映します。");
   }
 }
 function sendControl(name,payload={}) {
   if(!S.control||S.control.readyState!=="open"){toast("DataChannelが未接続です。");return false;}
-  try {
-    S.control.send(JSON.stringify({type:"command",command:name,requestId:rid(),payload}));
-    return true;
-  } catch (error) {
-    console.warn("DataChannel send failed", error);
-    toast("DataChannelへの送信に失敗しました。");
-    return false;
-  }
+  try{S.control.send(JSON.stringify({type:"command",command:name,requestId:rid(),payload}));return true;}
+  catch(error){console.warn("DataChannel send failed",error);toast("DataChannelへの送信に失敗しました。");return false;}
 }
-function readLiveSettings(){return {quality:$("quality").value,dataMode:$("dataMode").value,fps:Number($("fps").value),aspectRatio:$("aspectRatio").value,micNoise:Number($("micNoise").value),micSensitivity:Number($("micSensitivity").value),micGain:Number($("micGain").value),speakerVolume:Number($("androidSpeakerVolume").value),micMode:$("micMode").value};}
+function sendControlAwait(name,payload={},timeoutMs=7000){
+  if(!S.control||S.control.readyState!=="open")return Promise.reject(Error("DataChannelが未接続です。"));
+  const requestId=rid();
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{S.pendingCommands.delete(requestId);reject(Error("Androidから適用確認が届きません。接続状態を確認してください。"));},timeoutMs);
+    S.pendingCommands.set(requestId,{resolve,reject,timer});
+    try{S.control.send(JSON.stringify({type:"command",command:name,requestId,payload}));}
+    catch(error){clearTimeout(timer);S.pendingCommands.delete(requestId);reject(error);}
+  });
+}
+function readLiveSettings(){return {quality:$("quality").value,fps:Number($("fps").value),aspectRatio:$("aspectRatio").value,maxBitrateKbps:Number($("maxBitrate").value),micNoise:Number($("micNoise").value),speakerVolume:Number($("androidSpeakerVolume").value)};}
 function bytesText(value){const b=Math.max(0,Number(value)||0);if(b<1024)return b.toFixed(0)+" B";if(b<1048576)return (b/1024).toFixed(1)+" KB";return (b/1048576).toFixed(2)+" MB";}
 function renderDeviceInfo() {
   const telemetry = S.deviceTelemetry || {};
@@ -1317,7 +1321,7 @@ function renderDeviceInfo() {
   $("deviceInfoOutput").textContent = JSON.stringify(safe, null, 2);
 }
 
-function updateSliderLabels(){$("androidSpeakerVolumeValue").value=$("androidSpeakerVolume").value+"%";$("micNoiseValue").value=$("micNoise").value+"%";$("micSensitivityValue").value=$("micSensitivity").value+"%";$("micGainValue").value=$("micGain").value+"%";$("receiveVolumeValue").value=S.receiveVolume+"%";}
+function updateSliderLabels(){$("androidSpeakerVolumeValue").value=$("androidSpeakerVolume").value+"%";$("micNoiseValue").value=$("micNoise").value+"%";$("maxBitrateValue").value=$("maxBitrate").value+" kbps";$("receiveVolumeValue").value=S.receiveVolume+"%";}
 function applyLiveLocationUpdate(raw) {
   const point = LocationUtils && LocationUtils.normalizeLiveLocation(raw);
   if (!point) { console.warn("Rejected invalid RTC location update"); return; }
@@ -1337,7 +1341,13 @@ function applyLiveLocationUpdate(raw) {
 }
 
 function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;}
- if(d.type==="ack"){$("networkSummary").textContent=d.message||(d.ok?"Android受信済み":"適用失敗");if(!d.ok)toast(d.message||"Android側で適用失敗");}
+ if(d.type==="ack"){
+  const pending=S.pendingCommands.get(d.requestId);
+  if(pending){clearTimeout(pending.timer);S.pendingCommands.delete(d.requestId);if(d.ok)pending.resolve(d);else pending.reject(Error(d.message||"Android側で適用失敗"));}
+  $("networkSummary").textContent=d.message||(d.ok?"Android受信済み":"適用失敗");
+  if(!d.ok)toast(d.message||"Android側で適用失敗");
+  if(d.capture)$("captureApplied").textContent="実適用 "+d.capture.width+"×"+d.capture.height+" / "+d.capture.fps+"FPS";
+}
  else if(d.type==="location_update"){
    applyLiveLocationUpdate(d.location || d);
  }
@@ -1367,14 +1377,18 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
   $("deviceRx").textContent="受信 "+(rx<0?"取得不可":bytesText(rx));
   $("deviceTxSpeed").textContent="送信速度 "+(Number(d.txBytesPerSecond)<0?"取得不可":bytesText(d.txBytesPerSecond)+"/s");
   $("deviceRxSpeed").textContent="受信速度 "+(Number(d.rxBytesPerSecond)<0?"取得不可":bytesText(d.rxBytesPerSecond)+"/s");
-  $("deviceTotal").textContent="合計 "+(tx<0||rx<0?"取得不可":bytesText(tx+rx));
+  $("deviceTotal").textContent="接続中合計 "+(tx<0||rx<0?"取得不可":bytesText(tx+rx));
+  $("usage7d").textContent="過去7日 "+(Number(d.usage7dBytes)<0?"取得不可":bytesText(d.usage7dBytes));
+  $("usage30d").textContent="過去30日 "+(Number(d.usage30dBytes)<0?"取得不可":bytesText(d.usage30dBytes));
   const charging=d.batteryCharging===true?"・充電中":"";
   const thermal=d.thermalStatus>=4?"・高温注意":"";
   $("deviceHealth").textContent=(d.deviceModel||"Android")+" / 電池 "+(d.batteryPercent>=0?d.batteryPercent+"%":"--")+charging+" / 温度 "+(d.batteryTempC>=0?d.batteryTempC+"℃":"--")+thermal;
   $("cameraFacing").textContent="カメラ "+(d.cameraFacing||"不明");
   S.flashAvailable=d.flashAvailable===true;
   S.torchEnabled=d.flashEnabled===true;
+  if(d.capture){S.cameraTxEnabled=d.capture.cameraEnabled!==false;S.micTxEnabled=d.capture.microphoneEnabled!==false;$("captureApplied").textContent="実適用 "+d.capture.width+"×"+d.capture.height+" / "+d.capture.fps+"FPS";$("cameraTransmit").textContent=S.cameraTxEnabled?"📷 カメラ送信 ON":"📷 カメラ送信 OFF";$("micTransmit").textContent=S.micTxEnabled?"🎙 マイク送信 ON":"🎙 マイク送信 OFF";}
   $("torch").disabled=!S.flashAvailable||!S.control||S.control.readyState!=="open";
+  $("cameraTransmit").disabled=!S.control||S.control.readyState!=="open";$("micTransmit").disabled=!S.control||S.control.readyState!=="open";
   $("torch").textContent=!S.flashAvailable?"ライト非対応":(S.torchEnabled?"ライトをOFF":"ライトをON");
   $("flashState").textContent=!S.flashAvailable?"ライト非対応":(S.torchEnabled?"ライト ON":"ライト OFF");
   if(d.microphoneMode){
@@ -1466,7 +1480,7 @@ function startRtcStats() {
       metricParts.push("RTT " + (rtt === null ? "--" : Math.round(rtt * 1000) + "ms"));
       metricParts.push("損失 " + (lossPercent === null ? "--" : lossPercent.toFixed(1) + "%"));
       $("connectionMetrics").textContent = metricParts.join(" / ");
-      maybeAdaptQuality(rtt === null ? null : rtt * 1000, lossPercent);
+      // Explicit bitrate cap replaces hidden adaptive communication modes in v2.1.
     } catch (_) {
       $("rtcStats").textContent = "統計取得不可";
       $("connectionMetrics").textContent = "通信統計取得不可";
@@ -1478,8 +1492,7 @@ function startRtcStats() {
 async function command(name,payload={}) {
   if (!S.device) throw Error("Android端末をペアリングしてください。");
   if (S.control?.readyState === "open") {
-    if (!sendControl(name,payload)) throw Error("DataChannelへの送信に失敗しました。");
-    toast("DataChannelでAndroidへ直接送信しました。"); return true;
+    const ack=await sendControlAwait(name,payload);toast(ack.message||"Androidで操作を適用しました。");return true;
   }
   await api("send_command",{controllerToken:S.device.controllerToken,deviceId:S.device.deviceId,command:name,payload});
   toast("接続前命令をGASに登録しました。"); return true;
@@ -1898,19 +1911,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("fps").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
   $("aspectRatio").addEventListener("change", () => { applyAspectRatio($("aspectRatio").value); saveSettings().catch(error => toast(error.message)); });
   $("androidSpeakerVolume").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
-  ["androidSpeakerVolume","micNoise","micSensitivity","micGain"].forEach(id=>$(id).addEventListener("input",updateSliderLabels));
+  ["androidSpeakerVolume","micNoise","maxBitrate"].forEach(id=>$(id).addEventListener("input",updateSliderLabels));
   $("receiveVolume").addEventListener("input", event => setReceiveVolume(event.target.value, true));
-  $("micMode").addEventListener("change", () => {
-    saveSettings().then(() => toast("マイク集音モードは次回接続から反映します。"))
-      .catch(error => toast(error.message));
-  });
+  $("maxBitrate").addEventListener("change",()=>saveSettings().catch(error=>toast(error.message)));
   $("diagnostics").addEventListener("click",()=>command("diagnostics").catch(e=>toast(e.message)));
-  $("torch").addEventListener("click",()=>{S.torchEnabled=!S.torchEnabled;command("torch",{enabled:S.torchEnabled}).then(()=>{$("torch").textContent=S.torchEnabled?"ライトをOFF":"ライトをON";}).catch(e=>{S.torchEnabled=!S.torchEnabled;toast(e.message);});});
+  $("torch").addEventListener("click",async()=>{const wanted=!S.torchEnabled;$("torch").disabled=true;try{await command("torch",{enabled:wanted});S.torchEnabled=wanted;$("torch").textContent=wanted?"ライトをOFF":"ライトをON";$("flashState").textContent=wanted?"ライト ON":"ライト OFF";}catch(e){toast(e.message);$("torch").textContent=S.torchEnabled?"ライトをOFF":"ライトをON";}finally{$("torch").disabled=!S.flashAvailable||!S.control||S.control.readyState!=="open";}});
+  $("cameraTransmit").addEventListener("click",async()=>{const wanted=!S.cameraTxEnabled;try{await command("camera_enabled",{enabled:wanted});S.cameraTxEnabled=wanted;$("cameraTransmit").textContent=wanted?"📷 カメラ送信 ON":"📷 カメラ送信 OFF";}catch(e){toast(e.message);}});
+  $("micTransmit").addEventListener("click",async()=>{const wanted=!S.micTxEnabled;try{await command("microphone_enabled",{enabled:wanted});S.micTxEnabled=wanted;$("micTransmit").textContent=wanted?"🎙 マイク送信 ON":"🎙 マイク送信 OFF";}catch(e){toast(e.message);}});
   $("reserveConnection").addEventListener("click",()=>reserveConnection().catch(e=>toast(e.message)));
   $("cancelReservation").addEventListener("click",cancelConnectionReservation);
   $("micNoise").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
-  $("micSensitivity").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
-  $("micGain").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
+  
   $("nightMode").addEventListener("change",()=>{applyNightViewFilter();localStorage.setItem(nightViewStorageKey(),String($("nightMode").checked));});
   updateSliderLabels();
   applyAspectRatio($("aspectRatio").value);
@@ -1929,7 +1940,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     command("camera", { cameraId: event.target.value, facing: option?.dataset.facing || event.target.value }).catch(error => toast(error.message));
   });
   $("quality").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
-  $("dataMode").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
   try {
     await loadConfig();
     S.devices = readDevices();
