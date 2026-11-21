@@ -111,7 +111,7 @@ class MainActivity : Activity() {
                     } finally { c.disconnect() }
                 }
                 if (gasUrl.isBlank() || gasUrl.contains("PASTE_YOUR_DEPLOYMENT_ID")) {
-                    status.text = "GitHubの web/config.json にGAS URLを設定してください。"
+                    status.text = "GitHubの config.json にGAS URLを設定してください。"
                 } else {
                     status.text = "設定を取得しました。必要な権限を許可して待機を開始できます。"
                     refreshMonitoringButtons()
@@ -224,7 +224,7 @@ class MainActivity : Activity() {
         val code = prefs.getString("registrationCode", "") ?: ""
         val id = prefs.getString("deviceId", "") ?: ""
         codeView.text = when {
-            id.isBlank() -> "登録コード：--"
+            id.isBlank() -> "ペアリングコード：--"
             code.isNotBlank() -> "ペアリングコード：$code\n端末ID：$id"
             prefs.getBoolean("serverPaired", false) ->
                 "GASでペアリング確認済み\n端末ID：$id"
