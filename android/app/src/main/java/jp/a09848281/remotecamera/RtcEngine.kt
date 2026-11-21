@@ -537,7 +537,7 @@ class RtcEngine(
         onState(if(enabled)"Androidカメラ送信 ON" else "Androidカメラ送信 OFF")
     }
     fun setMicrophoneEnabled(enabled:Boolean){microphoneEnabled=enabled;audioTrack?.setEnabled(enabled);onState(if(enabled)"Androidマイク送信 ON" else "Androidマイク送信 OFF")}
-    fun captureInfo():JSONObject = JSONObject().put("width",captureWidth).put("height",captureHeight).put("fps",captureFps).put("maxBitrateKbps",maxBitrateKbps).put("cameraEnabled",cameraEnabled).put("microphoneEnabled",microphoneEnabled)
+    fun captureInfo():JSONObject = JSONObject().put("width",captureWidth).put("height",captureHeight).put("fps",captureFps).put("maxBitrateKbps",maxBitrateKbps).put("aspectRatio",currentAspectRatio).put("cameraEnabled",cameraEnabled).put("microphoneEnabled",microphoneEnabled)
     fun setMicSensitivity(level:Int){micSensitivity=level.coerceIn(0,100);onState("マイク感度要求 "+micSensitivity+"%（自動ゲインは対応範囲・次回音声初期化時に反映）")}
     fun setMicGain(level:Int){micGain=level.coerceIn(0,100);try{audioTrack?.setVolume(micGain/100.0)}catch(e:Exception){Log.w("RemoteCameraRTC","Mic gain update failed",e)}}
     fun setNightMode(enabled:Boolean){nightModeEnabled=enabled;onState(if(enabled)"夜間モード要求ON（露出制御は端末依存）" else "夜間モードOFF")}
@@ -592,6 +592,24 @@ class RtcEngine(
                 Log.e("RemoteCameraRTC", "Could not restore previous camera after switch failure", restart)
             }
             throw e
+        }
+    }
+
+    @Synchronized fun setAspectRatio(ratio:String) {
+        if(ratio !in setOf("16:9","4:3","1:1","9:16","original"))return
+        if(currentAspectRatio==ratio)return
+        currentAspectRatio=ratio
+        val profile=profileFor(currentQuality,currentDataMode,currentFps)
+        val camera=capturer
+        if(camera!=null && cameraEnabled){
+            try{
+                camera.changeCaptureFormat(profile.width,profile.height,profile.fps)
+                captureWidth=profile.width;captureHeight=profile.height;captureFps=profile.fps
+                onState("画角を "+ratio+" に変更しました")
+            }catch(error:Exception){
+                onState("画角変更を端末が拒否しました。前回の撮影形式を維持します。")
+                Log.w("RemoteCameraRTC","Could not apply aspect ratio",error)
+            }
         }
     }
 
