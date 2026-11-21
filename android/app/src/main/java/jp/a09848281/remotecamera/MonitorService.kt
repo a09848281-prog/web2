@@ -39,6 +39,8 @@ class MonitorService : Service() {
         const val ACTION_START = "jp.a09848281.remotecamera.START"
         const val ACTION_REFRESH_CODE = "jp.a09848281.remotecamera.REFRESH_CODE"
         const val ACTION_STOP = "jp.a09848281.remotecamera.STOP"
+        const val ACTION_UPDATE_SETTINGS = "jp.a09848281.remotecamera.UPDATE_SETTINGS"
+        const val EXTRA_MAX_BITRATE_KBPS = "max_bitrate_kbps"
         const val ACTION_CODE = "jp.a09848281.remotecamera.CODE"
         const val EXTRA_GAS_URL = "gas_url"
         const val EXTRA_POLL_INTERVAL_SECONDS = "poll_interval_seconds"
@@ -98,6 +100,14 @@ class MonitorService : Service() {
         if (action == ACTION_STOP) {
             stopMonitoringNow(startId)
             return START_NOT_STICKY
+        }
+        if(action==ACTION_UPDATE_SETTINGS){
+            pollIntervalSeconds=prefs.getInt("pollIntervalSeconds",AppConfig.POLL_SECONDS.toInt()).coerceIn(AppConfig.MIN_POLL_SECONDS,AppConfig.MAX_POLL_SECONDS).toLong()
+            maxBitrateKbps=intent?.getIntExtra(EXTRA_MAX_BITRATE_KBPS,prefs.getInt("maxBitrateKbps",2500))?.coerceIn(150,8000)?:prefs.getInt("maxBitrateKbps",2500).coerceIn(150,8000)
+            prefs.edit().putInt("maxBitrateKbps",maxBitrateKbps).apply()
+            applyVideoSettings(JSONObject().put("maxBitrateKbps",maxBitrateKbps))
+            notifyState("待機中の通信量上限を "+maxBitrateKbps+" kbps に変更しました")
+            return START_STICKY
         }
         if (intent != null && action != ACTION_START && action != ACTION_REFRESH_CODE) {
             stopSelf(startId)
@@ -781,9 +791,7 @@ class MonitorService : Service() {
         val micNoise = settings.optInt("micNoise", prefs.getInt("micNoise", 0)).coerceIn(0, 100)
         val speakerVolume = settings.optInt("speakerVolume", prefs.getInt("speakerVolume", 70)).coerceIn(0, 100)
         val nightMode = settings.optBoolean("nightMode", prefs.getBoolean("nightMode", false))
-        val micMode = settings.optString("micMode", prefs.getString("micMode", "ambient") ?: "ambient")
-            .takeIf { it in setOf("ambient", "balanced", "voice") } ?: "ambient"
-        prefs.edit().putInt("micNoise", micNoise)
+                prefs.edit().putInt("micNoise", micNoise)
             .putInt("speakerVolume", speakerVolume).putBoolean("nightMode", nightMode).apply()
         rtc?.setNoiseSuppressionLevel(micNoise)
         rtc?.setNightMode(nightMode)
@@ -791,7 +799,9 @@ class MonitorService : Service() {
             val audio = getSystemService(AUDIO_SERVICE) as AudioManager
             audio.mode = AudioManager.MODE_NORMAL
             val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-            audio.setStreamVolume(AudioManager.STREAM_MUSIC, (max * speakerVolume / 100.0).toInt(), 0)
+            val value=(max * speakerVolume / 100.0).toInt()
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC,value,0)
+            try{audio.setStreamVolume(AudioManager.STREAM_VOICE_CALL,value,0)}catch(_:Exception){}
         } catch (_: Exception) {}
     }
 
