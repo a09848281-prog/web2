@@ -77,6 +77,7 @@ class MonitorService : Service() {
     private var streamWakeLock: PowerManager.WakeLock? = null
     private var powerSaveActive = false
     private var torchEnabled = false
+    @Volatile private var flashAvailableCache: Boolean? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -598,13 +599,16 @@ class MonitorService : Service() {
             applyVideoSettings(JSONObject())
             notifyState("端末温度・バッテリーが回復したため映像設定を戻しました")
         }
-        val flashAvailable = try {
+        val flashAvailable = flashAvailableCache ?: try {
             val cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
             cameraManager.cameraIdList.any { cameraId ->
                 cameraManager.getCameraCharacteristics(cameraId)
                     .get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-            }
-        } catch (_: Exception) { false }
+            }.also { flashAvailableCache = it }
+        } catch (error: Exception) {
+            Log.w("RemoteCameraService", "Could not query flash availability", error)
+            false.also { flashAvailableCache = it }
+        }
         val data=JSONObject().put("type","telemetry").put("txBytesSinceConnect",tx).put("rxBytesSinceConnect",rx)
             .put("txBytesPerSecond",txSpeed).put("rxBytesPerSecond",rxSpeed).put("batteryPercent",percent)
             .put("batteryCharging",charging).put("batteryTempC",temp).put("thermalStatus",thermal)
