@@ -298,6 +298,17 @@ class MonitorService : Service() {
                 } catch (e: Exception) {
                     Log.e("RemoteCameraService", "Polling iteration failed; foreground service remains active", e)
                     lastNetworkError=e.message ?: "Polling iteration failed"
+                    if (rtc?.hasOpenControlChannel() == true) {
+                        val diagnostic = networkInfo()
+                            .put("androidVersion", Build.VERSION.RELEASE)
+                            .put("apiLevel", Build.VERSION.SDK_INT)
+                            .put("deviceModel", Build.MODEL ?: "Android")
+                            .put("rtcControlChannelOpen", true)
+                            .put("recentError", lastNetworkError)
+                        rtc?.sendControlToOpenDataChannels(
+                            JSONObject().put("type", "network_diagnostic").put("data", diagnostic)
+                        )
+                    }
                     notifyState("通信または接続処理に失敗しました。待機を継続して再試行します")
                 }
                 delay(if (rtc?.hasOpenControlChannel()==true) 2000L else pollIntervalSeconds*1000L)
@@ -316,6 +327,13 @@ class MonitorService : Service() {
                 trafficBaselineRx=TrafficStats.getUidRxBytes(Process.myUid())
                 lastTrafficTx=0L;lastTrafficRx=0L;lastTrafficAt=System.currentTimeMillis()
                 notifyState("監視中・DataChannel直接通信")
+                if (lastNetworkError.isNotBlank()) {
+                    val reason = lastNetworkError
+                    scope.launch {
+                        delay(250L)
+                        sendNetworkDiagnostic(sessionId, reason)
+                    }
+                }
             }
             "FAILED","CLOSED","DISCONNECTED" -> {
                 lastNetworkError="WebRTC ICE状態: "+state
