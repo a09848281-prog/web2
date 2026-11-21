@@ -22,6 +22,7 @@ const S = {
   motion: { enabled: false, sensitivity: 3, timer: null, previous: null, streak: 0, lastEventAt: 0, sendingDevices: new Set(), retryTimer: null },
   adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 },
   audioContext: null, remoteGain: null, remoteAudioSource: null, remoteAnalyser: null,
+  flashAvailable: false,
   audioMeterFrame: null, receiveVolume: 70, remoteAudioMuted: false,
   pttLocked: false, pttStartedAt: 0, pttTimeout: null, pttKeyActive: false,
   wakeLock: null, keepAwakeWanted: false,
@@ -893,7 +894,7 @@ async function connect(automatic = false) {
     control.onopen = () => {
       if (S.pc !== pc) return;
       $("diagnostics").disabled = false;
-      $("torch").disabled = false;
+      $("torch").disabled = !S.flashAvailable;
       status("監視中・DataChannel直接接続", true);
       $("streamState").textContent = "映像・音声・DataChannel接続中";
       startRtcStats();
@@ -1245,7 +1246,28 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
    toast("端末が対応するカメラ・画角を読み込みました。");
   }
  }
- else if(d.type==="telemetry"){const tx=Number(d.txBytesSinceConnect),rx=Number(d.rxBytesSinceConnect);$("deviceTx").textContent="送信 "+(tx<0?"取得不可":bytesText(tx));$("deviceRx").textContent="受信 "+(rx<0?"取得不可":bytesText(rx));$("deviceTxSpeed").textContent="送信速度 "+(Number(d.txBytesPerSecond)<0?"取得不可":bytesText(d.txBytesPerSecond)+"/s");$("deviceRxSpeed").textContent="受信速度 "+(Number(d.rxBytesPerSecond)<0?"取得不可":bytesText(d.rxBytesPerSecond)+"/s");$("deviceTotal").textContent="合計 "+(tx<0||rx<0?"取得不可":bytesText(tx+rx));$("deviceHealth").textContent="バッテリー "+(d.batteryPercent>=0?d.batteryPercent+"%":"--")+" / 温度 "+(d.batteryTempC>=0?d.batteryTempC+"℃":"--");if(d.network)$("networkSummary").textContent=(d.network.transport||"不明")+(d.network.validated?" / Internet OK":" / Internet未確認");}
+ else if(d.type==="telemetry"){
+  const tx=Number(d.txBytesSinceConnect),rx=Number(d.rxBytesSinceConnect);
+  $("deviceTx").textContent="送信 "+(tx<0?"取得不可":bytesText(tx));
+  $("deviceRx").textContent="受信 "+(rx<0?"取得不可":bytesText(rx));
+  $("deviceTxSpeed").textContent="送信速度 "+(Number(d.txBytesPerSecond)<0?"取得不可":bytesText(d.txBytesPerSecond)+"/s");
+  $("deviceRxSpeed").textContent="受信速度 "+(Number(d.rxBytesPerSecond)<0?"取得不可":bytesText(d.rxBytesPerSecond)+"/s");
+  $("deviceTotal").textContent="合計 "+(tx<0||rx<0?"取得不可":bytesText(tx+rx));
+  const charging=d.batteryCharging===true?"・充電中":"";
+  const thermal=d.thermalStatus>=4?"・高温注意":"";
+  $("deviceHealth").textContent=(d.deviceModel||"Android")+" / 電池 "+(d.batteryPercent>=0?d.batteryPercent+"%":"--")+charging+" / 温度 "+(d.batteryTempC>=0?d.batteryTempC+"℃":"--")+thermal;
+  $("cameraFacing").textContent="カメラ "+(d.cameraFacing||"不明");
+  S.flashAvailable=d.flashAvailable===true;
+  S.torchEnabled=d.flashEnabled===true;
+  $("torch").disabled=!S.flashAvailable||!S.control||S.control.readyState!=="open";
+  $("torch").textContent=!S.flashAvailable?"ライト非対応":(S.torchEnabled?"ライトをOFF":"ライトをON");
+  $("flashState").textContent=!S.flashAvailable?"ライト非対応":(S.torchEnabled?"ライト ON":"ライト OFF");
+  if(d.microphoneMode){
+    const modes={ambient:"環境音重視",balanced:"バランス",voice:"声重視"};
+    $("audioState").textContent="Androidマイク・"+(modes[d.microphoneMode]||d.microphoneMode);
+  }
+  if(d.network)$("networkSummary").textContent=(d.network.transport||"不明")+(d.network.validated?" / Internet OK":" / Internet未確認");
+}
  else if(d.type==="network_diagnostic"){$("diagnosticOutput").textContent=JSON.stringify(d.data||d,null,2);}
  else if(d.type==="error"){toast(d.message||"Androidエラー");$("diagnosticOutput").textContent=d.message||"Androidエラー";}
 }
