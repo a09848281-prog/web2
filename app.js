@@ -23,7 +23,7 @@ const S = {
   adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 },
   audioContext: null, remoteGain: null, remoteAudioSource: null, remoteAnalyser: null,
   audioMeterFrame: null, receiveVolume: 70, remoteAudioMuted: false,
-  pttLocked: false, pttStartedAt: 0, pttTimeout: null,
+  pttLocked: false, pttStartedAt: 0, pttTimeout: null, pttKeyActive: false,
   wakeLock: null, keepAwakeWanted: false,
   videoWatchdogTimer: null, videoFrameCallbackId: null, videoUsesFrameCallback: false,
   hasReceivedVideoFrame: false, lastVideoFrameAt: 0, connectedAt: 0, sessionTimer: null,
@@ -591,6 +591,11 @@ function applyViewerZoom() {
   $("zoomValue").value=zoom+"%";
   $("remoteVideo").style.transform="scale("+(zoom/100)+")";
 }
+function toggleFitMode() {
+  const video = $("remoteVideo");
+  video.style.objectFit = video.style.objectFit === "cover" ? "contain" : "cover";
+  $("fitMode").textContent = video.style.objectFit === "cover" ? "画面に合わせる" : "全体表示";
+}
 function nightViewStorageKey() {
   return "rc_night_view_v1_" + String(S.device ? S.device.deviceId : "default");
 }
@@ -1036,6 +1041,7 @@ async function pollAnswers(peer, sessionId, device) {
 async function disconnect(sendCommand = true, preserveMic = false) {
   if (sendCommand) {
     S.manualDisconnect = true;
+    S.pttLocked = false;
     S.everConnected = false;
     S.reconnectAttempts = 0;
     if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
@@ -1075,6 +1081,7 @@ async function disconnect(sendCommand = true, preserveMic = false) {
   stopMotionDetection("動体検知：映像未接続");
   stopPttSafetyTimer();
   S.pttLocked = false;
+  S.pttKeyActive = false;
   S.pttActive = false;
   $("pttLock").textContent = "送話ロック OFF";
   $("pttLock").classList.remove("active");
@@ -1131,6 +1138,8 @@ async function disconnect(sendCommand = true, preserveMic = false) {
 
   if (S.device) status("ペアリング済み");
   else status("未ペアリング");
+  $("pttLock").disabled = !S.device;
+  $("keepAwake").disabled = !S.device;
 }
 async function loadSettings() {
   const device = S.device;
@@ -1490,13 +1499,51 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("pair").addEventListener("click", () => $("pairDialog").showModal());
   $("unpair").addEventListener("click", () => unpairSelectedDevice());
   $("claim").addEventListener("click", claimDevice);
-  $("connect").addEventListener("click", connect);
+  $("connect").addEventListener("click", () => connect(false));
   $("disconnect").addEventListener("click", () => disconnect(true));
-  $("ptt").addEventListener("pointerdown", event => { event.preventDefault(); ptt(true); });
-  ["pointerup", "pointerleave", "pointercancel", "lostpointercapture"].forEach(name => {
-    $("ptt").addEventListener(name, () => ptt(false));
+  $("ptt").addEventListener("pointerdown", event => {
+    event.preventDefault();
+    try { $("ptt").setPointerCapture(event.pointerId); } catch (_) {}
+    if (S.pttLocked) {
+      S.pttLocked = false;
+      $("pttLock").textContent = "送話ロック OFF";
+      $("pttLock").classList.remove("active");
+      ptt(false);
+      return;
+    }
+    ptt(true);
   });
-  $("saveSettings").addEventListener("click", () => saveSettings().catch(error => toast(error.message)));
+  ["pointerup", "pointerleave", "pointercancel", "lostpointercapture"].forEach(name => {
+    $("ptt").addEventListener(name, () => { if (!S.pttLocked) ptt(false); });
+  });
+  $("pttLock").addEventListener("click", togglePttLock);
+  $("remoteMute").addEventListener("click", () => setRemoteAudioMuted(!S.remoteAudioMuted));
+  $("keepAwake").addEventListener("click", toggleScreenWakeLock);
+  $("fitMode").addEventListener("click", toggleFitMode);
+  document.addEventListener("keydown", event => {
+    if (event.code !== "Space" && event.code !== "Enter") return;
+    const target = event.target;
+    if (target && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(target.tagName)) return;
+    if (event.repeat || S.pttKeyActive || S.pttLocked) return;
+    if (!S.pc || !S.mic) return;
+    event.preventDefault();
+    S.pttKeyActive = true;
+    ptt(true);
+  });
+  document.addEventListener("keyup", event => {
+    if ((event.code === "Space" || event.code === "Enter") && S.pttKeyActive) {
+      event.preventDefault();
+      S.pttKeyActive = false;
+      if (!S.pttLocked) ptt(false);
+    }
+  });
+  window.addEventListener("blur", () => {
+    if (S.pttKeyActive) {
+      S.pttKeyActive = false;
+      if (!S.pttLocked) ptt(false);
+    }
+  });
+    $("saveSettings").addEventListener("click", () => saveSettings().catch(error => toast(error.message)));
   $("locate").addEventListener("click", () => command("location_once").catch(error => toast(error.message)));
   $("history").addEventListener("click", () => loadHistory().catch(error => toast(error.message)));
   $("deleteHistory").addEventListener("click", () => deleteHistory().catch(error => toast(error.message)));
@@ -1529,11 +1576,44 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   $("bookmarkletOpen").addEventListener("click", openBookmarkletDialog);
   $("copyBookmarklet").addEventListener("click", copyBookmarkletCode);
-  document.addEventListener("fullscreenchange", () => setTimeout(() => window.dispatchEvent(new Event("resize")), 100));
-  document.addEventListener("webkitfullscreenchange", () => setTimeout(() => window.dispatchEvent(new Event("resize")), 100));
+  const restoreAfterViewportChange = () => {
+    setTimeout(() => {
+      window.dispatchEvent(new Event("resize"));
+      restoreRemotePlayback();
+    }, 180);
+  };
+  document.addEventListener("fullscreenchange", restoreAfterViewportChange);
+  document.addEventListener("webkitfullscreenchange", restoreAfterViewportChange);
+  $("remoteVideo").addEventListener("webkitendfullscreen", restoreAfterViewportChange);
+  window.addEventListener("pageshow", restoreAfterViewportChange);
+  window.addEventListener("resize", () => {
+    if (S.pc) restoreAfterViewportChange();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      stopMotionDetection("画面がバックグラウンドです。復帰後に再開します。");
+      if (S.wakeLock) {
+        S.wakeLock.release().catch(() => {});
+        S.wakeLock = null;
+      }
+    } else {
+      restoreRemotePlayback();
+      if (S.motion.enabled) startMotionDetection();
+      if (S.keepAwakeWanted && S.pc && S.pc.connectionState === "connected") {
+        enableScreenWakeLock().catch(() => {});
+      }
+      if (S.pc) startVideoWatchdog(S.pc);
+    }
+  });
   $("fps").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
   $("aspectRatio").addEventListener("change", () => { applyAspectRatio($("aspectRatio").value); saveSettings().catch(error => toast(error.message)); });
-  ["volume","micNoise","micSensitivity","micGain"].forEach(id=>$(id).addEventListener("input",updateSliderLabels));
+  ["androidSpeakerVolume","micNoise","micSensitivity","micGain"].forEach(id=>$(id).addEventListener("input",updateSliderLabels));
+  $("receiveVolume").addEventListener("input", event => setReceiveVolume(event.target.value, true));
+  $("androidSpeakerVolume").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
+  $("micMode").addEventListener("change", () => {
+    saveSettings().then(() => toast("マイク集音モードは次回接続から反映します。"))
+      .catch(error => toast(error.message));
+  });
   $("diagnostics").addEventListener("click",()=>command("diagnostics").catch(e=>toast(e.message)));
   $("torch").addEventListener("click",()=>{S.torchEnabled=!S.torchEnabled;command("torch",{enabled:S.torchEnabled}).then(()=>{$("torch").textContent=S.torchEnabled?"ライトをOFF":"ライトをON";}).catch(e=>{S.torchEnabled=!S.torchEnabled;toast(e.message);});});
   $("reserveConnection").addEventListener("click",()=>reserveConnection().catch(e=>toast(e.message)));
@@ -1547,9 +1627,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   applyViewerZoom();
   applyNightViewFilter();
   loadMotionSettings();
-  $("volume").addEventListener("change", event => {
-    command("volume", { percent: Number(event.target.value) }).catch(error => toast(error.message));
-  });
+  updateSliderLabels();
+  $("pttLock").disabled = true;
+  $("remoteMute").disabled = true;
+  $("keepAwake").disabled = true;
+  $("sessionDuration").textContent = "未接続";
+  const storedVolume = localStorage.getItem("rc_receive_volume_v1");
+  setReceiveVolume(storedVolume === null ? 70 : Number(storedVolume), false);
   $("camera").addEventListener("change", event => {
     const option=event.target.selectedOptions && event.target.selectedOptions[0];
     command("camera", { cameraId: event.target.value, facing: option?.dataset.facing || event.target.value }).catch(error => toast(error.message));
