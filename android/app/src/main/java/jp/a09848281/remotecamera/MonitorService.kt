@@ -63,6 +63,8 @@ class MonitorService : Service() {
     private var currentQuality = "720"
     private var currentDataMode = "standard"
     private var currentFps = 24
+    private var maxBitrateKbps = 2500
+    private var lastUsageSampleAt = 0L
     private var lastDevicePollAt = 0L
     @Volatile private var lastLocationAttempt = 0L
     private var lastCodeRefresh = 0L
@@ -117,7 +119,8 @@ class MonitorService : Service() {
             prefs.getInt("pollIntervalSeconds", AppConfig.POLL_SECONDS.toInt())
         ) ?: prefs.getInt("pollIntervalSeconds", AppConfig.POLL_SECONDS.toInt())
         pollIntervalSeconds = requestedPoll.coerceIn(AppConfig.MIN_POLL_SECONDS,AppConfig.MAX_POLL_SECONDS).toLong()
-        prefs.edit().putInt("pollIntervalSeconds",pollIntervalSeconds.toInt()).apply()
+        maxBitrateKbps = prefs.getInt("maxBitrateKbps",2500).coerceIn(150,8000)
+        prefs.edit().putInt("pollIntervalSeconds",pollIntervalSeconds.toInt()).putInt("maxBitrateKbps",maxBitrateKbps).apply()
         try { startMonitoringForeground() } catch(e:Exception) {
             Log.e("RemoteCameraService","Foreground startup rejected by Android",e)
             prefs.edit().putBoolean("monitoringEnabled",false).apply()
@@ -214,6 +217,7 @@ class MonitorService : Service() {
             ensureDevice()
             if (!apiReady.isCompleted) apiReady.complete(Unit)
             while (scope.isActive) {
+                recordUsageSample()
                 val controlOpen = rtc?.hasOpenControlChannel() == true
                 if (!controlOpen && (rtc?.peerCount() ?: 0) == 0) {
                     // Reset the app-wide traffic baseline only after the last
@@ -311,7 +315,7 @@ class MonitorService : Service() {
                                         rtc?.setMicGain(prefs.getInt("micGain", 100))
                                         rtc?.setNightMode(prefs.getBoolean("nightMode", false))
                                         rtc?.handleOffer(session, signal.optString("sdp"))
-                                        rtc?.setQuality(currentQuality, currentDataMode, currentFps)
+                                        rtc?.setQuality(currentQuality, currentDataMode, currentFps, maxBitrateKbps)
                                         notifyState("接続要求を処理しています")
                                     } catch (e: Exception) {
                                         Log.e("RemoteCameraService", "Offer handling failed; keep foreground service alive", e)
@@ -463,13 +467,9 @@ class MonitorService : Service() {
                 }
             }
             "torch" -> setTorch(payload.optBoolean("enabled",false))
-            "volume","speaker_volume" -> {
-                val pct=payload.optInt("percent",70).coerceIn(0,100)
-                val audio=getSystemService(AUDIO_SERVICE) as AudioManager
-                val stream=AudioManager.STREAM_MUSIC
-                audio.mode = AudioManager.MODE_NORMAL
-                audio.setStreamVolume(stream,(audio.getStreamMaxVolume(stream)*pct/100.0).toInt(),0)
-            }
+            "volume","speaker_volume" -> applyAndroidSpeakerVolume(payload.optInt("percent",70))
+            "camera_enabled" -> (rtc ?: error("WebRTCが終了しています。")).setCameraEnabled(payload.optBoolean("enabled",true))
+            "microphone_enabled" -> (rtc ?: error("WebRTCが終了しています。")).setMicrophoneEnabled(payload.optBoolean("enabled",true))
             "adaptive_quality" -> {
                 if (!powerSaveActive) applyAdaptiveQuality(payload)
             }
@@ -479,21 +479,15 @@ class MonitorService : Service() {
                 applyLocationSettings(payload)
                 applyVideoSettings(payload)
                 rtc?.setNoiseSuppressionLevel(payload.optInt("micNoise",prefs.getInt("micNoise",70)))
-                rtc?.setMicSensitivity(payload.optInt("micSensitivity",prefs.getInt("micSensitivity",70)))
-                rtc?.setMicGain(payload.optInt("micGain",prefs.getInt("micGain",100)))
-                val pct=payload.optInt("speakerVolume",70).coerceIn(0,100)
-                val audio=getSystemService(AUDIO_SERVICE) as AudioManager
-                val stream=AudioManager.STREAM_MUSIC
-                audio.mode = AudioManager.MODE_NORMAL
-                audio.setStreamVolume(stream,(audio.getStreamMaxVolume(stream)*pct/100.0).toInt(),0)
+                val pct=payload.optInt("speakerVolume",prefs.getInt("speakerVolume",70)).coerceIn(0,100)
+                applyAndroidSpeakerVolume(pct)
                 rtc?.setNightMode(payload.optBoolean("nightMode",false))
                 val micModeMessage = applyMicModeSetting(payload)
                 prefs.edit().putString("quality",currentQuality).putString("dataMode",currentDataMode)
                     .putInt("fps",currentFps)
                     .putString("aspectRatio",payload.optString("aspectRatio","16:9"))
-                    .putInt("micNoise",payload.optInt("micNoise",70).coerceIn(0,100))
-                    .putInt("micSensitivity",payload.optInt("micSensitivity",70).coerceIn(0,100))
-                    .putInt("micGain",payload.optInt("micGain",100).coerceIn(0,100))
+                    .putInt("micNoise",payload.optInt("micNoise",prefs.getInt("micNoise",70)).coerceIn(0,100))
+                    .putInt("maxBitrateKbps",maxBitrateKbps)
                     .putInt("speakerVolume",pct)
                     .putBoolean("nightMode",payload.optBoolean("nightMode",false)).apply()
                 if (payload.has("micMode")) return "$micModeMessage Android設定を保存しました。"
@@ -556,13 +550,25 @@ class MonitorService : Service() {
 
     private fun setTorch(enabled:Boolean) {
         val manager=getSystemService(CAMERA_SERVICE) as CameraManager
-        val backId=manager.cameraIdList.firstOrNull { id ->
+        val activeId=rtc?.currentCameraId().orEmpty()
+        val candidates=listOf(activeId).filter{it.isNotBlank()}+manager.cameraIdList.filter{it!=activeId}
+        val flashId=candidates.firstOrNull { id -> try {
             val chars=manager.getCameraCharacteristics(id)
-            chars.get(CameraCharacteristics.LENS_FACING)==CameraCharacteristics.LENS_FACING_BACK &&
-                chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE)==true
-        } ?: error("ライト対応の背面カメラが見つかりません。")
-        manager.setTorchMode(backId,enabled)
-        torchEnabled = enabled
+            chars.get(CameraCharacteristics.LENS_FACING)==CameraCharacteristics.LENS_FACING_BACK && chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE)==true
+        } catch (_:Exception) { false } } ?: error("ライト対応の背面カメラがありません。")
+        try { manager.setTorchMode(flashId,enabled); torchEnabled=enabled }
+        catch(error:Exception){torchEnabled=false;throw IllegalStateException("ライトを操作できません。カメラ使用中・端末温度・他アプリのライト使用を確認してください。",error)}
+    }
+
+    private fun applyAndroidSpeakerVolume(percent:Int):String {
+        val audio=getSystemService(AUDIO_SERVICE) as AudioManager
+        val stream=AudioManager.STREAM_MUSIC
+        val max=audio.getStreamMaxVolume(stream).coerceAtLeast(1)
+        audio.mode=AudioManager.MODE_NORMAL
+        val requested=(max*percent.coerceIn(0,100)/100.0).toInt().coerceIn(0,max)
+        audio.setStreamVolume(stream,requested,0)
+        val actual=audio.getStreamVolume(stream)
+        return "Androidスピーカー音量を "+(actual*100/max)+"% に設定しました（$actual/$max）"
     }
 
     private fun sendNetworkDiagnostic(sessionId:String,reason:String=lastNetworkError) {
@@ -572,6 +578,24 @@ class MonitorService : Service() {
         rtc?.sendControl(sessionId,JSONObject().put("type","network_diagnostic").put("data",data))
         lastNetworkError=""
     }
+    private fun usageTotal(days:Int):Long {
+        val buckets=try { JSONObject(prefs.getString("usageDayBuckets","{}") ?: "{}") } catch (_:Exception) { JSONObject() }
+        val today=java.time.LocalDate.now(); var total=0L
+        for(i in 0 until days) total += buckets.optLong(today.minusDays(i.toLong()).toString(),0L).coerceAtLeast(0L)
+        return total
+    }
+    private fun recordUsageSample() {
+        val now=System.currentTimeMillis(); if(now-lastUsageSampleAt<15000L)return; lastUsageSampleAt=now
+        val tx=TrafficStats.getUidTxBytes(Process.myUid()); val rx=TrafficStats.getUidRxBytes(Process.myUid()); if(tx<0L||rx<0L)return
+        val oldTx=prefs.getLong("usageLastTx",tx); val oldRx=prefs.getLong("usageLastRx",rx)
+        val delta=(tx-oldTx).coerceAtLeast(0L)+(rx-oldRx).coerceAtLeast(0L)
+        val buckets=try { JSONObject(prefs.getString("usageDayBuckets","{}") ?: "{}") } catch (_:Exception) { JSONObject() }
+        val day=java.time.LocalDate.now().toString(); if(delta>0L)buckets.put(day,buckets.optLong(day,0L)+delta)
+        val cutoff=java.time.LocalDate.now().minusDays(30).toString(); val keys=buckets.keys(); val remove=mutableListOf<String>()
+        while(keys.hasNext()){val key=keys.next();if(key<cutoff)remove.add(key)};remove.forEach{buckets.remove(it)}
+        prefs.edit().putLong("usageLastTx",tx).putLong("usageLastRx",rx).putString("usageDayBuckets",buckets.toString()).apply()
+    }
+
     private fun sendTelemetry() {
         val uid=Process.myUid()
         val txNow=TrafficStats.getUidTxBytes(uid);val rxNow=TrafficStats.getUidRxBytes(uid)
@@ -619,7 +643,9 @@ class MonitorService : Service() {
             .put("cameraFacing",rtc?.currentCameraFacing() ?: "未接続")
             .put("cameraId",rtc?.currentCameraId() ?: "")
             .put("flashAvailable",flashAvailable).put("flashEnabled",torchEnabled)
-            .put("microphoneMode",prefs.getString("micMode","ambient") ?: "ambient")
+            .put("microphoneMode","noise-control-only")
+            .put("capture",rtc?.captureInfo() ?: JSONObject())
+            .put("usage7dBytes",usageTotal(7)).put("usage30dBytes",usageTotal(30))
             .put("network",networkInfo())
         rtc?.sendControlToOpenDataChannels(data)
     }
@@ -669,13 +695,13 @@ class MonitorService : Service() {
         val requestedQuality = settings.optString(
             "quality", prefs.getString("requestedQuality", "720") ?: "720"
         )
-        val requestedDataMode = settings.optString(
-            "dataMode", prefs.getString("requestedDataMode", "standard") ?: "standard"
-        )
+        val requestedDataMode = "standard"
         val previousQuality = prefs.getString("requestedQuality", "720") ?: "720"
-        val previousDataMode = prefs.getString("requestedDataMode", "standard") ?: "standard"
+        val previousDataMode = "standard"
         val requestChanged = requestedQuality != previousQuality || requestedDataMode != previousDataMode
         val requestedFps = settings.optInt("fps", prefs.getInt("fps", 24)).coerceIn(10, 60)
+        maxBitrateKbps = settings.optInt("maxBitrateKbps",prefs.getInt("maxBitrateKbps",2500)).coerceIn(150,8000)
+        prefs.edit().putInt("maxBitrateKbps",maxBitrateKbps).apply()
         val requestedRatio = settings.optString("aspectRatio", prefs.getString("aspectRatio", "16:9") ?: "16:9")
             .takeIf { it in setOf("16:9", "4:3", "1:1", "9:16", "original") } ?: "16:9"
         val editor = prefs.edit()
@@ -921,6 +947,7 @@ class MonitorService : Service() {
     }
 
     override fun onDestroy() {
+        prefs.edit().putBoolean("monitoringEnabled",false).apply()
         pollJob?.cancel()
         locationJob?.cancel()
         rtc?.dispose()
