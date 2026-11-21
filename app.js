@@ -823,7 +823,8 @@ function waitIce(pc, ms) {
     pc.addEventListener("icegatheringstatechange", check);
   });
 }
-async function connect() {
+async function connect(automatic = false) {
+  automatic = automatic === true;
   if (!S.device) return toast("先にAndroidをペアリングしてください。");
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     return toast("このブラウザではマイクを利用できません。SafariのHTTPS接続を確認してください。");
@@ -831,20 +832,42 @@ async function connect() {
   if (S.connecting) return false;
   const device = S.device;
   if (!device) return false;
+  if (!automatic) {
+    S.manualDisconnect = false;
+    S.reconnectAttempts = 0;
+  }
+  if (S.reconnectTimer) {
+    clearTimeout(S.reconnectTimer);
+    S.reconnectTimer = null;
+  }
   S.connecting = true;
   $("connect").disabled = true;
+  // Resume/create Web Audio while the Connect click still has user activation on iPad Safari.
+  prepareAudioOutput();
   try {
-    if (S.pc) await disconnect(false);
+    if (S.pc) await disconnect(false, automatic);
     if (!S.device || S.device.deviceId !== device.deviceId) {
       throw Error("接続先端末が変更されました。もう一度選択してください。");
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    // Register the stream immediately so every later error path can stop its tracks.
-    S.mic = stream;
-    if (!S.device || S.device.deviceId !== device.deviceId) throw Error("接続先端末が変更されました。もう一度選択してください。");
-    stream.getAudioTracks().forEach(track => { track.enabled = false; });
+    // Reuse the already-authorized microphone during automatic recovery.
+    let stream = S.mic;
+    let localAudioTrack = stream && stream.getAudioTracks().find(track => track.readyState === "live");
+    if (!localAudioTrack) {
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false
+      });
+      S.mic = stream;
+      localAudioTrack = stream.getAudioTracks()[0] || null;
+    }
+    if (!localAudioTrack) throw Error("マイク音声トラックを作成できませんでした。");
+    if (!S.device || S.device.deviceId !== device.deviceId) throw Error("接続先端末が変更されました。");
+    localAudioTrack.enabled = false;
+    S.pttActive = false;
     S.session = rid();
     S.seq = 0;
+    S.hasReceivedVideoFrame = false;
     try {
       const iceConfig = await api("get_ice_config", { controllerToken:device.controllerToken, deviceId:device.deviceId });
       if (!S.device || S.device.deviceId !== device.deviceId) throw Error("接続先端末が変更されました。");
@@ -864,7 +887,11 @@ async function connect() {
       status("監視中・DataChannel直接接続", true);
       $("streamState").textContent = "映像・音声・DataChannel接続中";
       startRtcStats();
+      startVideoWatchdog(pc);
       sendControl("settings_update", readLiveSettings());
+      $("remoteMute").disabled = false;
+      $("pttLock").disabled = false;
+      if (S.keepAwakeWanted && !S.wakeLock) enableScreenWakeLock().catch(() => {});
     };
     control.onclose = () => {
       if (S.pc !== pc) return;
@@ -872,31 +899,46 @@ async function connect() {
       $("torch").disabled = true;
       stopRtcStats();
       status("制御チャネル切断");
-      if (S.pc === pc && S.everConnected) scheduleReconnect(pc);
+      if (S.pc === pc && S.everConnected && !S.manualDisconnect) scheduleReconnect(pc);
     };
     control.onmessage = event => { if (S.pc === pc) handleControlMessage(event.data); };
     control.onerror = () => { if (S.pc === pc) toast("DataChannel通信エラー"); };
     $("camera").disabled = false;
     const remote = new MediaStream();
+    S.remoteVideoStream = remote;
     $("remoteVideo").srcObject = remote;
+    $("remoteVideo").muted = true;
+    prepareAudioOutput();
     pc.addTransceiver("video", { direction: "recvonly" });
-    pc.addTrack(stream.getAudioTracks()[0]);
+    pc.addTrack(localAudioTrack, stream);
     pc.ontrack = event => {
       if (S.pc !== pc) return;
       const tracks = event.streams[0] ? event.streams[0].getTracks() : [event.track];
       tracks.forEach(track => {
         if (!remote.getTracks().some(existing => existing.id === track.id)) remote.addTrack(track);
         if (track.kind === "video") {
-          track.addEventListener("ended", () => stopMotionDetection("映像が終了しました。"));
-          track.addEventListener("unmute", () => startMotionDetection());
+          track.addEventListener("ended", () => {
+            $("videoState").textContent = "映像トラック終了";
+            stopMotionDetection("映像が終了しました。");
+            if (S.pc === pc && !S.manualDisconnect) scheduleReconnect(pc, true, 1200);
+          });
+          track.addEventListener("mute", () => { $("videoState").textContent = "映像一時停止"; });
+          track.addEventListener("unmute", () => { $("videoState").textContent = "映像再開中"; startMotionDetection(); });
         }
         if (track.kind === "audio" && !S.remoteAudioTracks.some(existing => existing.id === track.id)) {
-          track.enabled = !S.pttActive;
+          track.enabled = !S.pttActive && !S.remoteAudioMuted;
+          track.addEventListener("unmute", () => attachRemoteAudio());
+          track.addEventListener("ended", () => { $("audioState").textContent = "Androidマイク切断"; });
           S.remoteAudioTracks.push(track);
+          attachRemoteAudio();
         }
       });
       $("placeholder").classList.add("hidden");
-      $("remoteVideo").play().then(() => startMotionDetection()).catch(() => toast("映像・音声を再生するには画面をタップしてください。"));
+      $("remoteVideo").play().then(() => {
+        restoreRemotePlayback();
+        startVideoWatchdog(pc);
+        startMotionDetection();
+      }).catch(() => toast("映像・音声を再生するには画面をタップしてください。"));
     };
     pc.onconnectionstatechange = () => {
       if (S.pc !== pc) return;
@@ -906,11 +948,21 @@ async function connect() {
       $("streamState").textContent = state === "connected" ? "映像・音声接続中" : "接続処理中";
       if (state === "connected") {
         S.everConnected = true;
-        S.reconnectAttempts = 0;
         if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
         S.reconnectTimer = null;
-      } else if ((state === "failed" || state === "disconnected") && S.everConnected) {
-        scheduleReconnect(pc);
+        if (S.reconnectResetTimer) clearTimeout(S.reconnectResetTimer);
+        S.reconnectResetTimer = setTimeout(() => {
+          if (S.pc === pc && pc.connectionState === "connected") S.reconnectAttempts = 0;
+          S.reconnectResetTimer = null;
+        }, 30000);
+        startSessionClock();
+        startRtcStats();
+        startVideoWatchdog(pc);
+      } else if ((state === "failed" || state === "disconnected" || state === "closed") && S.everConnected && !S.manualDisconnect) {
+        if (S.reconnectResetTimer) clearTimeout(S.reconnectResetTimer);
+        S.reconnectResetTimer = null;
+        stopSessionClock();
+        scheduleReconnect(pc, false, state === "disconnected" ? 8000 : 1500);
       }
     };
     const offer = await pc.createOffer();
@@ -932,28 +984,35 @@ async function connect() {
     pollAnswers(pc, S.session, device);
     return true;
   } catch (error) {
-    await disconnect(false);
+    const permissionDenied = error.name === "NotAllowedError" || error.name === "PermissionDeniedError" || error.name === "SecurityError";
+    await disconnect(false, !permissionDenied && (automatic || S.everConnected));
     toast("接続開始失敗: " + error.message);
-    if (S.everConnected) scheduleReconnect(null);
+    if (S.everConnected && !S.manualDisconnect) scheduleReconnect(null);
     return false;
   } finally {
     S.connecting = false;
     $("connect").disabled = !S.device || !!S.pc;
   }
 }
-function scheduleReconnect(expectedPc) {
-  if (S.reconnectTimer || !S.everConnected || !S.device) return;
-  if (S.reconnectAttempts >= 5) {
-    toast("自動再接続を5回試しました。手動で接続してください。");
+function scheduleReconnect(expectedPc, forceReconnect = false, initialWait = null) {
+  if (S.manualDisconnect || S.reconnectTimer || !S.everConnected || !S.device) return;
+  const waits = [2500, 5000, 10000, 15000, 20000];
+  if (S.reconnectAttempts >= waits.length) {
+    toast("自動再接続を5回試しました。回線とAndroidの待機状態を確認してください。");
     return;
   }
+  const attempt = S.reconnectAttempts + 1;
+  const wait = initialWait === null ? waits[S.reconnectAttempts] : initialWait;
+  status("再接続を準備中");
+  $("streamState").textContent = "再接続 " + attempt + "/" + waits.length;
   S.reconnectTimer = setTimeout(async () => {
     S.reconnectTimer = null;
-    if (expectedPc && S.pc !== expectedPc) return;
-    S.reconnectAttempts += 1;
+    if (S.manualDisconnect || !S.device || (expectedPc && S.pc !== expectedPc)) return;
+    if (expectedPc && expectedPc.connectionState === "connected" && !forceReconnect) return;
+    S.reconnectAttempts = attempt;
     const ok = await connect(true);
-    if (!ok) scheduleReconnect(null);
-  }, 5000);
+    if (!ok && !S.reconnectTimer) scheduleReconnect(null);
+  }, wait);
 }
 async function pollAnswers(peer, sessionId, device) {
   while (S.pc === peer && S.session === sessionId && S.device &&
