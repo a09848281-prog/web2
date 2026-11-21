@@ -486,6 +486,7 @@ class RtcEngine(
         try { peer.close() } catch (_: Exception) {}
         try { peer.dispose() } catch (_: Exception) {}
         onState("接続セッションを終了しました：" + reason)
+        onConnectionState(sessionId,"SESSION_CLOSED")
         scope.launch(Dispatchers.IO) {
             try {
                 api.call("send_signal", JSONObject()
