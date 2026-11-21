@@ -79,6 +79,7 @@ assert.ok(service.includes("if (needsPairing)") && service.includes("rtc?.dispos
 assert.ok(service.includes('val signals = if (needsPairing) JSONArray()'), "No-controller state must ignore stale offers");
 assert.ok(service.includes('val sessionId = payload.optString("sessionId", "")'), "Disconnect commands must be viewer-session scoped");
 assert.ok(js.includes("payload:{sessionId:sessionId}"), "Web disconnect fallback must include its session ID");
+assert.ok(js.includes("await api(\"send_signal\""), "Web disconnect must await the session bye signal before unpair");
 assert.ok(js.includes('window.addEventListener("online"'), "Motion metadata must retry after network recovery");
 assert.ok(js.includes("S.motion.retryTimer = setInterval"), "Motion metadata must have a periodic retry fallback");
 assert.ok(config.includes("POLL_SECONDS = 10L"), "Default polling interval must be 10 seconds");
