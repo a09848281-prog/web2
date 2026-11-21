@@ -195,6 +195,7 @@ class MonitorService : Service() {
         locationJob = null
         rtc?.dispose()
         rtc = null
+        try { setTorch(false) } catch (_: Exception) {}
         updateStreamWakeLock(false)
         prefs.edit().putBoolean("monitoringEnabled", false).apply()
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -408,6 +409,9 @@ class MonitorService : Service() {
         if (!engine.hasPeers()) {
             engine.dispose()
             if (rtc === engine) rtc = null
+            try { setTorch(false) } catch (error: Exception) {
+                Log.w("RemoteCameraService", "Could not switch off flashlight after final viewer disconnected", error)
+            }
             updateStreamWakeLock(false)
         }
     }
