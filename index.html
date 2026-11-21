@@ -187,7 +187,7 @@
 </main>
 
 <dialog id="pairDialog"><form method="dialog" class="dialog">
-  <button class="close" aria-label="閉じる">×</button><h2>Androidをペアリング</h2>
+  <button type="button" class="close" id="closePairDialog" aria-label="閉じる">×</button><h2>Androidをペアリング</h2>
   <p>Androidアプリに表示された8桁コードを入力してください。コードは10分で期限切れになります。</p>
   <label>登録コード<input id="pairCode" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" autocomplete="one-time-code" required></label>
   <label>端末名（任意）<input id="pairName" maxlength="40" placeholder="例：Androidカメラ"></label>
