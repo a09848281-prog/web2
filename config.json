@@ -1,10 +1,11 @@
 {
   "gasUrl": "https://script.google.com/macros/s/AKfycby3lsSw8oKBpqpLDP4F3NZgKwfZke6AJJRQaF4erb3AVHEMW3k06I7nVEwUkjDditToow/exec",
-  "appVersion": "2.0.1-preview",
+  "appVersion": "2.1.0-preview",
   "apiVersion": "1.2.0",
   "pollIntervalMs": 2500,
   "pollIntervalSeconds": 10,
   "minPollIntervalSeconds": 1,
   "maxPollIntervalSeconds": 50,
-  "requestTimeoutMs": 30000
+  "requestTimeoutMs": 30000,
+  "maxBitrateKbps": 2500
 }
