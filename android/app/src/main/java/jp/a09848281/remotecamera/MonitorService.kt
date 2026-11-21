@@ -294,9 +294,12 @@ class MonitorService : Service() {
                                         }
                                         if (rtc == null) {
                                             val currentApi = api ?: continue
-                                            rtc = RtcEngine(this,currentApi,deviceId,secret,scope,::notifyState,
-                                                onDataChannelMessage=::handleDataChannelMessage,
-                                                onConnectionState=::onRtcConnectionState)
+                                            rtc = RtcEngine(
+                                                this, currentApi, deviceId, secret, scope, ::notifyState,
+                                                onDataChannelMessage = ::handleDataChannelMessage,
+                                                onConnectionState = ::onRtcConnectionState,
+                                                microphoneMode = prefs.getString("micMode", "ambient") ?: "ambient"
+                                            )
                                         }
                                         rtc?.setIceServers(response.optJSONArray("iceServers"))
                                         rtc?.setNoiseSuppressionLevel(prefs.getInt("micNoise", 70))
@@ -312,8 +315,7 @@ class MonitorService : Service() {
                                     }
                                 }
                                 "bye" -> {
-                                    rtc?.closeSession(signal.optString("sessionId"))
-                                    updateStreamWakeLock(rtc?.hasPeers() == true)
+                                    closeRtcViewerSession(signal.optString("sessionId"))
                                     notifyState("Web側から切断要求を受信しました")
                                 }
                             }
@@ -390,6 +392,30 @@ class MonitorService : Service() {
             }
         }
     }
+    private fun closeRtcViewerSession(sessionId: String) {
+        val engine = rtc ?: return
+        engine.closeSession(sessionId)
+        updateStreamWakeLock(engine.hasPeers())
+        // AudioDeviceModule presets are fixed at PeerConnectionFactory creation.
+        // Dispose the empty engine so the next viewer receives the selected preset.
+        if (!engine.hasPeers()) {
+            engine.dispose()
+            if (rtc === engine) rtc = null
+            updateStreamWakeLock(false)
+        }
+    }
+
+    private fun applyMicModeSetting(settings: JSONObject): String {
+        val requested = settings.optString("micMode", prefs.getString("micMode", "ambient") ?: "ambient")
+        val mode = if (requested in setOf("ambient", "balanced", "voice")) requested else "ambient"
+        prefs.edit().putString("micMode", mode).apply()
+        return "マイク集音モードを" + when (mode) {
+            "voice" -> "声重視"
+            "balanced" -> "バランス"
+            else -> "環境音重視"
+        } + "に設定しました。次回接続から反映します。"
+    }
+
     private fun handleDataChannelMessage(sessionId:String,raw:String) {
         scope.launch {
             var requestId=""
@@ -403,8 +429,7 @@ class MonitorService : Service() {
                 rtc?.sendControl(sessionId,JSONObject().put("type","ack").put("requestId",requestId).put("ok",true).put("message",result))
                 if(name=="disconnect"){
                     delay(150L)
-                    rtc?.closeSession(sessionId)
-                    updateStreamWakeLock(rtc?.hasPeers() == true)
+                    closeRtcViewerSession(sessionId)
                 }
             } catch(e:Exception) {
                 try{rtc?.sendControl(sessionId,JSONObject().put("type","ack").put("requestId",requestId).put("ok",false).put("message",e.message?:"命令を適用できませんでした"))}catch(_:Exception){}
@@ -429,7 +454,8 @@ class MonitorService : Service() {
             "volume","speaker_volume" -> {
                 val pct=payload.optInt("percent",70).coerceIn(0,100)
                 val audio=getSystemService(AUDIO_SERVICE) as AudioManager
-                val stream=AudioManager.STREAM_VOICE_CALL
+                val stream=AudioManager.STREAM_MUSIC
+                audio.mode = AudioManager.MODE_NORMAL
                 audio.setStreamVolume(stream,(audio.getStreamMaxVolume(stream)*pct/100.0).toInt(),0)
             }
             "adaptive_quality" -> {
@@ -442,9 +468,11 @@ class MonitorService : Service() {
                 rtc?.setMicGain(payload.optInt("micGain",prefs.getInt("micGain",100)))
                 val pct=payload.optInt("speakerVolume",70).coerceIn(0,100)
                 val audio=getSystemService(AUDIO_SERVICE) as AudioManager
-                val stream=AudioManager.STREAM_VOICE_CALL
+                val stream=AudioManager.STREAM_MUSIC
+                audio.mode = AudioManager.MODE_NORMAL
                 audio.setStreamVolume(stream,(audio.getStreamMaxVolume(stream)*pct/100.0).toInt(),0)
                 rtc?.setNightMode(payload.optBoolean("nightMode",false))
+                val micModeMessage = applyMicModeSetting(payload)
                 prefs.edit().putString("quality",currentQuality).putString("dataMode",currentDataMode)
                     .putInt("fps",currentFps)
                     .putString("aspectRatio",payload.optString("aspectRatio","16:9"))
@@ -453,6 +481,7 @@ class MonitorService : Service() {
                     .putInt("micGain",payload.optInt("micGain",100).coerceIn(0,100))
                     .putInt("speakerVolume",pct)
                     .putBoolean("nightMode",payload.optBoolean("nightMode",false)).apply()
+                if (payload.has("micMode")) return "$micModeMessage Android設定を保存しました。"
             }
             "mic_noise" -> rtc?.setNoiseSuppressionLevel(payload.optInt("strength",70))
             "mic_sensitivity" -> rtc?.setMicSensitivity(payload.optInt("percent",70))
@@ -672,22 +701,26 @@ class MonitorService : Service() {
         connectedInterval = settings.optLong("connectedInterval", 30).coerceIn(10, 3600)
         idleInterval = settings.optLong("idleInterval", 300).coerceIn(10, 3600)
         applyVideoSettings(settings)
-        val micNoise = settings.optInt("micNoise", prefs.getInt("micNoise", 70)).coerceIn(0, 100)
-        val micSensitivity = settings.optInt("micSensitivity", prefs.getInt("micSensitivity", 70)).coerceIn(0, 100)
+        val micNoise = settings.optInt("micNoise", prefs.getInt("micNoise", 0)).coerceIn(0, 100)
+        val micSensitivity = settings.optInt("micSensitivity", prefs.getInt("micSensitivity", 0)).coerceIn(0, 100)
         val micGain = settings.optInt("micGain", prefs.getInt("micGain", 100)).coerceIn(0, 100)
         val speakerVolume = settings.optInt("speakerVolume", prefs.getInt("speakerVolume", 70)).coerceIn(0, 100)
         val nightMode = settings.optBoolean("nightMode", prefs.getBoolean("nightMode", false))
+        val micMode = settings.optString("micMode", prefs.getString("micMode", "ambient") ?: "ambient")
+            .takeIf { it in setOf("ambient", "balanced", "voice") } ?: "ambient"
         prefs.edit().putInt("micNoise", micNoise)
             .putInt("micSensitivity", micSensitivity).putInt("micGain", micGain)
-            .putInt("speakerVolume", speakerVolume).putBoolean("nightMode", nightMode).apply()
+            .putInt("speakerVolume", speakerVolume).putBoolean("nightMode", nightMode)
+            .putString("micMode", micMode).apply()
         rtc?.setNoiseSuppressionLevel(micNoise)
         rtc?.setMicSensitivity(micSensitivity)
         rtc?.setMicGain(micGain)
         rtc?.setNightMode(nightMode)
         try {
             val audio = getSystemService(AUDIO_SERVICE) as AudioManager
-            val max = audio.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
-            audio.setStreamVolume(AudioManager.STREAM_VOICE_CALL, (max * speakerVolume / 100.0).toInt(), 0)
+            audio.mode = AudioManager.MODE_NORMAL
+            val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, (max * speakerVolume / 100.0).toInt(), 0)
         } catch (_: Exception) {}
     }
 
