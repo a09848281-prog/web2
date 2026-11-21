@@ -19,6 +19,7 @@ jobs:
         run: |
           node --check app.js
           node --check motion-core.js
+          node --check audio-utils.js
           node --check < gas/Code.gs
           node --test tests/*.test.cjs
           node scripts/check-project.mjs
