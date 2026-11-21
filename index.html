@@ -67,7 +67,7 @@
         <p class="hint">100%を超えると受信音声をWeb側で増幅します。音割れが発生する場合があります。</p>
         <label>Androidスピーカー音量（PTT受信側） <output id="androidSpeakerVolumeValue">70%</output><input id="androidSpeakerVolume" type="range" min="0" max="100" value="70"></label>
         <div class="audioMeterPanel"><div><b>Androidマイク音声レベル</b><span id="audioLevelText">待機中</span></div><progress id="audioLevel" max="1" value="0"></progress></div>
-        <label>マイクのノイズ抑制 <output id="micNoiseValue">70%</output><input id="micNoise" type="range" min="0" max="100" value="70"></label>
+        <label class="check"><input id="micNoise" type="checkbox" checked> マイクのノイズ抑制 ON</label>
         <p class="hint">ノイズ抑制はAndroid側の音声処理に反映します。端末の対応状況により効き方が異なり、変更後の音声初期化から確実に反映されます。</p>
       </div>
     </details>
