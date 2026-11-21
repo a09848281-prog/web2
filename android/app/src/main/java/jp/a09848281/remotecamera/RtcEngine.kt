@@ -210,8 +210,8 @@ class RtcEngine(
         val baseBitrate = when (tier) {
             360 -> 650000
             480 -> 1000000
-            1080 -> 3200000
-            else -> 1700000
+            1080 -> 8000000
+            else -> 4000000
         }
         val base = VideoProfile(dimensions.first, dimensions.second, requestedFps.coerceIn(10, 60), minOf(baseBitrate, maxBitrateKbps.coerceIn(150, 8000) * 1000))
         val modeProfile = when (dataMode) {
@@ -522,7 +522,20 @@ class RtcEngine(
     }
     fun sendControlToOpenDataChannels(message:JSONObject){controlChannels.keys.toList().forEach{id->sendControl(id,message)}}
     fun setNoiseSuppressionLevel(level:Int){noiseSuppressionLevel=level.coerceIn(0,100);onState("ノイズ抑制 "+noiseSuppressionLevel+"%（次回音声初期化から適用）")}
-    fun setCameraEnabled(enabled:Boolean){cameraEnabled=enabled;videoTrack?.setEnabled(enabled);onState(if(enabled)"Androidカメラ送信 ON" else "Androidカメラ送信 OFF")}
+    @Synchronized fun setCameraEnabled(enabled:Boolean){
+        if(cameraEnabled==enabled)return
+        val camera=capturer?:error("カメラが起動していません。")
+        if(enabled){
+            camera.startCapture(captureWidth,captureHeight,captureFps)
+            cameraEnabled=true
+            videoTrack?.setEnabled(true)
+        }else{
+            videoTrack?.setEnabled(false)
+            try{camera.stopCapture();cameraEnabled=false}
+            catch(error:Exception){videoTrack?.setEnabled(true);throw IllegalStateException("カメラを停止できませんでした。",error)}
+        }
+        onState(if(enabled)"Androidカメラ送信 ON" else "Androidカメラ送信 OFF")
+    }
     fun setMicrophoneEnabled(enabled:Boolean){microphoneEnabled=enabled;audioTrack?.setEnabled(enabled);onState(if(enabled)"Androidマイク送信 ON" else "Androidマイク送信 OFF")}
     fun captureInfo():JSONObject = JSONObject().put("width",captureWidth).put("height",captureHeight).put("fps",captureFps).put("maxBitrateKbps",maxBitrateKbps).put("cameraEnabled",cameraEnabled).put("microphoneEnabled",microphoneEnabled)
     fun setMicSensitivity(level:Int){micSensitivity=level.coerceIn(0,100);onState("マイク感度要求 "+micSensitivity+"%（自動ゲインは対応範囲・次回音声初期化時に反映）")}
