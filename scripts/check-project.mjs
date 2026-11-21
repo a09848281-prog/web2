@@ -60,6 +60,7 @@ assert.ok(rtc.includes("stun:stun.l.google.com:19302"), "Android STUN configurat
 assert.ok(rtc.includes("fun setIceServers("), "Android dynamic ICE server setup missing");
 assert.ok(rtc.includes("private fun failSession("), "RTC failure cleanup missing");
 assert.ok(service.includes("pollIntervalSeconds"), "Custom polling interval missing");
+assert.ok(service.includes("delay(250L)"), "Connected polling scheduler must support the one-second interval");
 assert.ok(service.includes("sendTelemetry()"), "Android telemetry missing");
 assert.ok(service.includes("networkInfo()"), "Network diagnostics missing");
 assert.ok(service.includes("setTorch("), "Android flashlight control missing");
