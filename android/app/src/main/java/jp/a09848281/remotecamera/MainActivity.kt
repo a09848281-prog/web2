@@ -8,6 +8,8 @@ import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.text.InputType
+import android.text.Editable
+import android.text.TextWatcher
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -27,6 +29,9 @@ class MainActivity : Activity() {
     private lateinit var refreshCodeButton: Button
     private lateinit var stopButton: Button
     private lateinit var pollIntervalInput: EditText
+    private lateinit var maxBitrateInput: EditText
+    private lateinit var dailyStartInput: EditText
+    private lateinit var dailyEndInput: EditText
     private var gasUrl = ""
     private val prefs by lazy { getSharedPreferences(AppConfig.PREFS, MODE_PRIVATE) }
 
@@ -86,6 +91,40 @@ class MainActivity : Activity() {
             hint = "例：10"
         }
         root.addView(pollIntervalInput, LinearLayout.LayoutParams(-1, -2))
+        pollIntervalInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                s?.toString()?.toIntOrNull()?.takeIf { it in AppConfig.MIN_POLL_SECONDS..AppConfig.MAX_POLL_SECONDS }?.let {
+                    prefs.edit().putInt("pollIntervalSeconds", it).apply()
+                }
+            }
+        })
+        root.addView(TextView(this).apply { text = "映像ビットレート上限（150～8000 kbps）"; textSize = 14f; setTextColor(0xFF586980.toInt()); setPadding(0,12,0,4) })
+        maxBitrateInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setSingleLine(true)
+            setText(prefs.getInt("maxBitrateKbps",2500).toString())
+            hint = "例：2500"
+        }
+        root.addView(maxBitrateInput, LinearLayout.LayoutParams(-1,-2))
+        maxBitrateInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                s?.toString()?.toIntOrNull()?.takeIf { it in 150..8000 }?.let { prefs.edit().putInt("maxBitrateKbps",it).apply() }
+            }
+        })
+        root.addView(TextView(this).apply { text = "毎日の監視待機予約（24時間制）"; textSize = 15f; setTextColor(0xFF17243A.toInt()); setPadding(0,20,0,4) })
+        dailyStartInput = EditText(this).apply { setSingleLine(true); setText(prefs.getString("dailyStartTime","08:00")); hint = "開始 HH:mm" }
+        dailyEndInput = EditText(this).apply { setSingleLine(true); setText(prefs.getString("dailyEndTime","23:00")); hint = "終了 HH:mm" }
+        root.addView(TextView(this).apply { text = "開始時刻"; textSize = 13f; setTextColor(0xFF586980.toInt()) })
+        root.addView(dailyStartInput,LinearLayout.LayoutParams(-1,-2))
+        root.addView(TextView(this).apply { text = "終了時刻"; textSize = 13f; setTextColor(0xFF586980.toInt()) })
+        root.addView(dailyEndInput,LinearLayout.LayoutParams(-1,-2))
+        root.addView(Button(this).apply { text = "毎日の予約を有効にする"; setOnClickListener { saveDailySchedule() } },LinearLayout.LayoutParams(-1,-2))
+        root.addView(Button(this).apply { text = "毎日の予約を解除"; setOnClickListener { MonitorSchedule.cancel(this@MainActivity); Toast.makeText(this@MainActivity,"毎日の予約を解除しました。",Toast.LENGTH_SHORT).show() } },LinearLayout.LayoutParams(-1,-2))
+        root.addView(TextView(this).apply { text = "予約は省電力・Androidの制御により遅れる場合があります。待機中はカメラ・マイクを起動しません。"; textSize = 12f; setTextColor(0xFF66758B.toInt()); setPadding(0,6,0,10) })
         root.addView(refreshCodeButton, LinearLayout.LayoutParams(-1, -2))
         root.addView(startButton, LinearLayout.LayoutParams(-1, -2))
         root.addView(stopButton, LinearLayout.LayoutParams(-1, -2))
@@ -110,6 +149,7 @@ class MainActivity : Activity() {
                         JSONObject(c.inputStream.bufferedReader().use { it.readText() }).optString("gasUrl", "")
                     } finally { c.disconnect() }
                 }
+                prefs.edit().putString("gasUrl",gasUrl).apply()
                 if (!gasUrl.startsWith("https://script.google.com/macros/s/") ||
                     !gasUrl.endsWith("/exec") || gasUrl.contains("GAS_EXEC_URL_HERE") ||
                     gasUrl.contains("PASTE_YOUR_DEPLOYMENT_ID")) {
@@ -123,6 +163,17 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
                 status.text = "設定取得エラー：" + (e.message ?: "通信エラー")
             }
+        }
+    }
+
+    private fun saveDailySchedule() {
+        val start=dailyStartInput.text?.toString()?.trim().orEmpty()
+        val end=dailyEndInput.text?.toString()?.trim().orEmpty()
+        try {
+            MonitorSchedule.scheduleDaily(this,start,end)
+            Toast.makeText(this,"毎日の待機予約を設定しました。開始 $start / 終了 $end",Toast.LENGTH_LONG).show()
+        } catch(error:Exception) {
+            Toast.makeText(this,error.message ?: "予約を設定できませんでした。",Toast.LENGTH_LONG).show()
         }
     }
 
@@ -162,7 +213,10 @@ class MainActivity : Activity() {
     }
 
     private fun startMonitoring() {
-        val requestedSeconds = pollIntervalInput.text?.toString()?.toIntOrNull() ?: AppConfig.POLL_SECONDS.toInt()
+        val requestedSeconds = pollIntervalInput.text?.toString()?.toIntOrNull() ?: prefs.getInt("pollIntervalSeconds",AppConfig.POLL_SECONDS.toInt())
+        val requestedBitrate = maxBitrateInput.text?.toString()?.toIntOrNull() ?: prefs.getInt("maxBitrateKbps",2500)
+        if(requestedBitrate !in 150..8000){Toast.makeText(this,"ビットレート上限は150～8000 kbpsで入力してください。",Toast.LENGTH_LONG).show();return}
+        prefs.edit().putInt("maxBitrateKbps",requestedBitrate).apply()
         if (requestedSeconds !in AppConfig.MIN_POLL_SECONDS..AppConfig.MAX_POLL_SECONDS) {
             Toast.makeText(this, "確認間隔は1～50秒で入力してください。", Toast.LENGTH_LONG).show()
             return
