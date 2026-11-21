@@ -57,7 +57,7 @@ class MainActivity : Activity() {
         }
 
         refreshCodeButton = Button(this).apply {
-            text = "ペアリングコードを再発行"
+            text = "ペアリングコードを発行・再発行"
             isEnabled = false
             setOnClickListener { requestRefreshCode() }
         }
@@ -74,7 +74,7 @@ class MainActivity : Activity() {
         root.addView(status)
         root.addView(codeView)
         root.addView(TextView(this).apply {
-            text = "GAS接続確認間隔（秒・1～50）"
+            text = "GASへの問い合わせ間隔（1～50秒）"
             textSize = 14f
             setTextColor(0xFF586980.toInt())
             setPadding(0, 8, 0, 4)
@@ -207,7 +207,7 @@ class MainActivity : Activity() {
         }
         try {
             ContextCompat.startForegroundService(this, intent)
-            Toast.makeText(this, "ペアリングコードを再発行しています。", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "ペアリングコードを発行・再発行しています。", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Toast.makeText(this, "再発行できません：" + (e.message ?: "エラー"), Toast.LENGTH_LONG).show()
         }
@@ -251,7 +251,7 @@ class MainActivity : Activity() {
             val code = intent?.getStringExtra(MonitorService.EXTRA_CODE) ?: return
             val id = intent.getStringExtra(MonitorService.EXTRA_DEVICE_ID) ?: ""
             if (code.isNotBlank()) {
-                codeView.text = "登録コード：$code\n端末ID：$id"
+                codeView.text = "ペアリングコード：$code\n端末ID：$id"
             } else {
                 showSavedCode()
             }
