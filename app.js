@@ -748,9 +748,12 @@ function setControlsEnabled(enabled) {
   $("keepAwake").disabled = !enabled || !S.pc;
   $("connect").disabled = !enabled || !!S.pc || S.connecting;
   $("disconnect").disabled = !S.pc;
-  $("torch").disabled = !S.pc || !S.control || S.control.readyState !== "open";
+  $("torch").disabled = !S.pc || !S.control || S.control.readyState !== "open" || !S.flashAvailable;
   $("camera").disabled = !enabled || !S.pc;
-  $("ptt").disabled = !S.pc;
+  $("ptt").disabled = !S.pc || !S.mic;
+  $("remoteMute").disabled = !enabled || !S.pc || !S.control || S.control.readyState !== "open";
+  $("pttLock").disabled = !enabled || !S.pc || !S.mic;
+  $("keepAwake").disabled = !enabled || !S.pc;
 }
 function selectDevice(device) {
   if ((S.pc || S.connecting) && S.device && S.device.deviceId !== device.deviceId) {
@@ -858,7 +861,7 @@ async function connect(automatic = false) {
   // Resume/create Web Audio while the Connect click still has user activation on iPad Safari.
   prepareAudioOutput();
   try {
-    if (S.pc) await disconnect(false, automatic);
+    if (S.pc) await disconnect(false, automatic, true);
     if (!S.device || S.device.deviceId !== device.deviceId) {
       throw Error("接続先端末が変更されました。もう一度選択してください。");
     }
@@ -911,6 +914,12 @@ async function connect(automatic = false) {
       if (S.pc !== pc) return;
       $("diagnostics").disabled = true;
       $("torch").disabled = true;
+      $("remoteMute").disabled = true;
+      $("pttLock").disabled = true;
+      if (S.pttActive) ptt(false);
+      S.pttLocked = false;
+      $("pttLock").textContent = "送話ロック OFF";
+      $("pttLock").classList.remove("active");
       stopRtcStats();
       status("制御チャネル切断");
       if (S.pc === pc && S.everConnected && !S.manualDisconnect) scheduleReconnect(pc);
@@ -973,6 +982,10 @@ async function connect(automatic = false) {
         startRtcStats();
         startVideoWatchdog(pc);
       } else if ((state === "failed" || state === "disconnected" || state === "closed") && S.everConnected && !S.manualDisconnect) {
+        if (S.pttActive) ptt(false);
+        S.pttLocked = false;
+        $("pttLock").textContent = "送話ロック OFF";
+        $("pttLock").classList.remove("active");
         if (S.reconnectResetTimer) clearTimeout(S.reconnectResetTimer);
         S.reconnectResetTimer = null;
         stopSessionClock();
@@ -1047,7 +1060,7 @@ async function pollAnswers(peer, sessionId, device) {
     await new Promise(resolve => setTimeout(resolve, Number(S.cfg.pollIntervalMs) || 2500));
   }
 }
-async function disconnect(sendCommand = true, preserveMic = false) {
+async function disconnect(sendCommand = true, preserveMic = false, notifyRemote = sendCommand) {
   if (sendCommand) {
     S.manualDisconnect = true;
     S.pttLocked = false;
@@ -1061,7 +1074,7 @@ async function disconnect(sendCommand = true, preserveMic = false) {
   const device = S.device;
   const sessionId = S.session;
   const old = S.pc;
-  if (sendCommand && old && device && sessionId) {
+  if (notifyRemote && old && device && sessionId) {
     const channelOpen = S.control && S.control.readyState === "open";
     if (channelOpen) sendControl("disconnect", {});
     try {
@@ -1479,6 +1492,8 @@ function showVideo() {
   $("videoPane").classList.remove("hidden");
   $("videoTab").classList.add("active");
   $("mapTab").classList.remove("active");
+  restoreRemotePlayback();
+  if (S.pc) startVideoWatchdog(S.pc);
 }
 function drawMap(points) {
   initMap();
