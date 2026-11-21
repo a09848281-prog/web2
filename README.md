@@ -1,4 +1,4 @@
-# Remote Camera Web2 v1.1
+# Remote Camera Web2 v1.2
 
 Android 13 / iPad PWA / PC browser remote camera system.
 
@@ -30,7 +30,7 @@ WebRTC always has a public Google STUN fallback. For restrictive NATs, optional 
 ## First setup
 
 1. Create a Google Sheet and open Extensions → Apps Script.
-2. Paste `gas/Code.gs`, save, and run `setupDatabase()`. On upgrade to v1.1, run it again to create the MotionEvents sheet; existing rows are preserved.
+2. Paste the current v1.2 `gas/Code.gs`, save, and run `setupDatabase()` for a new installation. Existing v1.1 users only need to update the existing Apps Script project and redeploy it as a new version; the Settings sheet stores microphone mode inside its existing JSON value.
 3. Deploy as a Web App (execute as you, access according to your private-use needs) and copy the `/exec` URL.
 4. Replace `GAS_EXEC_URL_HERE` in `config.json` with that URL.
 5. Android reads the same URL from this repository's raw `config.json`; no separate APK URL edit is needed.
@@ -40,7 +40,19 @@ WebRTC always has a public Google STUN fallback. For restrictive NATs, optional 
 9. Open the Android app while it is visible, grant camera/microphone permissions (location is optional), choose the GAS polling interval (1–50 seconds, default 10), and tap **監視待機を開始**. The Android screen contains only pairing-code issue/refresh, polling interval, background start, and stop controls.
 10. Enter the displayed 8-digit, one-use, 10-minute pairing code on the Web page.
 
-## v1.1 motion detection
+## v1.2 audio and camera controls
+
+- Inbound Android microphone audio is routed through Web Audio where supported. The separate iPad/PC receive volume is adjustable from 0 to 200%; values over 100% can distort and are limited by the device/browser audio output.
+- Android speaker volume is separate and controls sound played by the Android phone for PTT return audio.
+- Audio meter shows local RMS level from the incoming Android audio track. It does not record or store sound.
+- Android microphone presets: Ambient (MIC source with hardware echo cancellation/noise suppression disabled), Balanced, and Voice. A preset change is stored immediately and applied when the last current viewer disconnects and a fresh RTC engine is created. Hardware support differs by device.
+- PTT is half-duplex: Android return audio is muted while transmitting. PTT lock is available, with a 3-minute automatic stop as a safety measure. Space/Enter keyboard shortcuts work when focus is not inside a form field.
+- Browser Screen Wake Lock can be requested while connected; it only works on supported browsers and may be released by the operating system.
+- Video watchdog detects missing initial frames after 15 seconds and frozen frames after 8 seconds, then triggers bounded reconnect. Fullscreen and iOS video-playback restoration do not recreate the PeerConnection.
+- FPS, video bit rate, RTT, packet loss, connection time and GAS request latency are shown in the Web console.
+- Capture aspect ratio includes 16:9, 4:3, 1:1 and 9:16. A camera capture aspect change applies on the next fresh RTC session; FPS/bitrate can still change during a session.
+
+## v1.2 motion detection
 
 - Motion is calculated from low-resolution temporary frames in the currently open Web viewer. It runs only while the live video is connected and the page is visible.
 - Only timestamp, movement score, sensitivity, and source metadata are saved to Google Sheets. No image, thumbnail, or video frame is saved or uploaded.
@@ -59,7 +71,7 @@ GitHub Actions builds `android/app/build/outputs/apk/debug/app-debug.apk` and up
 - Android does not allow an app to bypass force-stop, power-off, revoked permissions, or all camera/microphone background restrictions.
 - No guarantee of uninterrupted 24/7 availability is possible on an ordinary Android phone.
 - No guarantee of zero crashes can be made without device testing. Known failure paths are guarded and reported rather than silently crashing.
-- The app does not record or save audio/video.
+- The app does not record or save audio/video or capture/save still images. Incoming audio metering is calculated in memory only.
 - Network diagnostics exclude credentials and never transmit Wi-Fi passwords.
 - Process-death restart uses Android Foreground Service sticky restart and retry; it cannot survive force-stop, device reboot in all cases, revoked permission, or OEM battery termination.
 - A partial wake lock is held only while at least one WebRTC viewer is connected.
