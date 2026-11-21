@@ -1,5 +1,5 @@
 {
-  "name": "Remote Camera Web2",
+  "name": "Remote Camera Web2 v1.1",
   "short_name": "Remote Camera",
   "lang": "ja",
   "start_url": "./",
@@ -8,6 +8,11 @@
   "background_color": "#f3f6fb",
   "theme_color": "#101827",
   "icons": [
-    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
   ]
 }
