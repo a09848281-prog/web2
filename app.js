@@ -1354,7 +1354,7 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
   if(pending){clearTimeout(pending.timer);S.pendingCommands.delete(d.requestId);if(d.ok)pending.resolve(d);else pending.reject(Error(d.message||"Android側で適用失敗"));}
   $("networkSummary").textContent=d.message||(d.ok?"Android受信済み":"適用失敗");
   if(!d.ok)toast(d.message||"Android側で適用失敗");
-  if(d.capture)$("captureApplied").textContent="実適用 "+d.capture.width+"×"+d.capture.height+" / "+d.capture.fps+"FPS";
+  if(d.capture)$("captureApplied").textContent="実適用 "+d.capture.width+"×"+d.capture.height+" / "+d.capture.fps+"FPS / "+(d.capture.aspectRatio||"比率不明");
 }
  else if(d.type==="location_update"){
    applyLiveLocationUpdate(d.location || d);
@@ -1394,7 +1394,7 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
   $("cameraFacing").textContent="カメラ "+(d.cameraFacing||"不明");
   S.flashAvailable=d.flashAvailable===true;
   S.torchEnabled=d.flashEnabled===true;
-  if(d.capture){S.cameraTxEnabled=d.capture.cameraEnabled!==false;S.micTxEnabled=d.capture.microphoneEnabled!==false;$("captureApplied").textContent="実適用 "+d.capture.width+"×"+d.capture.height+" / "+d.capture.fps+"FPS";$("cameraTransmit").textContent=S.cameraTxEnabled?"📷 カメラ送信 ON":"📷 カメラ送信 OFF";$("micTransmit").textContent=S.micTxEnabled?"🎙 マイク送信 ON":"🎙 マイク送信 OFF";}
+  if(d.capture){S.cameraTxEnabled=d.capture.cameraEnabled!==false;S.micTxEnabled=d.capture.microphoneEnabled!==false;$("captureApplied").textContent="実適用 "+d.capture.width+"×"+d.capture.height+" / "+d.capture.fps+"FPS / "+(d.capture.aspectRatio||"比率不明");$("cameraTransmit").textContent=S.cameraTxEnabled?"📷 カメラ送信 ON":"📷 カメラ送信 OFF";$("micTransmit").textContent=S.micTxEnabled?"🎙 マイク送信 ON":"🎙 マイク送信 OFF";}
   $("torch").disabled=!S.flashAvailable||!S.control||S.control.readyState!=="open";
   $("cameraTransmit").disabled=!S.control||S.control.readyState!=="open";$("micTransmit").disabled=!S.control||S.control.readyState!=="open";
   $("cameraTransmit").disabled=!S.control||S.control.readyState!=="open";$("micTransmit").disabled=!S.control||S.control.readyState!=="open";
