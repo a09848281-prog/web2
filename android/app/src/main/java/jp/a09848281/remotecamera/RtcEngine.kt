@@ -438,6 +438,8 @@ class RtcEngine(
 
     fun hasPeers():Boolean=peers.isNotEmpty()
     fun peerCount():Int=peers.size
+    fun currentCameraFacing(): String = if (frontCamera) "前面" else "背面"
+    fun currentCameraId(): String = selectedCameraId
     fun hasOpenControlChannel():Boolean=controlChannels.values.any{it.state()==DataChannel.State.OPEN}
     fun sendControl(sessionId:String,message:JSONObject):Boolean {
         val channel=controlChannels[sessionId]?:return false
