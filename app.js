@@ -1430,7 +1430,7 @@ function initMap() {
   }).addTo(S.map);
 }
 function applyAspectRatio(value) {
-  const ratios = { "16:9": "16 / 9", "4:3": "4 / 3", "1:1": "1 / 1" };
+  const ratios = { "16:9": "16 / 9", "4:3": "4 / 3", "1:1": "1 / 1", "9:16": "9 / 16" };
   const pane = $("videoPane");
   if (!pane) return;
   if (value === "original" || !ratios[value]) {
