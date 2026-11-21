@@ -94,6 +94,7 @@ assert.ok(gas.includes("MotionEvents:"), "Motion event metadata sheet missing");
 assert.ok(gas.includes("function addMotionEvent_("), "Motion event write endpoint missing");
 assert.ok(gas.includes("function getMotionEvents_("), "Motion event history endpoint missing");
 assert.ok(gas.includes("function deleteMotionEvents_("), "Motion history deletion endpoint missing");
+assert.ok(gas.includes("crossViewerDuplicate") && gas.includes("<= 3000"), "Motion events from multiple viewers must be coalesced");
 assert.ok(gas.includes("function iceServers_("), "GAS ICE/TURN configuration missing");
 assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from Script Properties");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
