@@ -20,8 +20,334 @@ const S = {
   history: [], control: null, statsTimer: null, statsLast: null, reconnectTimer: null, reconnectAttempts: 0, everConnected: false, torchEnabled: false, reservationTimer: null,
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   motion: { enabled: false, sensitivity: 3, timer: null, previous: null, streak: 0, lastEventAt: 0, sendingDevices: new Set(), retryTimer: null },
-  adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 }
+  adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 },
+  audioContext: null, remoteGain: null, remoteAudioSource: null, remoteAnalyser: null,
+  audioMeterFrame: null, receiveVolume: 70, remoteAudioMuted: false,
+  pttLocked: false, pttStartedAt: 0, pttTimeout: null,
+  wakeLock: null, keepAwakeWanted: false,
+  videoWatchdogTimer: null, videoFrameCallbackId: null, videoUsesFrameCallback: false,
+  hasReceivedVideoFrame: false, lastVideoFrameAt: 0, connectedAt: 0, sessionTimer: null,
+  statsLast: null, manualDisconnect: false, reconnectResetTimer: null,
+  settingsSaveQueue: Promise.resolve()
 };
+
+
+function prepareAudioOutput() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return false;
+  try {
+    if (!S.audioContext) {
+      S.audioContext = new AudioContextClass();
+      S.remoteGain = S.audioContext.createGain();
+      S.remoteGain.gain.value = AudioUtils.receiveGain(S.receiveVolume);
+      S.remoteGain.connect(S.audioContext.destination);
+    }
+    if (S.audioContext.state === "suspended") {
+      S.audioContext.resume().catch(error => console.debug("AudioContext resume failed", error));
+    }
+    return true;
+  } catch (error) {
+    console.warn("Web Audio output setup failed; use media element audio", error);
+    return false;
+  }
+}
+
+function attachRemoteAudio() {
+  const tracks = S.remoteAudioTracks.filter(track => track.readyState === "live");
+  if (!tracks.length) {
+    $("audioState").textContent = "Androidマイク待機中";
+    stopAudioMeter();
+    return;
+  }
+  if (!prepareAudioOutput()) {
+    $("remoteVideo").muted = S.remoteAudioMuted;
+    $("remoteVideo").volume = Math.min(1, AudioUtils.receiveGain(S.receiveVolume));
+    $("audioState").textContent = "Androidマイク受信中（標準音声）";
+    return;
+  }
+  try {
+    if (S.remoteAudioSource) {
+      try { S.remoteAudioSource.disconnect(); } catch (_) {}
+      S.remoteAudioSource = null;
+    }
+    const audioStream = new MediaStream(tracks);
+    S.remoteAudioSource = S.audioContext.createMediaStreamSource(audioStream);
+    S.remoteAnalyser = S.audioContext.createAnalyser();
+    S.remoteAnalyser.fftSize = 512;
+    S.remoteAudioSource.connect(S.remoteAnalyser);
+    S.remoteAnalyser.connect(S.remoteGain);
+    $("remoteVideo").muted = true;
+    S.remoteGain.gain.setTargetAtTime(
+      S.remoteAudioMuted ? 0 : AudioUtils.receiveGain(S.receiveVolume),
+      S.audioContext.currentTime,
+      0.04
+    );
+    startAudioMeter();
+    $("audioState").textContent = "Androidマイク受信中";
+    if (S.audioContext.state === "suspended") {
+      S.audioContext.resume().catch(error => console.debug("Remote audio resume failed", error));
+    }
+  } catch (error) {
+    console.warn("Remote audio routing failed; using video element fallback", error);
+    S.remoteAudioSource = null;
+    S.remoteAnalyser = null;
+    $("remoteVideo").muted = S.remoteAudioMuted;
+    $("remoteVideo").volume = Math.min(1, AudioUtils.receiveGain(S.receiveVolume));
+    $("audioState").textContent = "Androidマイク受信中（標準音声へ切替）";
+  }
+}
+
+function startAudioMeter() {
+  if (!S.remoteAnalyser || S.audioMeterFrame !== null) return;
+  const data = new Uint8Array(S.remoteAnalyser.fftSize);
+  const tick = () => {
+    if (!S.remoteAnalyser || S.remoteAudioMuted || S.pttActive) {
+      S.audioMeterFrame = null;
+      $("audioLevel").value = "0";
+      $("audioLevelText").textContent = S.remoteAudioMuted ? "ミュート中" : "待機中";
+      return;
+    }
+    S.remoteAnalyser.getByteTimeDomainData(data);
+    const rms = AudioUtils.rmsFromTimeDomain(data);
+    $("audioLevel").value = String(AudioUtils.meterLevel(rms));
+    $("audioLevelText").textContent = AudioUtils.meterLabel(rms);
+    S.audioMeterFrame = requestAnimationFrame(tick);
+  };
+  S.audioMeterFrame = requestAnimationFrame(tick);
+}
+
+function stopAudioMeter() {
+  if (S.audioMeterFrame !== null) cancelAnimationFrame(S.audioMeterFrame);
+  S.audioMeterFrame = null;
+  $("audioLevel").value = "0";
+  $("audioLevelText").textContent = "待機中";
+}
+
+function setReceiveVolume(value, persist = true) {
+  S.receiveVolume = AudioUtils.clampReceivePercent(value);
+  $("receiveVolume").value = String(S.receiveVolume);
+  $("receiveVolumeValue").value = S.receiveVolume + "%";
+  if (S.remoteGain && S.audioContext) {
+    const target = S.remoteAudioMuted ? 0 : AudioUtils.receiveGain(S.receiveVolume);
+    S.remoteGain.gain.setTargetAtTime(target, S.audioContext.currentTime, 0.035);
+  } else {
+    $("remoteVideo").volume = Math.min(1, AudioUtils.receiveGain(S.receiveVolume));
+  }
+  if (persist) {
+    try { localStorage.setItem("rc_receive_volume_v1", String(S.receiveVolume)); }
+    catch (error) { console.warn("Could not persist received volume", error); }
+  }
+}
+
+function setRemoteAudioMuted(muted) {
+  S.remoteAudioMuted = muted === true;
+  S.remoteAudioTracks.forEach(track => { track.enabled = !S.remoteAudioMuted && !S.pttActive; });
+  if (S.remoteGain && S.audioContext) {
+    S.remoteGain.gain.setTargetAtTime(
+      S.remoteAudioMuted ? 0 : AudioUtils.receiveGain(S.receiveVolume),
+      S.audioContext.currentTime,
+      0.035
+    );
+  } else {
+    $("remoteVideo").muted = S.remoteAudioMuted;
+  }
+  $("remoteMute").textContent = S.remoteAudioMuted ? "🔇 Android音声 OFF" : "🔊 Android音声 ON";
+  $("remoteMute").classList.toggle("active", S.remoteAudioMuted);
+  if (S.remoteAudioMuted) {
+    stopAudioMeter();
+    $("audioLevelText").textContent = "ミュート中";
+  } else if (S.remoteAudioTracks.some(track => track.readyState === "live")) {
+    attachRemoteAudio();
+  }
+}
+
+function stopPttSafetyTimer() {
+  if (S.pttTimeout) clearTimeout(S.pttTimeout);
+  S.pttTimeout = null;
+}
+
+function ptt(enabled) {
+  const track = S.mic && S.mic.getAudioTracks()[0];
+  if (!track) return false;
+  const next = enabled === true;
+  if (next) {
+    S.pttStartedAt = Date.now();
+    stopPttSafetyTimer();
+    S.pttTimeout = setTimeout(() => {
+      S.pttLocked = false;
+      $("pttLock").textContent = "送話ロック OFF";
+      $("pttLock").classList.remove("active");
+      ptt(false);
+      toast("安全タイマーにより送話を3分で自動停止しました。");
+    }, 180000);
+  } else {
+    stopPttSafetyTimer();
+    S.pttStartedAt = 0;
+  }
+  S.pttActive = next;
+  track.enabled = next;
+  S.remoteAudioTracks.forEach(remoteTrack => { remoteTrack.enabled = !next && !S.remoteAudioMuted; });
+  if (next) {
+    stopAudioMeter();
+    $("audioLevelText").textContent = "送話中";
+  } else if (S.remoteAudioTracks.some(remoteTrack => remoteTrack.readyState === "live") && !S.remoteAudioMuted) {
+    startAudioMeter();
+  }
+  $("ptt").classList.toggle("active", next);
+  $("ptt").textContent = next ? "🎙 送話中…" : "🎙 押している間だけ話す";
+  return true;
+}
+
+function togglePttLock() {
+  if (!S.mic || !S.mic.getAudioTracks().some(track => track.readyState === "live")) {
+    toast("先にAndroidへ接続してください。");
+    return;
+  }
+  S.pttLocked = !S.pttLocked;
+  $("pttLock").textContent = S.pttLocked ? "🔒 送話ロック ON" : "送話ロック OFF";
+  $("pttLock").classList.toggle("active", S.pttLocked);
+  ptt(S.pttLocked);
+}
+
+async function enableScreenWakeLock() {
+  if (!navigator.wakeLock || typeof navigator.wakeLock.request !== "function") {
+    toast("このブラウザーは画面スリープ防止に対応していません。");
+    return false;
+  }
+  try {
+    S.wakeLock = await navigator.wakeLock.request("screen");
+    S.wakeLock.addEventListener("release", () => {
+      S.wakeLock = null;
+      $("keepAwake").classList.remove("active");
+      $("keepAwake").textContent = "画面スリープ防止 OFF";
+    }, { once: true });
+    $("keepAwake").classList.add("active");
+    $("keepAwake").textContent = "画面スリープ防止 ON";
+    return true;
+  } catch (error) {
+    S.wakeLock = null;
+    toast("画面スリープ防止を開始できません: " + (error.message || "ブラウザー制限"));
+    return false;
+  }
+}
+
+async function toggleScreenWakeLock() {
+  S.keepAwakeWanted = !S.keepAwakeWanted;
+  if (!S.keepAwakeWanted) {
+    if (S.wakeLock) {
+      try { await S.wakeLock.release(); } catch (_) {}
+      S.wakeLock = null;
+    }
+    $("keepAwake").classList.remove("active");
+    $("keepAwake").textContent = "画面スリープ防止 OFF";
+    return;
+  }
+  if (!S.pc || S.pc.connectionState !== "connected") {
+    S.keepAwakeWanted = false;
+    toast("画面スリープ防止は接続中に有効にできます。");
+    return;
+  }
+  if (!await enableScreenWakeLock()) S.keepAwakeWanted = false;
+}
+
+function formatDuration(milliseconds) {
+  const seconds = Math.max(0, Math.floor(Number(milliseconds) / 1000) || 0);
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return h ? h + "時間 " + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0")
+    : String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+}
+
+function startSessionClock() {
+  if (S.sessionTimer) clearInterval(S.sessionTimer);
+  S.connectedAt = Date.now();
+  const update = () => {
+    if (!S.connectedAt) return;
+    $("sessionDuration").textContent = "接続 " + formatDuration(Date.now() - S.connectedAt);
+  };
+  update();
+  S.sessionTimer = setInterval(update, 1000);
+}
+function stopSessionClock() {
+  if (S.sessionTimer) clearInterval(S.sessionTimer);
+  S.sessionTimer = null;
+  S.connectedAt = 0;
+  $("sessionDuration").textContent = "未接続";
+}
+
+function stopVideoWatchdog() {
+  if (S.videoWatchdogTimer) clearInterval(S.videoWatchdogTimer);
+  S.videoWatchdogTimer = null;
+  const video = $("remoteVideo");
+  if (S.videoFrameCallbackId !== null && video && typeof video.cancelVideoFrameCallback === "function") {
+    try { video.cancelVideoFrameCallback(S.videoFrameCallbackId); } catch (_) {}
+  }
+  S.videoFrameCallbackId = null;
+  S.videoUsesFrameCallback = false;
+  S.hasReceivedVideoFrame = false;
+  S.lastVideoFrameAt = 0;
+}
+
+function restoreRemotePlayback() {
+  const video = $("remoteVideo");
+  const peer = S.pc;
+  if (!peer || peer.connectionState === "closed") return;
+  try {
+    if (S.remoteVideoStream && video.srcObject !== S.remoteVideoStream) video.srcObject = S.remoteVideoStream;
+    video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "");
+    if (S.audioContext && S.audioContext.state === "suspended") {
+      S.audioContext.resume().catch(error => console.debug("AudioContext resume failed", error));
+    }
+    const playback = video.play();
+    if (playback && typeof playback.catch === "function") {
+      playback.catch(() => { $("videoState").textContent = "接続中です。画面をタップして映像を再生してください。"; });
+    }
+  } catch (error) { console.debug("Remote playback restore failed", error); }
+}
+
+function startVideoWatchdog(peer) {
+  if (!peer || S.pc !== peer) return;
+  stopVideoWatchdog();
+  const video = $("remoteVideo");
+  S.hasReceivedVideoFrame = false;
+  S.lastVideoFrameAt = Date.now();
+  let previousCurrentTime = -1;
+  const markFrame = () => {
+    if (S.pc !== peer) return;
+    S.hasReceivedVideoFrame = true;
+    S.lastVideoFrameAt = Date.now();
+    $("videoState").textContent = "映像受信中";
+    if (typeof video.requestVideoFrameCallback === "function") {
+      S.videoUsesFrameCallback = true;
+      S.videoFrameCallbackId = video.requestVideoFrameCallback(markFrame);
+    }
+  };
+  if (typeof video.requestVideoFrameCallback === "function") {
+    S.videoUsesFrameCallback = true;
+    S.videoFrameCallbackId = video.requestVideoFrameCallback(markFrame);
+  }
+  S.videoWatchdogTimer = setInterval(() => {
+    if (S.pc !== peer || peer.connectionState !== "connected" || document.hidden) return;
+    if (!S.videoUsesFrameCallback && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0) {
+      if (video.currentTime > previousCurrentTime + 0.015) {
+        previousCurrentTime = video.currentTime;
+        S.hasReceivedVideoFrame = true;
+        S.lastVideoFrameAt = Date.now();
+      }
+    }
+    const now = Date.now();
+    if (!S.hasReceivedVideoFrame && now - S.connectedAt > 15000) {
+      $("videoState").textContent = "映像未着信・再接続中";
+      scheduleReconnect(peer, true, 1200);
+    } else if (S.hasReceivedVideoFrame && now - S.lastVideoFrameAt > 8000) {
+      $("videoState").textContent = "映像フリーズ・再接続中";
+      scheduleReconnect(peer, true, 1200);
+    }
+  }, 2000);
+}
 
 function rid() {
   return (crypto.randomUUID && crypto.randomUUID()) ||
