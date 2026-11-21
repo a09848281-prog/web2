@@ -1215,6 +1215,9 @@ async function loadSettings() {
   });
   if (!S.device || S.device.deviceId !== device.deviceId) return;
   const settings = result.settings || {};
+  const aspectMigrationKey="rc_v21_wide_aspect_migrated_"+device.deviceId;
+  const migrateToWideAspect=!localStorage.getItem(aspectMigrationKey) && settings.aspectRatio==="16:9";
+  if(migrateToWideAspect)settings.aspectRatio="4:3";
   $("quality").value = ["360","480","720","1080"].includes(String(settings.quality)) ? String(settings.quality) : "720";
   $("connectedLoc").checked = !!settings.connectedLocationEnabled;
   $("idleLoc").checked = !!settings.idleLocationEnabled;
@@ -1231,6 +1234,12 @@ async function loadSettings() {
   $("maxBitrate").value=String(settings.maxBitrateKbps || 2500);
   applyAspectRatio($("aspectRatio").value);
   updateSliderLabels();
+  if(migrateToWideAspect){
+    localStorage.setItem(aspectMigrationKey,"1");
+    queueDeviceSettingsSave(device,{...settings,aspectRatio:"4:3",maxBitrateKbps:Number(settings.maxBitrateKbps||2500)})
+      .catch(error=>console.warn("Could not save v2.1 wide-aspect migration",error));
+    toast("カメラの画角を広くするため、表示比率を4:3へ変更しました。");
+  }
 }
 function queueDeviceSettingsSave(device, settings) {
   const work = () => api("save_settings", {
