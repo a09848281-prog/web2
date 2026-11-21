@@ -106,7 +106,7 @@ class MonitorService : Service() {
             if(!gasUrl.startsWith("https://script.google.com/macros/s/")||!gasUrl.endsWith("/exec")){stopSelf(startId);return START_NOT_STICKY}
             pollIntervalSeconds=prefs.getInt("pollIntervalSeconds",AppConfig.POLL_SECONDS.toInt()).coerceIn(AppConfig.MIN_POLL_SECONDS,AppConfig.MAX_POLL_SECONDS).toLong()
             maxBitrateKbps=intent?.getIntExtra(EXTRA_MAX_BITRATE_KBPS,prefs.getInt("maxBitrateKbps",2500))?.coerceIn(150,8000)?:prefs.getInt("maxBitrateKbps",2500).coerceIn(150,8000)
-            prefs.edit().putInt("maxBitrateKbps",maxBitrateKbps).putBoolean("monitoringEnabled",true).apply()
+            prefs.edit().putInt("maxBitrateKbps",maxBitrateKbps).putBoolean("localBitrateOverride",true).putBoolean("monitoringEnabled",true).apply()
             try{startMonitoringForeground()}catch(error:Exception){Log.e("RemoteCameraService","Could not promote service for settings update",error);stopSelf(startId);return START_NOT_STICKY}
             applyVideoSettings(JSONObject().put("maxBitrateKbps",maxBitrateKbps))
             if(pollJob?.isActive!=true)pollJob=scope.launch{pollLoop()}
@@ -493,6 +493,7 @@ class MonitorService : Service() {
                 // Apply location tracking preferences immediately over the open RTC
                 // channel; do not wait for the next GAS device_poll cycle.
                 applyLocationSettings(payload)
+                prefs.edit().putBoolean("localBitrateOverride",false).apply()
                 applyVideoSettings(payload)
                 rtc?.setNoiseSuppressionLevel(payload.optInt("micNoise",prefs.getInt("micNoise",70)))
                 val pct=payload.optInt("speakerVolume",prefs.getInt("speakerVolume",70)).coerceIn(0,100)
@@ -718,7 +719,10 @@ class MonitorService : Service() {
         val previousDataMode = "standard"
         val requestChanged = requestedQuality != previousQuality || requestedDataMode != previousDataMode
         val requestedFps = settings.optInt("fps", prefs.getInt("fps", 24)).coerceIn(10, 60)
-        maxBitrateKbps = settings.optInt("maxBitrateKbps",prefs.getInt("maxBitrateKbps",2500)).coerceIn(150,8000)
+        val localBitrateOverride = prefs.getBoolean("localBitrateOverride",false)
+        maxBitrateKbps = if(settings.has("maxBitrateKbps") && !localBitrateOverride)
+            settings.optInt("maxBitrateKbps",2500).coerceIn(150,8000)
+        else prefs.getInt("maxBitrateKbps",2500).coerceIn(150,8000)
         prefs.edit().putInt("maxBitrateKbps",maxBitrateKbps).apply()
         val requestedRatio = settings.optString("aspectRatio", prefs.getString("aspectRatio", "4:3") ?: "4:3")
             .takeIf { it in setOf("16:9", "4:3", "1:1", "9:16", "original") } ?: "4:3"
@@ -828,7 +832,10 @@ class MonitorService : Service() {
                     audio.setStreamVolume(stream, (max * percent / 100.0).toInt(), 0)
                 }
                 "adaptive_quality" -> applyAdaptiveQuality(payload)
-                "quality", "data_mode" -> applyVideoSettings(payload)
+                "quality", "data_mode" -> {
+                    prefs.edit().putBoolean("localBitrateOverride",false).apply()
+                    applyVideoSettings(payload)
+                }
                 "disconnect" -> {
                     val sessionId = payload.optString("sessionId", "")
                     if (sessionId.isNotBlank()) {
