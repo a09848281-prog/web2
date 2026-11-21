@@ -1017,7 +1017,7 @@ async function connect(automatic = false) {
     return true;
   } catch (error) {
     const permissionDenied = error.name === "NotAllowedError" || error.name === "PermissionDeniedError" || error.name === "SecurityError";
-    await disconnect(false, !permissionDenied && (automatic || S.everConnected));
+    await disconnect(false, !permissionDenied && (automatic || S.everConnected), true);
     toast("接続開始失敗: " + error.message);
     if (S.everConnected && !S.manualDisconnect) scheduleReconnect(null);
     return false;
@@ -1244,7 +1244,14 @@ async function saveSettings() {
 }
 function sendControl(name,payload={}) {
   if(!S.control||S.control.readyState!=="open"){toast("DataChannelが未接続です。");return false;}
-  S.control.send(JSON.stringify({type:"command",command:name,requestId:rid(),payload}));return true;
+  try {
+    S.control.send(JSON.stringify({type:"command",command:name,requestId:rid(),payload}));
+    return true;
+  } catch (error) {
+    console.warn("DataChannel send failed", error);
+    toast("DataChannelへの送信に失敗しました。");
+    return false;
+  }
 }
 function readLiveSettings(){return {quality:$("quality").value,dataMode:$("dataMode").value,fps:Number($("fps").value),aspectRatio:$("aspectRatio").value,micNoise:Number($("micNoise").value),micSensitivity:Number($("micSensitivity").value),micGain:Number($("micGain").value),speakerVolume:Number($("androidSpeakerVolume").value),micMode:$("micMode").value};}
 function bytesText(value){const b=Math.max(0,Number(value)||0);if(b<1024)return b.toFixed(0)+" B";if(b<1048576)return (b/1024).toFixed(1)+" KB";return (b/1048576).toFixed(2)+" MB";}
