@@ -203,6 +203,15 @@ class MonitorService : Service() {
             if (!apiReady.isCompleted) apiReady.complete(Unit)
             while (scope.isActive) {
                 val controlOpen = rtc?.hasOpenControlChannel() == true
+                if (!controlOpen && (rtc?.peerCount() ?: 0) == 0) {
+                    // Reset the app-wide traffic baseline only after the last
+                    // viewer leaves, not whenever another viewer connects.
+                    trafficBaselineTx = -1L
+                    trafficBaselineRx = -1L
+                    lastTrafficTx = 0L
+                    lastTrafficRx = 0L
+                    lastTrafficAt = 0L
+                }
                 if (controlOpen) {
                     sendTelemetry()
                     // Existing viewers use DataChannel directly. Keep only the
@@ -323,9 +332,11 @@ class MonitorService : Service() {
     private fun onRtcConnectionState(sessionId:String,state:String) {
         when(state) {
             "DATA_CHANNEL_OPEN" -> {
-                trafficBaselineTx=TrafficStats.getUidTxBytes(Process.myUid())
-                trafficBaselineRx=TrafficStats.getUidRxBytes(Process.myUid())
-                lastTrafficTx=0L;lastTrafficRx=0L;lastTrafficAt=System.currentTimeMillis()
+                if (trafficBaselineTx < 0L || trafficBaselineRx < 0L) {
+                    trafficBaselineTx=TrafficStats.getUidTxBytes(Process.myUid())
+                    trafficBaselineRx=TrafficStats.getUidRxBytes(Process.myUid())
+                    lastTrafficTx=0L;lastTrafficRx=0L;lastTrafficAt=System.currentTimeMillis()
+                }
                 notifyState("監視中・DataChannel直接通信")
                 rtc?.sendCameraCapabilities(sessionId)
                 if (lastNetworkError.isNotBlank()) {
