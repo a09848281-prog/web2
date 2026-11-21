@@ -243,6 +243,7 @@ class RtcEngine(
     }
 
     fun hasPeers():Boolean=peers.isNotEmpty()
+    fun peerCount():Int=peers.size
     fun hasOpenControlChannel():Boolean=controlChannels.values.any{it.state()==DataChannel.State.OPEN}
     fun sendControl(sessionId:String,message:JSONObject):Boolean {
         val channel=controlChannels[sessionId]?:return false
