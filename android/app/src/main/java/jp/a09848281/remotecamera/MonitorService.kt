@@ -737,6 +737,7 @@ class MonitorService : Service() {
                 .remove("adaptiveFps")
         }
         editor.apply()
+        rtc?.setAspectRatio(requestedRatio)
 
         currentQuality = requestedQuality
         currentDataMode = "standard"
