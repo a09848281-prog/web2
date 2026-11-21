@@ -449,9 +449,13 @@ async function saveSettings() {
     micGain:Number($("micGain").value), speakerVolume:Number($("volume").value), nightMode:$("nightMode").checked
   };
   if(S.control?.readyState==="open") {
-    sendControl("settings_update",settings);
+    if (!sendControl("settings_update",settings)) throw Error("DataChannelへの設定送信に失敗しました。");
     localStorage.setItem("rc_live_settings_"+S.device.deviceId,JSON.stringify(settings));
-    toast("DataChannelでAndroidへ直接反映しました。");
+    // Live application stays on DataChannel. GAS/Sheets is used only to persist
+    // the device's defaults for future sessions and other paired controllers.
+    api("save_settings",{controllerToken:S.device.controllerToken,deviceId:S.device.deviceId,settings})
+      .then(()=>toast("DataChannelで即時反映し、GASに設定を保存しました。"))
+      .catch(error=>toast("設定は反映済みですが、保存に失敗しました: "+error.message));
   } else {
     await api("save_settings",{controllerToken:S.device.controllerToken,deviceId:S.device.deviceId,settings});
     await api("send_command",{controllerToken:S.device.controllerToken,deviceId:S.device.deviceId,command:"quality",payload:{quality:settings.quality,dataMode:settings.dataMode}});
