@@ -262,6 +262,13 @@ class MonitorService : Service() {
                         prefs.edit().putBoolean("serverPaired", !needsPairing).apply()
                         val codeActive = response.optBoolean("pairingCodeActive", false)
                         if (needsPairing) {
+                            // No authenticated Web controller remains. Close any
+                            // orphaned media session before issuing another code.
+                            if (rtc != null) {
+                                rtc?.dispose()
+                                rtc = null
+                                updateStreamWakeLock(false)
+                            }
                             if (System.currentTimeMillis() - lastCodeRefresh > 8 * 60 * 1000L) {
                                 refreshCode()
                             }
