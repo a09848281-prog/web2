@@ -1757,6 +1757,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(error => console.warn("PWA service worker unavailable", error));
   $("refresh").addEventListener("click", refreshDeviceList);
   $("pair").addEventListener("click", () => $("pairDialog").showModal());
+  $("closePairDialog").addEventListener("click", () => $("pairDialog").close());
   $("unpair").addEventListener("click", () => unpairSelectedDevice());
   $("claim").addEventListener("click", claimDevice);
   $("connect").addEventListener("click", () => connect(false));
