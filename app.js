@@ -366,7 +366,7 @@ function renderDevices() {
   });
 }
 function setControlsEnabled(enabled) {
-  ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair", "reserveConnection"].forEach(id => {
+  ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair", "reserveConnection", "motionHistory", "motionExport", "motionClear"].forEach(id => {
     $(id).disabled = !enabled;
   });
   $("connect").disabled = !enabled || !!S.pc;
@@ -389,6 +389,7 @@ function selectDevice(device) {
   refreshReservationUi();
   status("ペアリング済み");
   loadSettings().catch(error => toast(error.message));
+  flushMotionEvents().catch(error => console.warn("Motion queue flush failed", error));
 }
 function refreshDeviceList() {
   S.devices = readDevices();
@@ -719,7 +720,70 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
  else if(d.type==="error"){toast(d.message||"Androidエラー");$("diagnosticOutput").textContent=d.message||"Androidエラー";}
 }
 function stopRtcStats(){if(S.statsTimer)clearInterval(S.statsTimer);S.statsTimer=null;}
-function startRtcStats(){stopRtcStats();const update=async()=>{if(!S.pc)return;try{const stats=await S.pc.getStats();let sent=0,received=0,rtt=null,lost=0,packets=0;stats.forEach(x=>{if(x.type==="outbound-rtp"&&!x.isRemote)sent+=Number(x.bytesSent||0);if(x.type==="inbound-rtp"&&!x.isRemote){received+=Number(x.bytesReceived||0);lost+=Number(x.packetsLost||0);packets+=Number(x.packetsReceived||0);}if(x.type==="candidate-pair"&&x.state==="succeeded"&&x.nominated&&Number.isFinite(x.currentRoundTripTime))rtt=x.currentRoundTripTime;});$("rtcStats").textContent="RTP "+bytesText(sent+received)+" / RTT "+(rtt===null?"--":Math.round(rtt*1000)+"ms")+" / 損失 "+(packets+lost?((lost/(packets+lost))*100).toFixed(1)+"%":"--");}catch(_){$("rtcStats").textContent="統計取得不可";}};update();S.statsTimer=setInterval(update,2000);}
+function maybeAdaptQuality(rttMs, lossPercent) {
+  const selectedQuality = $("quality").value;
+  const selectedMode = $("dataMode").value;
+  if (selectedQuality !== "auto" && selectedMode !== "auto") return;
+  const now = Date.now();
+  const bad = (Number.isFinite(rttMs) && rttMs > 550) || (Number.isFinite(lossPercent) && lossPercent > 8);
+  const good = (rttMs === null || rttMs < 260) && (lossPercent === null || lossPercent < 1.8);
+  if (bad) { S.adaptive.bad += 1; S.adaptive.good = 0; }
+  else if (good) { S.adaptive.good += 1; S.adaptive.bad = 0; }
+  else { S.adaptive.bad = 0; S.adaptive.good = 0; }
+  let nextTier = S.adaptive.tier;
+  if (S.adaptive.bad >= 2) nextTier = Math.max(0, S.adaptive.tier - 1);
+  else if (S.adaptive.good >= 5) nextTier = Math.min(2, S.adaptive.tier + 1);
+  if (nextTier === S.adaptive.tier || now - S.adaptive.lastChange < 10000) return;
+  S.adaptive.tier = nextTier;
+  S.adaptive.bad = 0; S.adaptive.good = 0; S.adaptive.lastChange = now;
+  const tiers = [
+    { quality: "360", dataMode: "ultra", fps: 15, label: "低負荷 360p" },
+    { quality: "480", dataMode: "save", fps: 15, label: "節約 480p" },
+    { quality: "720", dataMode: "standard", fps: 24, label: "標準 720p" }
+  ];
+  const tier = tiers[nextTier];
+  const payload = {
+    quality: selectedQuality === "auto" ? tier.quality : selectedQuality,
+    dataMode: selectedMode === "auto" ? tier.dataMode : selectedMode,
+    fps: tier.fps,
+    adaptive: true
+  };
+  if (sendControl("adaptive_quality", payload)) {
+    $("networkSummary").textContent = "自動画質：" + tier.label;
+    toast("通信状態に合わせて画質を調整しました（" + tier.label + "）。");
+  }
+}
+function startRtcStats() {
+  stopRtcStats();
+  const update = async () => {
+    const peer = S.pc;
+    if (!peer) return;
+    try {
+      const stats = await peer.getStats();
+      if (peer !== S.pc) return;
+      let sent = 0, received = 0, rtt = null, lost = 0, packets = 0;
+      stats.forEach(item => {
+        if (item.type === "outbound-rtp" && !item.isRemote) sent += Number(item.bytesSent || 0);
+        if (item.type === "inbound-rtp" && !item.isRemote) {
+          received += Number(item.bytesReceived || 0);
+          lost += Math.max(0, Number(item.packetsLost || 0));
+          packets += Math.max(0, Number(item.packetsReceived || 0));
+        }
+        if (item.type === "candidate-pair" && item.state === "succeeded" && item.nominated &&
+            Number.isFinite(item.currentRoundTripTime)) rtt = item.currentRoundTripTime;
+      });
+      const lossPercent = packets + lost ? lost / (packets + lost) * 100 : null;
+      $("rtcStats").textContent = "RTP " + bytesText(sent + received) +
+        " / RTT " + (rtt === null ? "--" : Math.round(rtt * 1000) + "ms") +
+        " / 損失 " + (lossPercent === null ? "--" : lossPercent.toFixed(1) + "%");
+      maybeAdaptQuality(rtt === null ? null : rtt * 1000, lossPercent);
+    } catch (_) {
+      $("rtcStats").textContent = "統計取得不可";
+    }
+  };
+  update();
+  S.statsTimer = setInterval(update, 2000);
+}
 async function command(name,payload={}) {
   if (!S.device) throw Error("Android端末をペアリングしてください。");
   if (S.control?.readyState === "open") {
