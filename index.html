@@ -62,6 +62,7 @@
     <h3>音声</h3>
     <button id="ptt" type="button" class="ptt wide" disabled>押している間だけ話す</button>
     <a class="download" href="https://github.com/a09848281-prog/web2/actions" target="_blank" rel="noopener">Android APKのビルド・ダウンロード</a>
+    <button id="bookmarkletOpen" type="button" class="wide">ブックマークレットを設定</button>
   </aside>
   <section class="view">
     <div class="viewhead">
@@ -100,6 +101,16 @@
     <h2>位置情報履歴</h2>
     <div id="historyRows"></div>
     <button class="wide">閉じる</button>
+  </form>
+</dialog>
+<dialog id="bookmarkDialog">
+  <form method="dialog" class="dialog">
+    <button class="close" aria-label="閉じる">×</button>
+    <h2>ブックマークレット</h2>
+    <p>下のコードをブックマークのURL欄へ登録すると、どのページからでもWeb2を開けます。認証情報はコードに含まれません。</p>
+    <textarea id="bookmarkletCode" rows="4" readonly></textarea>
+    <button id="copyBookmarklet" type="button" class="primary wide">コードをコピー</button>
+    <p id="bookmarkMessage" aria-live="polite">ブックマークの名前は「Remote Camera Web2」などにしてください。</p>
   </form>
 </dialog>
 <div id="toast" role="status" aria-live="polite"></div>
