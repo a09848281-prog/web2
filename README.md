@@ -19,6 +19,9 @@ This repository is a clean successor project. The existing `a09848281-prog/web` 
 - Automatic bitrate/quality adaptation when quality or data mode is set to Auto
 - Optional TURN relay configuration through private GAS Script Properties
 - Viewer-only digital zoom and dark-scene brightness correction; Android optical lens switching where exposed by Camera2
+- Ambient/balanced/voice Android microphone capture presets, separate browser receive gain (0–200%), RMS audio meter, half-duplex PTT lock and 3-minute safety cutoff
+- Video freeze/initial-frame watchdog, fullscreen playback restore, connection uptime and live RTC stats
+- Portrait 9:16 camera capture ratio (applied on next RTC session)
 - No paid AI API, recording, screenshots, or media storage
 
 ## Important connection behavior
@@ -51,6 +54,13 @@ WebRTC always has a public Google STUN fallback. For restrictive NATs, optional 
 - Video watchdog detects missing initial frames after 15 seconds and frozen frames after 8 seconds, then triggers bounded reconnect. Fullscreen and iOS video-playback restoration do not recreate the PeerConnection.
 - FPS, video bit rate, RTT, packet loss, connection time and GAS request latency are shown in the Web console.
 - Capture aspect ratio includes 16:9, 4:3, 1:1 and 9:16. A camera capture aspect change applies on the next fresh RTC session; FPS/bitrate can still change during a session.
+
+## v1.2 audio, camera and motion
+
+- Receive audio is played through a browser-local Web Audio gain node; the iPad/PC receive volume is separate from Android speaker volume.
+- Android mic mode is applied when the next RTC engine is created. Ambient mode disables hardware AEC and noise suppression to preserve environmental sound; device DSP differs by manufacturer.
+- Screen Wake Lock is browser-dependent. It does not keep Android's screen awake.
+- The camera capture aspect ratio is selected for the next RTC session; current viewers continue using the existing camera capture format.
 
 ## v1.2 motion detection
 
