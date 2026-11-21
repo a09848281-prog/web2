@@ -29,6 +29,18 @@ test("ignores a near-uniform automatic exposure change", () => {
   assert.ok(measured.averageDelta > 20);
 });
 
+test("does not suppress a large localized object moving across the frame", () => {
+  const previous = new Uint8Array(100).fill(80);
+  const current = previous.slice();
+  current.fill(160, 0, 15);
+  current.fill(0, 15, 30);
+  const measured = MotionCore.measure(previous, current, 3);
+  assert.equal(measured.valid, true);
+  assert.equal(measured.changedPixels, 30);
+  assert.equal(measured.score, 30);
+  assert.ok(measured.score >= MotionCore.minimumScore(3));
+});
+
 test("filters small sensor noise and sensitivity is ordered", () => {
   const previous = new Uint8Array(100).fill(100);
   const current = new Uint8Array(100).fill(105);
