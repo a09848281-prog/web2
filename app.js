@@ -506,6 +506,7 @@ async function connect() {
     const control = pc.createDataChannel("remote-control", { ordered: true });
     S.control = control;
     control.onopen = () => {
+      if (S.pc !== pc) return;
       $("diagnostics").disabled = false;
       $("torch").disabled = false;
       status("監視中・DataChannel直接接続", true);
@@ -514,20 +515,22 @@ async function connect() {
       sendControl("settings_update", readLiveSettings());
     };
     control.onclose = () => {
+      if (S.pc !== pc) return;
       $("diagnostics").disabled = true;
       $("torch").disabled = true;
       stopRtcStats();
       status("制御チャネル切断");
       if (S.pc === pc && S.everConnected) scheduleReconnect(pc);
     };
-    control.onmessage = event => handleControlMessage(event.data);
-    control.onerror = () => toast("DataChannel通信エラー");
+    control.onmessage = event => { if (S.pc === pc) handleControlMessage(event.data); };
+    control.onerror = () => { if (S.pc === pc) toast("DataChannel通信エラー"); };
     $("camera").disabled = false;
     const remote = new MediaStream();
     $("remoteVideo").srcObject = remote;
     pc.addTransceiver("video", { direction: "recvonly" });
     pc.addTrack(stream.getAudioTracks()[0]);
     pc.ontrack = event => {
+      if (S.pc !== pc) return;
       const tracks = event.streams[0] ? event.streams[0].getTracks() : [event.track];
       tracks.forEach(track => {
         if (!remote.getTracks().some(existing => existing.id === track.id)) remote.addTrack(track);
@@ -544,6 +547,7 @@ async function connect() {
       $("remoteVideo").play().then(() => startMotionDetection()).catch(() => toast("映像・音声を再生するには画面をタップしてください。"));
     };
     pc.onconnectionstatechange = () => {
+      if (S.pc !== pc) return;
       const state = pc.connectionState;
       $("iceState").textContent = "ICE: " + state;
       status(state === "connected" ? "監視中" : state, state === "connected");
