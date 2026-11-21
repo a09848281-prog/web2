@@ -21,6 +21,7 @@ const PAIR_FAIL_LIMIT = 25;
 const PAIR_FAIL_WINDOW_MS = 10 * 60 * 1000;
 const DEVICE_BEGIN_LIMIT = 5;
 const DEVICE_BEGIN_WINDOW_MS = 60 * 60 * 1000;
+const MAX_MOTION_EVENTS_PER_DEVICE = 2000;
 
 /** Public health check. */
 function doGet() {
@@ -661,6 +662,16 @@ function addMotionEvent_(r) {
   try {
     const existing = find_("MotionEvents", 0, eventId);
     if (existing) return { ok: true, duplicate: true, eventId: eventId };
+    const allEvents = rows_("MotionEvents");
+    const ownEvents = allEvents.filter(function(row) { return String(row[1]) === controller.deviceId; });
+    if (ownEvents.length >= MAX_MOTION_EVENTS_PER_DEVICE) {
+      const oldest = ownEvents.reduce(function(current, row) {
+        if (!current) return row;
+        return new Date(row[2]).getTime() < new Date(current[2]).getTime() ? row : current;
+      }, null);
+      const oldestIndex = oldest ? allEvents.findIndex(function(row) { return String(row[0]) === String(oldest[0]); }) : -1;
+      if (oldestIndex >= 0) sheet_("MotionEvents").deleteRow(oldestIndex + 2);
+    }
     append_("MotionEvents", [eventId, controller.deviceId, detectedAt, Math.round(score * 10) / 10, sensitivity, source]);
   } finally {
     lock.releaseLock();
@@ -670,7 +681,7 @@ function addMotionEvent_(r) {
 
 function getMotionEvents_(r) {
   const controller = authController_(r);
-  const limit = clamp_(r.limit, 1, 500, 200);
+  const limit = clamp_(r.limit, 1, MAX_MOTION_EVENTS_PER_DEVICE, 500);
   const data = rows_("MotionEvents");
   const events = [];
   for (let i = data.length - 1; i >= 0 && events.length < limit; i--) {
@@ -689,14 +700,20 @@ function getMotionEvents_(r) {
 
 function deleteMotionEvents_(r) {
   const controller = authController_(r);
-  const sh = sheet_("MotionEvents");
-  const data = rows_("MotionEvents");
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
   let deleted = 0;
-  for (let i = data.length - 1; i >= 0; i--) {
-    if (String(data[i][1]) === controller.deviceId) {
-      sh.deleteRow(i + 2);
-      deleted++;
+  try {
+    const sh = sheet_("MotionEvents");
+    const data = rows_("MotionEvents");
+    for (let i = data.length - 1; i >= 0; i--) {
+      if (String(data[i][1]) === controller.deviceId) {
+        sh.deleteRow(i + 2);
+        deleted++;
+      }
     }
+  } finally {
+    lock.releaseLock();
   }
   log_(controller.deviceId, "motion_history_delete", true, String(deleted));
   return { ok: true, deleted: deleted };
