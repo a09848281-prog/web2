@@ -102,7 +102,9 @@ class MonitorService : Service() {
         gasUrl = intent?.getStringExtra(EXTRA_GAS_URL)
             ?: prefs.getString("gasUrl", "")
             ?: ""
-        if (!gasUrl.startsWith("https://script.google.com/")) {
+        if (!gasUrl.startsWith("https://script.google.com/macros/s/") ||
+            !gasUrl.endsWith("/exec") || gasUrl.contains("GAS_EXEC_URL_HERE") ||
+            gasUrl.contains("PASTE_YOUR_DEPLOYMENT_ID")) {
             prefs.edit().putBoolean("monitoringEnabled", false).apply()
             stopSelf(startId)
             return START_NOT_STICKY
