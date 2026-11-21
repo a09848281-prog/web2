@@ -279,7 +279,10 @@ async function loadConfig() {
   const response = await fetch("./config.json", { cache: "no-store" });
   if (!response.ok) throw Error("config.jsonを読み込めません。");
   S.cfg = await response.json();
-  if (!S.cfg.gasUrl || !S.cfg.gasUrl.endsWith("/exec") ||
+  if (typeof S.cfg.gasUrl !== "string" ||
+      !S.cfg.gasUrl.startsWith("https://script.google.com/macros/s/") ||
+      !S.cfg.gasUrl.endsWith("/exec") ||
+      S.cfg.gasUrl.includes("GAS_EXEC_URL_HERE") ||
       S.cfg.gasUrl.includes("PASTE_YOUR_DEPLOYMENT_ID")) {
     throw Error("config.json の gasUrl にGASの /exec URLを設定してください。");
   }
