@@ -1215,7 +1215,7 @@ async function loadSettings() {
   });
   if (!S.device || S.device.deviceId !== device.deviceId) return;
   const settings = result.settings || {};
-  $("quality").value = settings.quality || "720";
+  $("quality").value = ["360","480","720","1080"].includes(String(settings.quality)) ? String(settings.quality) : "720";
   $("connectedLoc").checked = !!settings.connectedLocationEnabled;
   $("idleLoc").checked = !!settings.idleLocationEnabled;
   $("connectedInterval").value = String(settings.connectedInterval || 30);
@@ -1406,39 +1406,7 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
  else if(d.type==="error"){toast(d.message||"Androidエラー");$("diagnosticOutput").textContent=d.message||"Androidエラー";}
 }
 function stopRtcStats(){if(S.statsTimer)clearInterval(S.statsTimer);S.statsTimer=null;}
-function maybeAdaptQuality(rttMs, lossPercent) {
-  const selectedQuality = $("quality").value;
-  const selectedMode = $("dataMode").value;
-  if (selectedQuality !== "auto" && selectedMode !== "auto") return;
-  const now = Date.now();
-  const bad = (Number.isFinite(rttMs) && rttMs > 550) || (Number.isFinite(lossPercent) && lossPercent > 8);
-  const good = (rttMs === null || rttMs < 260) && (lossPercent === null || lossPercent < 1.8);
-  if (bad) { S.adaptive.bad += 1; S.adaptive.good = 0; }
-  else if (good) { S.adaptive.good += 1; S.adaptive.bad = 0; }
-  else { S.adaptive.bad = 0; S.adaptive.good = 0; }
-  let nextTier = S.adaptive.tier;
-  if (S.adaptive.bad >= 2) nextTier = Math.max(0, S.adaptive.tier - 1);
-  else if (S.adaptive.good >= 5) nextTier = Math.min(2, S.adaptive.tier + 1);
-  if (nextTier === S.adaptive.tier || now - S.adaptive.lastChange < 10000) return;
-  S.adaptive.tier = nextTier;
-  S.adaptive.bad = 0; S.adaptive.good = 0; S.adaptive.lastChange = now;
-  const tiers = [
-    { quality: "360", dataMode: "ultra", fps: 15, label: "低負荷 360p" },
-    { quality: "480", dataMode: "save", fps: 15, label: "節約 480p" },
-    { quality: "720", dataMode: "standard", fps: 24, label: "標準 720p" }
-  ];
-  const tier = tiers[nextTier];
-  const payload = {
-    quality: selectedQuality === "auto" ? tier.quality : selectedQuality,
-    dataMode: selectedMode === "auto" ? tier.dataMode : selectedMode,
-    fps: tier.fps,
-    adaptive: true
-  };
-  if (sendControl("adaptive_quality", payload)) {
-    $("networkSummary").textContent = "自動画質：" + tier.label;
-    toast("通信状態に合わせて画質を調整しました（" + tier.label + "）。");
-  }
-}
+function maybeAdaptQuality(){ /* Removed: v2.1 uses an explicit bitrate cap. */ }
 function startRtcStats() {
   stopRtcStats();
   S.statsLast = null;
