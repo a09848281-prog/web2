@@ -551,9 +551,8 @@ class RtcEngine(
         oldCapturer.stopCapture()
         var replacement: CameraVideoCapturer? = null
         try {
-            replacement = enumerator.createCapturer(cameraId, null)
-                ?: error("選択したカメラを開けません。")
-            replacement.initialize(currentHelper, context.applicationContext, currentSource.capturerObserver)
+            // Create and initialise a candidate only once. The fallback helper owns
+            // every failed capturer and disposes it before trying the next format.
             val profile = profileFor(currentQuality, currentDataMode, currentFps)
             val started = startCaptureWithFallback(
                 enumerator, cameraId, currentHelper, currentSource.capturerObserver, profile
