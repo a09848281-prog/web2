@@ -11,7 +11,7 @@
 3. Foreground Serviceのlocation typeは位置情報権限がある場合だけ追加する。
 4. GAS通信、SDP/ICE、ネットワーク処理はUIスレッドで同期実行しない。
 5. 空/不正SDP、PeerConnection生成失敗、DataChannel登録失敗、カメラ形式不対応を個別に捕捉する。
-6. 希望カメラ形式が使えない場合はVGA/15fpsへフォールバック。
+6. 希望カメラ形式が使えない場合、現在の表示比率を維持する低負荷の候補サイズ/FPSを順番に試してフォールバックする。
 7. RTC処理失敗でForeground Service全体を巻き込まない。部分生成されたRTC/カメラ/音声資源を解放して待機へ戻す。
 8. DataChannelはセッション単位に管理し、OPEN状態の時だけ送信する。
 9. PeerConnection、DataChannel、CameraCapturer、SurfaceTextureHelper、Tracks、Sources、Factory、EGLを個別に解放する。
