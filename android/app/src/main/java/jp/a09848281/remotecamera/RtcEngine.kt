@@ -596,8 +596,8 @@ class RtcEngine(
     }
 
     @Synchronized fun setAspectRatio(ratio:String) {
-        if(ratio !in setOf("16:9","4:3","1:1","9:16","original"))return
-        if(currentAspectRatio==ratio)return
+        if(ratio !in setOf("16:9","4:3","1:1","9:16","original") || currentAspectRatio==ratio)return
+        val previous=currentAspectRatio
         currentAspectRatio=ratio
         val profile=profileFor(currentQuality,currentDataMode,currentFps)
         val camera=capturer
@@ -607,9 +607,12 @@ class RtcEngine(
                 captureWidth=profile.width;captureHeight=profile.height;captureFps=profile.fps
                 onState("画角を "+ratio+" に変更しました")
             }catch(error:Exception){
+                currentAspectRatio=previous
                 onState("画角変更を端末が拒否しました。前回の撮影形式を維持します。")
                 Log.w("RemoteCameraRTC","Could not apply aspect ratio",error)
             }
+        }else{
+            captureWidth=profile.width;captureHeight=profile.height;captureFps=profile.fps
         }
     }
 
