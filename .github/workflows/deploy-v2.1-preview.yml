@@ -22,16 +22,27 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout existing published site (main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: base-site
       - name: Checkout v2.1.0 preview
         uses: actions/checkout@v4
         with:
           ref: preview/v2.1.0-stability
+          path: preview-source
+      - name: Assemble site without replacing the existing homepage
+        run: |
+          mkdir -p _site/v2.1
+          rsync -a --exclude='.git' base-site/ _site/
+          rsync -a --exclude='.git' --exclude='.github' preview-source/ _site/v2.1/
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
       - name: Deploy site
         id: deployment
         uses: actions/deploy-pages@v4
