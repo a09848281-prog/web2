@@ -712,7 +712,7 @@ class MonitorService : Service() {
     private fun applyVideoSettings(settings: JSONObject) {
         val requestedQuality = settings.optString(
             "quality", prefs.getString("requestedQuality", "720") ?: "720"
-        )
+        ).takeIf { it in setOf("360","480","720","1080") } ?: "720"
         val requestedDataMode = "standard"
         val previousQuality = prefs.getString("requestedQuality", "720") ?: "720"
         val previousDataMode = "standard"
@@ -721,7 +721,7 @@ class MonitorService : Service() {
         maxBitrateKbps = settings.optInt("maxBitrateKbps",prefs.getInt("maxBitrateKbps",2500)).coerceIn(150,8000)
         prefs.edit().putInt("maxBitrateKbps",maxBitrateKbps).apply()
         val requestedRatio = settings.optString("aspectRatio", prefs.getString("aspectRatio", "4:3") ?: "4:3")
-            .takeIf { it in setOf("16:9", "4:3", "1:1", "9:16", "original") } ?: "16:9"
+            .takeIf { it in setOf("16:9", "4:3", "1:1", "9:16", "original") } ?: "4:3"
         val editor = prefs.edit()
             .putString("requestedQuality", requestedQuality)
             .putString("requestedDataMode", requestedDataMode)
@@ -734,16 +734,9 @@ class MonitorService : Service() {
         }
         editor.apply()
 
-        currentQuality = if (requestedQuality == "auto") {
-            prefs.getString("adaptiveQuality", "720") ?: "720"
-        } else requestedQuality
-        currentDataMode = if (requestedDataMode == "auto") {
-            prefs.getString("adaptiveDataMode", "standard") ?: "standard"
-        } else requestedDataMode
-        val automatic = requestedQuality == "auto" || requestedDataMode == "auto"
-        currentFps = if (automatic) {
-            prefs.getInt("adaptiveFps", requestedFps).coerceIn(10, 60)
-        } else requestedFps
+        currentQuality = requestedQuality
+        currentDataMode = "standard"
+        currentFps = requestedFps
         if (powerSaveActive) {
             currentQuality = "360"
             currentDataMode = "ultra"
