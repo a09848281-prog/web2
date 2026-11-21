@@ -10,8 +10,8 @@ const main = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamer
 const gas = fs.readFileSync("gas/Code.gs", "utf8");
 const config = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/Config.kt", "utf8");
 
-const htmlIds = new Set([...html.matchAll(/\\bid=["']([^"']+)["']/g)].map(match => match[1]));
-const referencedIds = [...new Set([...js.matchAll(/\\$\\(["']([^"']+)["']\\)/g)].map(match => match[1]))];
+const htmlIds = new Set([...html.matchAll(/\bid=["']([^"']+)["']/g)].map(match => match[1]));
+const referencedIds = [...new Set([...js.matchAll(/\$\(["']([^"']+)["']\)/g)].map(match => match[1]))];
 for (const id of referencedIds) {
   assert.ok(htmlIds.has(id), "JavaScript references missing HTML id: " + id);
 }
