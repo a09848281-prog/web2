@@ -11,25 +11,27 @@ This repository is a clean successor project. The existing `a09848281-prog/web` 
 - Signaling and pairing: Google Apps Script + Google Sheets
 - Live media: WebRTC
 - Live controls and telemetry after connection: WebRTC DataChannel
-- No Firebase, FCM, paid AI API, recording, screenshots, or media storage
+- Up to 3 separately paired Web controllers per Android device
+- GAS + Google Sheets only for signaling and device settings; no WebSocket server, Firebase, FCM, VPS, or paid signaling backend
+- No paid AI API, recording, screenshots, or media storage
 
 ## Important connection behavior
 
-GAS is used only before / during WebRTC establishment for pairing and SDP/ICE signaling. Once the WebRTC control DataChannel is open, normal camera, audio, setting, status, and diagnostic messages use the DataChannel. GAS polling pauses while that channel is open and resumes only after a connection loss that requires re-signaling.
+GAS is used for pairing and SDP/ICE signaling. Once a WebRTC control DataChannel is open, live camera, audio, setting, status, and diagnostic messages use DataChannel directly. While fewer than 3 Web controllers are connected, Android retains only the selected low-frequency GAS check to admit additional paired viewers; when 3 sessions are active, that check pauses. No live control is sent through GAS after DataChannel opens.
 
 WebRTC uses a public Google STUN endpoint. Restrictive NATs may still require a TURN relay; TURN is not included in this initial version.
 
 ## First setup
 
 1. Create a Google Sheet and open Extensions → Apps Script.
-2. Paste `gas/Code.gs`, save, and run `setupDatabase()` once.
+2. Paste `gas/Code.gs`, save, and run `setupDatabase()`. When upgrading to v4.1, run it again to create the new Controllers sheet; existing rows are preserved.
 3. Deploy as a Web App (execute as you, access according to your private-use needs) and copy the `/exec` URL.
 4. Replace `GAS_EXEC_URL_HERE` in `config.json` with that URL.
 5. Android reads the same URL from this repository's raw `config.json`; no separate APK URL edit is needed.
 6. Open Settings → Pages and set Build and deployment → Source to **GitHub Actions**. This one-time repository setting must be done by the repository owner.
 7. Open Actions → Deploy PWA to GitHub Pages → Run workflow. After the first successful deployment, the PWA URL is `https://a09848281-prog.github.io/web2/`.
 8. Open the PWA URL on iPad / PC. On Android, install the debug APK from the latest successful Android APK Build run.
-9. Open the Android app while it is visible, grant camera/microphone permissions (location is optional), choose the background polling interval, and tap **監視待機を開始**.
+9. Open the Android app while it is visible, grant camera/microphone permissions (location is optional), choose the GAS polling interval (1–50 seconds, default 10), and tap **監視待機を開始**. The Android screen contains only pairing-code issue/refresh, polling interval, background start, and stop controls.
 10. Enter the displayed 8-digit, one-use, 10-minute pairing code on the Web page.
 
 ## APK build
