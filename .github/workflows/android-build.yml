@@ -18,7 +18,9 @@ jobs:
       - name: Check JavaScript and GAS syntax
         run: |
           node --check app.js
+          node --check motion-core.js
           node --check < gas/Code.gs
+          node --test tests/*.test.cjs
           node scripts/check-project.mjs
       - uses: actions/setup-java@v4
         with:
