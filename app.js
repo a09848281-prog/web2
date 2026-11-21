@@ -19,7 +19,11 @@ const S = {
   map: null,
   marker: null,
   route: null,
-  history: [], control: null, statsTimer: null, statsLast: null, reconnectTimer: null, reconnectAttempts: 0, everConnected: false, torchEnabled: false, reservationTimer: null,
+  history: [],
+  lastLocation: null,
+  followMap: true,
+  deviceTelemetry: null,
+  deviceDiagnostics: null, control: null, statsTimer: null, statsLast: null, reconnectTimer: null, reconnectAttempts: 0, everConnected: false, torchEnabled: false, reservationTimer: null,
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   motion: { enabled: false, sensitivity: 3, timer: null, previous: null, streak: 0, lastEventAt: 0, sendingDevices: new Set(), retryTimer: null },
   adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 },
@@ -741,7 +745,7 @@ function renderDevices() {
   });
 }
 function setControlsEnabled(enabled) {
-  ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair", "reserveConnection", "motionHistory", "motionExport", "motionClear", "remoteMute"].forEach(id => {
+  ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair", "reserveConnection", "motionHistory", "motionExport", "motionClear", "remoteMute", "deviceInfo"].forEach(id => {
     $(id).disabled = !enabled;
   });
   $("pttLock").disabled = !enabled || !S.pc;
@@ -1242,6 +1246,35 @@ function sendControl(name,payload={}) {
 }
 function readLiveSettings(){return {quality:$("quality").value,dataMode:$("dataMode").value,fps:Number($("fps").value),aspectRatio:$("aspectRatio").value,micNoise:Number($("micNoise").value),micSensitivity:Number($("micSensitivity").value),micGain:Number($("micGain").value),speakerVolume:Number($("androidSpeakerVolume").value),micMode:$("micMode").value};}
 function bytesText(value){const b=Math.max(0,Number(value)||0);if(b<1024)return b.toFixed(0)+" B";if(b<1048576)return (b/1024).toFixed(1)+" KB";return (b/1048576).toFixed(2)+" MB";}
+function renderDeviceInfo() {
+  const telemetry = S.deviceTelemetry || {};
+  const network = S.deviceDiagnostics || telemetry.network || {};
+  const safe = {
+    deviceName: S.device && S.device.deviceName ? S.device.deviceName : "Android端末",
+    deviceId: S.device ? S.device.deviceId : "",
+    androidVersion: telemetry.androidVersion || network.androidVersion || "取得不可",
+    model: telemetry.deviceModel || network.deviceModel || "取得不可",
+    batteryPercent: telemetry.batteryPercent ?? "取得不可",
+    batteryCharging: telemetry.batteryCharging === true,
+    batteryTemperatureC: telemetry.batteryTempC ?? "取得不可",
+    thermalStatus: telemetry.thermalStatus ?? "取得不可",
+    cameraFacing: telemetry.cameraFacing || "取得不可",
+    cameraId: telemetry.cameraId || "取得不可",
+    flashAvailable: telemetry.flashAvailable === true,
+    flashEnabled: telemetry.flashEnabled === true,
+    microphoneMode: telemetry.microphoneMode || "取得不可",
+    networkTransport: network.transport || "取得不可",
+    networkValidated: network.validated ?? "取得不可",
+    metered: network.metered ?? "取得不可",
+    localIpAddresses: network.localIpAddresses || [],
+    dnsServers: network.dnsServers || [],
+    interfaceName: network.networkInterface || "",
+    rtcControlChannelOpen: network.rtcControlChannelOpen ?? "取得不可",
+    recentError: network.recentError || "なし"
+  };
+  $("deviceInfoOutput").textContent = JSON.stringify(safe, null, 2);
+}
+
 function updateSliderLabels(){$("androidSpeakerVolumeValue").value=$("androidSpeakerVolume").value+"%";$("micNoiseValue").value=$("micNoise").value+"%";$("micSensitivityValue").value=$("micSensitivity").value+"%";$("micGainValue").value=$("micGain").value+"%";$("receiveVolumeValue").value=S.receiveVolume+"%";}
 function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;}
  if(d.type==="ack"){$("networkSummary").textContent=d.message||(d.ok?"Android受信済み":"適用失敗");if(!d.ok)toast(d.message||"Android側で適用失敗");}
@@ -1265,6 +1298,7 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
   }
  }
  else if(d.type==="telemetry"){
+  S.deviceTelemetry = d;
   const tx=Number(d.txBytesSinceConnect),rx=Number(d.rxBytesSinceConnect);
   $("deviceTx").textContent="送信 "+(tx<0?"取得不可":bytesText(tx));
   $("deviceRx").textContent="受信 "+(rx<0?"取得不可":bytesText(rx));
@@ -1286,7 +1320,10 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
   }
   if(d.network)$("networkSummary").textContent=(d.network.transport||"不明")+(d.network.validated?" / Internet OK":" / Internet未確認");
 }
- else if(d.type==="network_diagnostic"){$("diagnosticOutput").textContent=JSON.stringify(d.data||d,null,2);}
+ else if(d.type==="network_diagnostic"){
+  S.deviceDiagnostics = d.data || d;
+  $("diagnosticOutput").textContent=JSON.stringify(S.deviceDiagnostics,null,2);
+}
  else if(d.type==="error"){toast(d.message||"Androidエラー");$("diagnosticOutput").textContent=d.message||"Androidエラー";}
 }
 function stopRtcStats(){if(S.statsTimer)clearInterval(S.statsTimer);S.statsTimer=null;}
@@ -1446,6 +1483,10 @@ function initMap() {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
   }).addTo(S.map);
+  S.map.on("dragstart", () => {
+    S.followMap = false;
+    updateLocationActions();
+  });
 }
 function applyAspectRatio(value) {
   const ratios = { "16:9": "16 / 9", "4:3": "4 / 3", "1:1": "1 / 1", "9:16": "9 / 16" };
@@ -1495,27 +1536,73 @@ function showVideo() {
   restoreRemotePlayback();
   if (S.pc) startVideoWatchdog(S.pc);
 }
+function updateLocationActions() {
+  $("copyCoordinates").disabled = !S.lastLocation;
+  $("followLocation").classList.toggle("active", S.followMap);
+  $("followLocation").textContent = S.followMap ? "最新位置を追尾 ON" : "最新位置を追尾 OFF";
+}
+
 function drawMap(points) {
   initMap();
   if (!S.map) return;
   if (S.marker) S.marker.remove();
   if (S.route) S.route.remove();
-  const valid = points.filter(point =>
+  const valid = (Array.isArray(points) ? points : []).filter(point =>
     Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lng))
   );
   if (!valid.length) {
+    S.lastLocation = null;
     $("locationInfo").textContent = "位置情報はありません。";
+    updateLocationActions();
     return;
   }
   const last = valid[valid.length - 1];
-  S.marker = L.marker([last.lat, last.lng]).addTo(S.map);
+  S.lastLocation = last;
+  S.marker = L.marker([Number(last.lat), Number(last.lng)]).addTo(S.map);
   if (valid.length > 1) {
-    S.route = L.polyline(valid.map(point => [point.lat, point.lng]), { color: "#2865d6" }).addTo(S.map);
+    S.route = L.polyline(valid.map(point => [Number(point.lat), Number(point.lng)]), { color: "#2865d6" }).addTo(S.map);
   }
+  const ageSeconds = Math.max(0, Math.round((Date.now() - new Date(last.timestamp).getTime()) / 1000));
   $("locationInfo").textContent = "最終取得: " + new Date(last.timestamp).toLocaleString() +
-    " / 精度 ±" + (last.accuracy || "?") + "m";
-  if (S.route) S.map.fitBounds(S.route.getBounds().pad(0.15));
-  else S.map.setView([last.lat, last.lng], 15);
+    " / 精度 ±" + (last.accuracy || "?") + "m / " + ageSeconds + "秒前 / " + (last.mode || "取得");
+  if (S.followMap) S.map.setView([Number(last.lat), Number(last.lng)], Math.max(S.map.getZoom(), 15));
+  updateLocationActions();
+}
+
+async function copyCoordinates() {
+  if (!S.lastLocation) {
+    toast("コピーできる位置情報がありません。");
+    return;
+  }
+  const text = Number(S.lastLocation.lat).toFixed(6) + ", " + Number(S.lastLocation.lng).toFixed(6);
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      throw new Error("Clipboard API unavailable");
+    }
+    toast("座標をコピーしました: " + text);
+  } catch (_) {
+    const input = document.createElement("textarea");
+    input.value = text;
+    input.setAttribute("readonly", "");
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.appendChild(input);
+    input.select();
+    let copied = false;
+    try { copied = document.execCommand("copy"); } catch (_) {}
+    input.remove();
+    toast(copied ? "座標をコピーしました: " + text : "座標をコピーできませんでした。");
+  }
+}
+
+function toggleLocationFollow() {
+  S.followMap = !S.followMap;
+  if (S.followMap && S.lastLocation && S.map) {
+    S.map.setView([Number(S.lastLocation.lat), Number(S.lastLocation.lng)], Math.max(S.map.getZoom(), 15));
+  }
+  updateLocationActions();
 }
 async function deleteHistory() {
   const device = S.device;
@@ -1613,6 +1700,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     $("saveSettings").addEventListener("click", () => saveSettings().catch(error => toast(error.message)));
   $("locate").addEventListener("click", () => command("location_once").catch(error => toast(error.message)));
   $("history").addEventListener("click", () => loadHistory().catch(error => toast(error.message)));
+  $("followLocation").addEventListener("click", toggleLocationFollow);
+  $("copyCoordinates").addEventListener("click", () => copyCoordinates().catch(error => toast(error.message)));
+  $("deviceInfo").addEventListener("click", () => {
+    renderDeviceInfo();
+    $("deviceInfoDialog").showModal();
+  });
   $("deleteHistory").addEventListener("click", () => deleteHistory().catch(error => toast(error.message)));
   $("videoTab").addEventListener("click", showVideo);
   $("mapTab").addEventListener("click", showMap);
