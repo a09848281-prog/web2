@@ -50,7 +50,7 @@ class MainActivity : Activity() {
             setPadding(0, 26, 0, 16)
         }
         codeView = TextView(this).apply {
-            text = "登録コード：--"
+            text = "ペアリングコード：--"
             textSize = 22f
             setTextColor(0xFF2862C8.toInt())
             setPadding(0, 12, 0, 24)
@@ -74,7 +74,7 @@ class MainActivity : Activity() {
         root.addView(status)
         root.addView(codeView)
         root.addView(TextView(this).apply {
-            text = "バックグラウンド待機中の接続確認間隔（秒・5～3600）"
+            text = "GAS接続確認間隔（秒・1～50）"
             textSize = 14f
             setTextColor(0xFF586980.toInt())
             setPadding(0, 8, 0, 4)
@@ -83,7 +83,7 @@ class MainActivity : Activity() {
             inputType = InputType.TYPE_CLASS_NUMBER
             setSingleLine(true)
             setText(prefs.getInt("pollIntervalSeconds", AppConfig.POLL_SECONDS.toInt()).toString())
-            hint = "例：30"
+            hint = "例：10"
         }
         root.addView(pollIntervalInput, LinearLayout.LayoutParams(-1, -2))
         root.addView(refreshCodeButton, LinearLayout.LayoutParams(-1, -2))
@@ -162,7 +162,7 @@ class MainActivity : Activity() {
     private fun startMonitoring() {
         val requestedSeconds = pollIntervalInput.text?.toString()?.toIntOrNull() ?: AppConfig.POLL_SECONDS.toInt()
         if (requestedSeconds !in AppConfig.MIN_POLL_SECONDS..AppConfig.MAX_POLL_SECONDS) {
-            Toast.makeText(this, "確認間隔は5～3600秒で入力してください。", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "確認間隔は1～50秒で入力してください。", Toast.LENGTH_LONG).show()
             return
         }
         prefs.edit().putInt("pollIntervalSeconds", requestedSeconds).apply()
@@ -196,10 +196,8 @@ class MainActivity : Activity() {
         }
         val cameraOk = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         val micOk = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        val locationOk = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (!cameraOk || !micOk || !locationOk) {
-            Toast.makeText(this, "先に必要な権限を許可してから監視待機を開始してください。", Toast.LENGTH_LONG).show()
+        if (!cameraOk || !micOk) {
+            Toast.makeText(this, "カメラとマイクの権限を許可してから操作してください。位置情報は任意です。", Toast.LENGTH_LONG).show()
             requestStart()
             return
         }
@@ -227,7 +225,7 @@ class MainActivity : Activity() {
         val id = prefs.getString("deviceId", "") ?: ""
         codeView.text = when {
             id.isBlank() -> "登録コード：--"
-            code.isNotBlank() -> "登録コード：$code\n端末ID：$id"
+            code.isNotBlank() -> "ペアリングコード：$code\n端末ID：$id"
             prefs.getBoolean("serverPaired", false) ->
                 "GASでペアリング確認済み\n端末ID：$id"
             else -> "端末情報あり・GAS確認待ち\n端末ID：$id"
