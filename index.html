@@ -32,6 +32,8 @@
     <button id="disconnect" type="button" class="wide" disabled>切断</button>
     <button id="torch" type="button" class="wide" disabled>ライトをON</button>
     <label>画質<select id="quality"><option value="auto">自動（720p基準）</option><option value="360">360p</option><option value="480">480p</option><option value="720" selected>720p</option><option value="1080">1080p</option></select></label>
+    <label>FPS<select id="fps"><option value="10">10 FPS</option><option value="15">15 FPS</option><option value="24" selected>24 FPS</option><option value="30">30 FPS</option><option value="60">60 FPS（対応端末のみ）</option></select></label>
+    <label>映像の表示比率<select id="aspectRatio"><option value="16:9" selected>16:9</option><option value="4:3">4:3</option><option value="1:1">1:1</option><option value="original">元の比率</option></select></label>
     <label>通信量モード<select id="dataMode"><option value="auto">自動</option><option value="ultra">超節約</option><option value="save">節約</option><option value="standard" selected>標準</option><option value="high">高画質</option></select></label>
     <label>Androidスピーカー音量 <output id="volumeValue">70%</output><input id="volume" type="range" min="0" max="100" value="70"></label>
 <label>マイクのノイズ抑制 <output id="micNoiseValue">70%</output><input id="micNoise" type="range" min="0" max="100" value="70"></label>
@@ -64,7 +66,7 @@
   <section class="view">
     <div class="viewhead">
       <div><small>LIVE VIEW</small><h2 id="deviceName">Android端末をペアリングしてください</h2><p id="deviceMeta">待機中</p></div>
-      <div><button id="videoTab" type="button" class="active">映像</button><button id="mapTab" type="button">地図</button></div>
+      <div><button id="videoTab" type="button" class="active">映像</button><button id="mapTab" type="button">地図</button><button id="fullscreen" type="button" aria-label="映像を全画面表示">全画面</button></div>
     </div>
     <div id="videoPane" class="videoPane">
       <video id="remoteVideo" autoplay playsinline></video>
