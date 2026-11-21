@@ -584,7 +584,7 @@ function saveSettings_(r) {
     quality: ["auto", "360", "480", "720", "1080"].includes(String(s.quality)) ? String(s.quality) : "720",
     dataMode: ["auto", "ultra", "save", "standard", "high"].includes(String(s.dataMode)) ? String(s.dataMode) : "standard",
     fps: clamp_(s.fps, 10, 60, 24),
-    aspectRatio: ["16:9", "4:3", "1:1", "original"].includes(String(s.aspectRatio)) ? String(s.aspectRatio) : "16:9",
+    aspectRatio: ["16:9", "4:3", "1:1", "9:16", "original"].includes(String(s.aspectRatio)) ? String(s.aspectRatio) : "16:9",
     micNoise: clamp_(s.micNoise, 0, 100, 0),
     micSensitivity: clamp_(s.micSensitivity, 0, 100, 0),
     micGain: clamp_(s.micGain, 0, 100, 100),
