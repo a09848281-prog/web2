@@ -24,6 +24,9 @@ assert.ok(rtc.includes("override fun onDataChannel(channel: DataChannel)"), "And
 assert.ok(rtc.includes("hasOpenControlChannel()"), "Android DataChannel state check missing");
 assert.ok(rtc.includes("peers.size < 3"), "Three-viewer limit missing");
 assert.ok(rtc.includes("requestedFps.coerceIn(10, 60)"), "FPS control missing");
+assert.ok(rtc.includes("fun sendCameraCapabilities("), "Camera capability sender missing");
+assert.ok(rtc.includes("fun selectCamera(cameraId: String)"), "Selectable camera lens handler missing");
+assert.ok(js.includes("camera_capabilities"), "Web camera capability receiver missing");
 assert.ok(rtc.includes("stun:stun.l.google.com:19302"), "Android STUN configuration missing");
 assert.ok(service.includes("pollIntervalSeconds"), "Custom polling interval missing");
 assert.ok(service.includes("sendTelemetry()"), "Android telemetry missing");
