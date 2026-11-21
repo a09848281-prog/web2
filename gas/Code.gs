@@ -660,9 +660,17 @@ function addMotionEvent_(r) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    const existing = find_("MotionEvents", 0, eventId);
-    if (existing) return { ok: true, duplicate: true, eventId: eventId };
     const allEvents = rows_("MotionEvents");
+    const existing = allEvents.find(function(row) { return String(row[0]) === eventId; });
+    if (existing) return { ok: true, duplicate: true, eventId: eventId };
+    // Three viewers can analyse the same incoming stream independently. Merge
+    // nearly simultaneous reports from the same camera/source into one event.
+    const crossViewerDuplicate = allEvents.some(function(row) {
+      return String(row[1]) === controller.deviceId &&
+        String(row[5] || "browser-motion-v1") === source &&
+        Math.abs(new Date(row[2]).getTime() - detectedAt.getTime()) <= 3000;
+    });
+    if (crossViewerDuplicate) return { ok: true, duplicate: true, coalesced: true, eventId: eventId };
     const ownEvents = allEvents.filter(function(row) { return String(row[1]) === controller.deviceId; });
     if (ownEvents.length >= MAX_MOTION_EVENTS_PER_DEVICE) {
       const oldest = ownEvents.reduce(function(current, row) {
