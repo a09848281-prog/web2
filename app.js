@@ -22,6 +22,7 @@ const S = {
   history: [],
   lastLocation: null,
   followMap: true,
+  locationRefreshTimer: null,
   deviceTelemetry: null,
   deviceDiagnostics: null, control: null, statsTimer: null, statsLast: null, reconnectTimer: null, reconnectAttempts: 0, everConnected: false, torchEnabled: false, reservationTimer: null,
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -1164,6 +1165,7 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   $("remoteMute").classList.remove("active");
   S.remoteAudioMuted = false;
 
+  stopLocationRefresh();
   if (S.device) status("ペアリング済み");
   else status("未ペアリング");
   $("pttLock").disabled = !S.device;
@@ -1323,6 +1325,7 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
  else if(d.type==="network_diagnostic"){
   S.deviceDiagnostics = d.data || d;
   $("diagnosticOutput").textContent=JSON.stringify(S.deviceDiagnostics,null,2);
+  if ($("deviceInfoDialog").open) renderDeviceInfo();
 }
  else if(d.type==="error"){toast(d.message||"Androidエラー");$("diagnosticOutput").textContent=d.message||"Androidエラー";}
 }
@@ -1520,6 +1523,34 @@ async function toggleFullscreen() {
     toast("全画面表示に失敗しました: " + (error.message || "ブラウザーの制限"));
   }
 }
+async function refreshLatestLocation() {
+  const device = S.device;
+  if (!device) return;
+  try {
+    const result = await api("get_locations", {
+      controllerToken: device.controllerToken, deviceId: device.deviceId, limit: 500
+    });
+    if (!S.device || S.device.deviceId !== device.deviceId) return;
+    S.history = result.locations || [];
+    drawMap(S.history);
+  } catch (error) {
+    console.warn("Latest location refresh failed", error);
+  }
+}
+function stopLocationRefresh() {
+  if (S.locationRefreshTimer) clearInterval(S.locationRefreshTimer);
+  S.locationRefreshTimer = null;
+}
+function startLocationRefresh() {
+  stopLocationRefresh();
+  if (!S.device) return;
+  refreshLatestLocation();
+  S.locationRefreshTimer = setInterval(() => {
+    if (!document.hidden && !$("mapPane").classList.contains("hidden") && S.device) {
+      refreshLatestLocation();
+    }
+  }, 30000);
+}
 function showMap() {
   $("videoPane").classList.add("hidden");
   $("mapPane").classList.remove("hidden");
@@ -1527,8 +1558,10 @@ function showMap() {
   $("videoTab").classList.remove("active");
   initMap();
   setTimeout(() => { if (S.map) S.map.invalidateSize(); }, 100);
+  startLocationRefresh();
 }
 function showVideo() {
+  stopLocationRefresh();
   $("mapPane").classList.add("hidden");
   $("videoPane").classList.remove("hidden");
   $("videoTab").classList.add("active");
@@ -1698,7 +1731,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
     $("saveSettings").addEventListener("click", () => saveSettings().catch(error => toast(error.message)));
-  $("locate").addEventListener("click", () => command("location_once").catch(error => toast(error.message)));
+  $("locate").addEventListener("click", () => command("location_once")
+    .then(() => setTimeout(() => refreshLatestLocation(), 4000))
+    .catch(error => toast(error.message)));
   $("history").addEventListener("click", () => loadHistory().catch(error => toast(error.message)));
   $("followLocation").addEventListener("click", toggleLocationFollow);
   $("copyCoordinates").addEventListener("click", () => copyCoordinates().catch(error => toast(error.message)));
