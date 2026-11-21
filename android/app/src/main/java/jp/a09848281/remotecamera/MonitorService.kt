@@ -76,6 +76,7 @@ class MonitorService : Service() {
     private val apiReady = CompletableDeferred<Unit>()
     private var streamWakeLock: PowerManager.WakeLock? = null
     private var powerSaveActive = false
+    private var torchEnabled = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -298,7 +299,8 @@ class MonitorService : Service() {
                                                 this, currentApi, deviceId, secret, scope, ::notifyState,
                                                 onDataChannelMessage = ::handleDataChannelMessage,
                                                 onConnectionState = ::onRtcConnectionState,
-                                                microphoneMode = prefs.getString("micMode", "ambient") ?: "ambient"
+                                                microphoneMode = prefs.getString("micMode", "ambient") ?: "ambient",
+                                                captureAspectRatio = prefs.getString("aspectRatio", "16:9") ?: "16:9"
                                             )
                                         }
                                         rtc?.setIceServers(response.optJSONArray("iceServers"))
@@ -552,6 +554,7 @@ class MonitorService : Service() {
                 chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE)==true
         } ?: error("ライト対応の背面カメラが見つかりません。")
         manager.setTorchMode(backId,enabled)
+        torchEnabled = enabled
     }
 
     private fun sendNetworkDiagnostic(sessionId:String,reason:String=lastNetworkError) {
@@ -577,6 +580,9 @@ class MonitorService : Service() {
         val intent=registerReceiver(null,android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         val rawTemp=intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE,-1)?:-1
         val temp=if(rawTemp>=0)rawTemp/10.0 else -1.0
+        val batteryStatus=intent?.getIntExtra(BatteryManager.EXTRA_STATUS,BatteryManager.BATTERY_STATUS_UNKNOWN)
+            ?: BatteryManager.BATTERY_STATUS_UNKNOWN
+        val charging=batteryStatus==BatteryManager.BATTERY_STATUS_CHARGING || batteryStatus==BatteryManager.BATTERY_STATUS_FULL
         val thermal=if(Build.VERSION.SDK_INT>=29)(getSystemService(POWER_SERVICE) as PowerManager).currentThermalStatus else -1
         val shouldReduceLoad = (percent in 0..15) || (thermal >= PowerManager.THERMAL_STATUS_SEVERE)
         if (shouldReduceLoad && rtc != null && !powerSaveActive) {
@@ -588,9 +594,22 @@ class MonitorService : Service() {
             applyVideoSettings(JSONObject())
             notifyState("端末温度・バッテリーが回復したため映像設定を戻しました")
         }
+        val flashAvailable = try {
+            val cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
+            cameraManager.cameraIdList.any { cameraId ->
+                cameraManager.getCameraCharacteristics(cameraId)
+                    .get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+            }
+        } catch (_: Exception) { false }
         val data=JSONObject().put("type","telemetry").put("txBytesSinceConnect",tx).put("rxBytesSinceConnect",rx)
             .put("txBytesPerSecond",txSpeed).put("rxBytesPerSecond",rxSpeed).put("batteryPercent",percent)
-            .put("batteryTempC",temp).put("thermalStatus",thermal).put("network",networkInfo())
+            .put("batteryCharging",charging).put("batteryTempC",temp).put("thermalStatus",thermal)
+            .put("androidVersion",Build.VERSION.RELEASE).put("deviceModel",Build.MODEL ?: "Android")
+            .put("cameraFacing",rtc?.currentCameraFacing() ?: "未接続")
+            .put("cameraId",rtc?.currentCameraId() ?: "")
+            .put("flashAvailable",flashAvailable).put("flashEnabled",torchEnabled)
+            .put("microphoneMode",prefs.getString("micMode","ambient") ?: "ambient")
+            .put("network",networkInfo())
         rtc?.sendControlToOpenDataChannels(data)
     }
 
@@ -646,10 +665,13 @@ class MonitorService : Service() {
         val previousDataMode = prefs.getString("requestedDataMode", "standard") ?: "standard"
         val requestChanged = requestedQuality != previousQuality || requestedDataMode != previousDataMode
         val requestedFps = settings.optInt("fps", prefs.getInt("fps", 24)).coerceIn(10, 60)
+        val requestedRatio = settings.optString("aspectRatio", prefs.getString("aspectRatio", "16:9") ?: "16:9")
+            .takeIf { it in setOf("16:9", "4:3", "1:1", "9:16", "original") } ?: "16:9"
         val editor = prefs.edit()
             .putString("requestedQuality", requestedQuality)
             .putString("requestedDataMode", requestedDataMode)
             .putInt("fps", requestedFps)
+            .putString("aspectRatio", requestedRatio)
         if (requestChanged) {
             editor.remove("adaptiveQuality")
                 .remove("adaptiveDataMode")
