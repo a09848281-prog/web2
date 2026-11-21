@@ -56,15 +56,15 @@ class MonitorService : Service() {
     private var pollJob: Job? = null
     private var locationJob: Job? = null
     private var afterSeq = 0
-    private var connectedLocationEnabled = false
-    private var idleLocationEnabled = false
-    private var connectedInterval = 30L
-    private var idleInterval = 300L
+    @Volatile private var connectedLocationEnabled = false
+    @Volatile private var idleLocationEnabled = false
+    @Volatile private var connectedInterval = 30L
+    @Volatile private var idleInterval = 300L
     private var currentQuality = "720"
     private var currentDataMode = "standard"
     private var currentFps = 24
     private var lastDevicePollAt = 0L
-    private var lastLocationAttempt = 0L
+    @Volatile private var lastLocationAttempt = 0L
     private var lastCodeRefresh = 0L
     private var pollIntervalSeconds = AppConfig.POLL_SECONDS
     private var trafficBaselineTx = -1L
@@ -474,6 +474,9 @@ class MonitorService : Service() {
                 if (!powerSaveActive) applyAdaptiveQuality(payload)
             }
             "quality","data_mode","settings_update" -> {
+                // Apply location tracking preferences immediately over the open RTC
+                // channel; do not wait for the next GAS device_poll cycle.
+                applyLocationSettings(payload)
                 applyVideoSettings(payload)
                 rtc?.setNoiseSuppressionLevel(payload.optInt("micNoise",prefs.getInt("micNoise",70)))
                 rtc?.setMicSensitivity(payload.optInt("micSensitivity",prefs.getInt("micSensitivity",70)))
@@ -730,11 +733,21 @@ class MonitorService : Service() {
         rtc?.setQuality(currentQuality, currentDataMode, currentFps)
     }
 
+    private fun applyLocationSettings(settings: JSONObject) {
+        connectedLocationEnabled = settings.optBoolean("connectedLocationEnabled", connectedLocationEnabled)
+        idleLocationEnabled = settings.optBoolean("idleLocationEnabled", idleLocationEnabled)
+        connectedInterval = settings.optLong("connectedInterval", connectedInterval).coerceIn(10, 3600)
+        idleInterval = settings.optLong("idleInterval", idleInterval).coerceIn(10, 3600)
+        prefs.edit()
+            .putBoolean("connectedLocationEnabled", connectedLocationEnabled)
+            .putBoolean("idleLocationEnabled", idleLocationEnabled)
+            .putLong("connectedInterval", connectedInterval)
+            .putLong("idleInterval", idleInterval)
+            .apply()
+    }
+
     private fun applySettings(settings: JSONObject) {
-        connectedLocationEnabled = settings.optBoolean("connectedLocationEnabled", false)
-        idleLocationEnabled = settings.optBoolean("idleLocationEnabled", false)
-        connectedInterval = settings.optLong("connectedInterval", 30).coerceIn(10, 3600)
-        idleInterval = settings.optLong("idleInterval", 300).coerceIn(10, 3600)
+        applyLocationSettings(settings)
         applyVideoSettings(settings)
         val micNoise = settings.optInt("micNoise", prefs.getInt("micNoise", 0)).coerceIn(0, 100)
         val micSensitivity = settings.optInt("micSensitivity", prefs.getInt("micSensitivity", 0)).coerceIn(0, 100)
@@ -849,7 +862,9 @@ class MonitorService : Service() {
         }
         lastLocationAttempt = System.currentTimeMillis()
         val cached = try { manager.getLastKnownLocation(provider) } catch (_: SecurityException) { null }
-        if (cached != null && System.currentTimeMillis() - cached.time < 120000L) {
+        // A two-minute-old cached fix made 10-second tracking appear frozen.
+        // Reuse only an almost-current fix; otherwise request a fresh one.
+        if (cached != null && System.currentTimeMillis() - cached.time < 5000L) {
             saveLocation(cached, mode)
             return
         }
@@ -868,17 +883,40 @@ class MonitorService : Service() {
     }
 
     private suspend fun saveLocation(location: Location, mode: String) {
+        val point = JSONObject()
+            .put("lat", location.latitude)
+            .put("lng", location.longitude)
+            .put("accuracy", location.accuracy.toDouble().coerceAtLeast(0.0))
+            .put("timestamp", location.time)
+            .put("mode", mode)
+
+        // Fast path: deliver the fresh fix directly to every authenticated Web
+        // viewer. DataChannel is independent from the GAS history write below.
+        val liveDelivered = try {
+            rtc?.sendControlToOpenDataChannels(
+                JSONObject().put("type", "location_update").put("location", point)
+            )
+            rtc?.hasOpenControlChannel() == true
+        } catch (error: Exception) {
+            Log.w("RemoteCameraService", "RTC live location delivery failed", error)
+            false
+        }
+
+        // Persistence/history remains on GAS + Sheets. A GAS failure must not
+        // prevent the location that was already delivered over RTC from showing.
         try {
             api?.call("add_location", JSONObject()
                 .put("deviceId", prefs.getString("deviceId", ""))
                 .put("deviceSecret", prefs.getString("deviceSecret", ""))
                 .put("lat", location.latitude).put("lng", location.longitude)
-                .put("accuracy", location.accuracy.toDouble()).put("timestamp", location.time)
-                .put("mode", mode))
+                .put("accuracy", location.accuracy.toDouble().coerceAtLeast(0.0))
+                .put("timestamp", location.time).put("mode", mode))
             lastLocationAttempt = System.currentTimeMillis()
-            notifyState("位置情報を保存しました")
-        } catch (_: Exception) {
-            notifyState("位置情報送信失敗")
+            notifyState(if (liveDelivered) "位置情報をRTCでWebへ配信し、履歴を保存しました。" else "位置情報を履歴へ保存しました。")
+        } catch (error: Exception) {
+            Log.w("RemoteCameraService", "Location history save failed", error)
+            lastLocationAttempt = System.currentTimeMillis()
+            notifyState(if (liveDelivered) "位置情報はRTCでWebへ配信しましたが、GAS履歴保存に失敗しました。" else "位置情報のGAS履歴保存に失敗しました。")
         }
     }
 
