@@ -208,11 +208,12 @@ function csvCell(value) {
   if (/^[=+@\-\t\r]/.test(text)) text = "'" + text;
   return '"' + text.replace(/"/g, '""') + '"';
 }
-async function loadMotionHistory(showDialog = true) {
+async function loadMotionHistory(showDialog = true, limit = 500) {
   const device = S.device;
   if (!device) throw Error("Android端末をペアリングしてください。");
   const result = await api("get_motion_events", {
-    controllerToken: device.controllerToken, deviceId: device.deviceId, limit: 500
+    controllerToken: device.controllerToken, deviceId: device.deviceId,
+    limit: Math.max(1, Math.min(2000, Number(limit) || 500))
   });
   const all = [...(result.events || []), ...readPendingMotionEvents(device.deviceId).map(item => ({
     eventId: item.eventId, detectedAt: new Date(item.detectedAt).toISOString(),
@@ -236,7 +237,7 @@ async function loadMotionHistory(showDialog = true) {
   return events;
 }
 async function exportMotionCsv() {
-  const events=await loadMotionHistory(false);
+  const events=await loadMotionHistory(false, 2000);
   const rows=[["検知日時","動体スコア(%)","検知感度","記録元"]];
   events.forEach(event=>rows.push([new Date(event.detectedAt).toISOString(),Number(event.motionScore).toFixed(1),event.sensitivity,event.source||"browser-motion-v1"]));
   const csv="\uFEFF"+rows.map(row=>row.map(csvCell).join(",")).join("\r\n");
