@@ -97,6 +97,8 @@ assert.ok(rtc.includes("private fun failSession("), "RTC failure cleanup missing
 assert.ok(rtc.includes("JavaAudioDeviceModule.builder"), "Android ambient audio device module missing");
 assert.ok(rtc.includes("ensureWebRtcInitialized(context.applicationContext)"), "WebRTC native factory initialization must be process-scoped");
 assert.ok(rtc.includes("private fun startCaptureWithFallback("), "Aspect-ratio preserving camera format fallback missing");
+assert.ok(rtc.includes("source.capturerObserver"), "Capture fallback must use the observer exposed by VideoSource");
+assert.ok(!rtc.includes("VideoCapturer.CapturerObserver"), "Do not hard-code version-sensitive WebRTC observer type names");
 assert.ok(rtc.includes("private fun fallbackCaptureSizes()"), "Camera fallback size profiles missing");
 assert.ok(rtc.includes("Media startup failed; releasing partial resources"), "Partial camera/ADM startup rollback missing");
 assert.ok(rtc.includes("MediaRecorder.AudioSource.MIC"), "Ambient microphone input source missing");
