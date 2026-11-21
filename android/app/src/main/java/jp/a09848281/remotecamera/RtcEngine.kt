@@ -40,6 +40,7 @@ class RtcEngine(
     private var frontCamera = false
     private var currentQuality = "720"
     private var currentDataMode = "standard"
+    private var currentFps = 24
     private var captureWidth = 1280
     private var captureHeight = 720
     private var captureFps = 24
@@ -48,20 +49,21 @@ class RtcEngine(
         val width: Int, val height: Int, val fps: Int, val bitrate: Int
     )
 
-    private fun profileFor(quality: String, dataMode: String): VideoProfile {
-        // Conservative default for mid-range Android 13 devices.
+    private fun profileFor(quality: String, dataMode: String, requestedFps: Int = currentFps): VideoProfile {
+        // Profiles are requests; Camera2 may reject unsupported modes and trigger the safe fallback.
         val base = when (quality) {
             "360" -> VideoProfile(640, 360, 15, 350000)
             "480" -> VideoProfile(640, 480, 15, 550000)
             "1080" -> VideoProfile(1920, 1080, 24, 1800000)
-            else -> VideoProfile(640, 480, 15, 550000)
+            else -> VideoProfile(1280, 720, 24, 950000)
         }
-        return when (dataMode) {
+        val modeProfile = when (dataMode) {
             "ultra" -> VideoProfile(640, 360, 10, 280000)
             "save" -> VideoProfile(640, 360, 15, 550000)
-            "high" -> base.copy(fps = 30, bitrate = 2400000)
+            "high" -> base.copy(bitrate = 2400000)
             else -> base
         }
+        return modeProfile.copy(fps = requestedFps.coerceIn(10, 60))
     }
 
     @Synchronized
@@ -89,7 +91,7 @@ class RtcEngine(
         capturer = enumerator.createCapturer(selected, null) ?: error("カメラを開けません。")
         helper = SurfaceTextureHelper.create("RemoteCameraCapture", egl!!.eglBaseContext)
         capturer!!.initialize(helper, context.applicationContext, videoSource!!.capturerObserver)
-        val profile = profileFor(currentQuality, currentDataMode)
+        val profile = profileFor(currentQuality, currentDataMode, currentFps)
         captureWidth = profile.width
         captureHeight = profile.height
         captureFps = profile.fps
@@ -117,7 +119,12 @@ class RtcEngine(
 
     fun handleOffer(sessionId: String, sdp: String) {
         try {
-            peers.remove(sessionId)?.close()
+            peers.remove(sessionId)?.let { oldPeer ->
+                try { controlChannels.remove(sessionId)?.dispose() } catch (_: Exception) {}
+                try { oldPeer.close() } catch (_: Exception) {}
+                try { oldPeer.dispose() } catch (_: Exception) {}
+            }
+            check(peers.size < 3) { "同時に監視できるWeb端末は最大3台です。先に別の接続を切断してください。" }
             ensureMedia()
             val iceServers = listOf(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
             val config = PeerConnection.RTCConfiguration(iceServers).apply {
@@ -135,6 +142,7 @@ class RtcEngine(
                         state == PeerConnection.IceConnectionState.CLOSED) {
                         peers.remove(sessionId)
                         videoSenders.remove(sessionId)
+                        try { controlChannels.remove(sessionId)?.dispose() } catch (_: Exception) {}
                         if (peers.isEmpty()) stopMedia()
                     }
                 }
@@ -261,10 +269,11 @@ class RtcEngine(
         })
     }
 
-    fun setQuality(quality: String, dataMode: String) {
+    fun setQuality(quality: String, dataMode: String, fps: Int = currentFps) {
         currentQuality = quality
         currentDataMode = dataMode
-        val profile = profileFor(currentQuality, currentDataMode)
+        currentFps = fps.coerceIn(10, 60)
+        val profile = profileFor(currentQuality, currentDataMode, currentFps)
         val camera = capturer
         if (camera != null &&
             (profile.width != captureWidth || profile.height != captureHeight || profile.fps != captureFps)
