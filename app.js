@@ -651,10 +651,21 @@ async function disconnect(sendCommand = true) {
     S.reconnectTimer = null;
   }
   if (sendCommand && S.pc && S.device) {
-    if (S.control && S.control.readyState === "open") sendControl("disconnect", {});
-    else {
-      api("send_signal", {controllerToken:S.device.controllerToken,deviceId:S.device.deviceId,sessionId:S.session,recipient:"device",kind:"bye"}).catch(() => {});
-      api("send_command", {controllerToken:S.device.controllerToken,deviceId:S.device.deviceId,command:"disconnect",payload:{}}).catch(() => {});
+    const device = S.device;
+    const sessionId = S.session;
+    if (S.control && S.control.readyState === "open") {
+      sendControl("disconnect", {});
+    } else {
+      // Include the session ID so disconnecting one browser never tears down
+      // the other paired viewers on the same Android camera.
+      api("send_signal", {
+        controllerToken:device.controllerToken, deviceId:device.deviceId,
+        sessionId:sessionId, recipient:"device", kind:"bye"
+      }).catch(error => console.warn("Session bye signal failed", error));
+      api("send_command", {
+        controllerToken:device.controllerToken, deviceId:device.deviceId,
+        command:"disconnect", payload:{sessionId:sessionId}
+      }).catch(error => console.warn("Session disconnect command failed", error));
     }
   }
   stopRtcStats();
