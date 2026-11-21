@@ -26,7 +26,7 @@ for (const id of referencedIds) {
   assert.ok(htmlIds.has(id), "JavaScript references missing HTML id: " + id);
 }
 
-for (const id of ["micNoise", "micSensitivity", "micGain", "androidSpeakerVolume", "androidSpeakerVolumeValue", "receiveVolume", "receiveVolumeValue", "micMode", "audioLevel", "audioLevelText", "remoteMute", "pttLock", "keepAwake", "fitMode", "videoState", "audioState", "cameraFacing", "flashState", "connectionMetrics", "gasTiming", "sessionDuration", "diagnostics", "deviceTotal", "networkSummary", "deviceHealth", "deviceTxSpeed", "deviceRxSpeed", "torch", "reserveConnection", "cancelReservation", "reservationStatus", "fps", "aspectRatio", "fullscreen", "bookmarkletOpen", "bookmarkletCode", "bookmarkDialog", "copyBookmarklet", "zoom", "zoomValue", "zoomReset", "motionEnabled", "motionSensitivity", "motionNotify", "motionHistory", "motionExport", "motionClear", "motionDialog", "motionRows", "motionStatus"]) {
+for (const id of ["micNoise", "micSensitivity", "micGain", "androidSpeakerVolume", "androidSpeakerVolumeValue", "receiveVolume", "receiveVolumeValue", "micMode", "audioLevel", "audioLevelText", "remoteMute", "pttLock", "keepAwake", "fitMode", "videoState", "audioState", "cameraFacing", "flashState", "connectionMetrics", "gasTiming", "sessionDuration", "deviceInfo", "deviceInfoDialog", "deviceInfoOutput", "followLocation", "copyCoordinates", "diagnostics", "deviceTotal", "networkSummary", "deviceHealth", "deviceTxSpeed", "deviceRxSpeed", "torch", "reserveConnection", "cancelReservation", "reservationStatus", "fps", "aspectRatio", "fullscreen", "bookmarkletOpen", "bookmarkletCode", "bookmarkDialog", "copyBookmarklet", "zoom", "zoomValue", "zoomReset", "motionEnabled", "motionSensitivity", "motionNotify", "motionHistory", "motionExport", "motionClear", "motionDialog", "motionRows", "motionStatus"]) {
   assert.ok(html.includes('id="' + id + '"'), "Missing HTML element: " + id);
   assert.ok(js.includes('$("' + id + '")'), "Missing JavaScript reference: " + id);
 }
@@ -61,6 +61,12 @@ assert.ok(js.includes("function startSessionClock("), "Connection duration count
 assert.ok(js.includes("performance.now()"), "GAS request latency measurement missing");
 assert.ok(js.includes("S.apiVersion"), "GAS API version compatibility warning missing");
 assert.ok(js.includes("function toggleFitMode("), "Fit/fill video display mode missing");
+assert.ok(js.includes("function toggleLocationFollow("), "Latest location follow toggle missing");
+assert.ok(js.includes("function copyCoordinates("), "Coordinate clipboard action missing");
+assert.ok(js.includes("function refreshLatestLocation("), "Automatic latest location refresh missing");
+assert.ok(js.includes("function renderDeviceInfo("), "Device detail display missing");
+assert.ok(js.includes("S.locationRefreshTimer = setInterval"), "Map location periodic refresh missing");
+assert.ok(js.includes("function updateLocationActions("), "Map follow/copy availability UI missing");
 assert.ok(audioUtils.includes("function clampReceivePercent("), "Receive audio gain clamping missing");
 assert.ok(audioUtils.includes("function rmsFromTimeDomain("), "Audio RMS level calculation missing");
 assert.ok(audioTests.includes("PTT timeout helper stops at three minutes"), "PTT timer unit test missing");
@@ -69,6 +75,8 @@ assert.ok(js.includes("S.connecting = true"), "WebRTC connection setup lock miss
 assert.ok(js.includes("if (S.pc !== pc) return;"), "Stale PeerConnection callbacks must be ignored");
 assert.ok(js.includes("motionPendingKey(targetDeviceId)"), "Motion event retry queue must be device scoped");
 assert.ok(js.includes("text = \"'\" + text"), "CSV formula injection protection missing");
+assert.equal([...js.matchAll(/function\\s+ptt\\s*\\(/g)].length, 1, "Only one active PTT handler is allowed");
+assert.ok(js.includes("disconnect(false, automatic, true)"), "Automatic reconnect must send a session bye signal");
 assert.ok(main.includes("https://script.google.com/macros/s/"), "Android config must validate Apps Script deployment URL");
 assert.ok(service.includes("https://script.google.com/macros/s/"), "Foreground Service must validate Apps Script deployment URL");
 assert.ok(apiClient.includes("https://script.google.com/macros/s/") && apiClient.includes('endsWith("/exec")'), "Android API client must validate exact GAS /exec URL");
