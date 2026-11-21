@@ -1220,7 +1220,7 @@ async function loadSettings() {
   $("idleLoc").checked = !!settings.idleLocationEnabled;
   $("connectedInterval").value = String(settings.connectedInterval || 30);
   $("idleInterval").value = String(settings.idleInterval || 300);
-  $("micNoise").value=String(settings.micNoise ?? 0);
+  $("micNoise").checked=Number(settings.micNoise ?? 70)>0;
   $("androidSpeakerVolume").value=String(settings.speakerVolume ?? 70);
   const storedReceive = localStorage.getItem("rc_receive_volume_v1");
   setReceiveVolume(storedReceive === null ? 70 : Number(storedReceive), false);
@@ -1255,7 +1255,7 @@ async function saveSettings() {
     idleLocationEnabled: $("idleLoc").checked,
     connectedInterval: Number($("connectedInterval").value),
     idleInterval: Number($("idleInterval").value),
-    micNoise:Number($("micNoise").value),
+    micNoise:$("micNoise").checked?100:0,
     speakerVolume:Number($("androidSpeakerVolume").value)
   };
   if(S.control?.readyState==="open") {
@@ -1289,7 +1289,7 @@ function sendControlAwait(name,payload={},timeoutMs=7000){
     catch(error){clearTimeout(timer);S.pendingCommands.delete(requestId);reject(error);}
   });
 }
-function readLiveSettings(){return {quality:$("quality").value,fps:Number($("fps").value),aspectRatio:$("aspectRatio").value,maxBitrateKbps:Number($("maxBitrate").value),micNoise:Number($("micNoise").value),speakerVolume:Number($("androidSpeakerVolume").value)};}
+function readLiveSettings(){return {quality:$("quality").value,fps:Number($("fps").value),aspectRatio:$("aspectRatio").value,maxBitrateKbps:Number($("maxBitrate").value),micNoise:$("micNoise").checked?100:0,speakerVolume:Number($("androidSpeakerVolume").value)};}
 function bytesText(value){const b=Math.max(0,Number(value)||0);if(b<1024)return b.toFixed(0)+" B";if(b<1048576)return (b/1024).toFixed(1)+" KB";return (b/1048576).toFixed(2)+" MB";}
 function renderDeviceInfo() {
   const telemetry = S.deviceTelemetry || {};
@@ -1320,7 +1320,7 @@ function renderDeviceInfo() {
   $("deviceInfoOutput").textContent = JSON.stringify(safe, null, 2);
 }
 
-function updateSliderLabels(){$("androidSpeakerVolumeValue").value=$("androidSpeakerVolume").value+"%";$("micNoiseValue").value=$("micNoise").value+"%";$("maxBitrateValue").value=$("maxBitrate").value+" kbps";$("receiveVolumeValue").value=S.receiveVolume+"%";}
+function updateSliderLabels(){$("androidSpeakerVolumeValue").value=$("androidSpeakerVolume").value+"%";$("maxBitrateValue").value=$("maxBitrate").value+" kbps";$("receiveVolumeValue").value=S.receiveVolume+"%";}
 function applyLiveLocationUpdate(raw) {
   const point = LocationUtils && LocationUtils.normalizeLiveLocation(raw);
   if (!point) { console.warn("Rejected invalid RTC location update"); return; }
@@ -1879,7 +1879,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("fps").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
   $("aspectRatio").addEventListener("change", () => { applyAspectRatio($("aspectRatio").value); saveSettings().catch(error => toast(error.message)); });
   $("androidSpeakerVolume").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
-  ["androidSpeakerVolume","micNoise","maxBitrate"].forEach(id=>$(id).addEventListener("input",updateSliderLabels));
+  ["androidSpeakerVolume","maxBitrate"].forEach(id=>$(id).addEventListener("input",updateSliderLabels));
   $("receiveVolume").addEventListener("input", event => setReceiveVolume(event.target.value, true));
   $("maxBitrate").addEventListener("change",()=>saveSettings().catch(error=>toast(error.message)));
   $("diagnostics").addEventListener("click",()=>command("diagnostics").catch(e=>toast(e.message)));
