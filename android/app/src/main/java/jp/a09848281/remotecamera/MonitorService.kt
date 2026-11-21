@@ -327,6 +327,7 @@ class MonitorService : Service() {
                 trafficBaselineRx=TrafficStats.getUidRxBytes(Process.myUid())
                 lastTrafficTx=0L;lastTrafficRx=0L;lastTrafficAt=System.currentTimeMillis()
                 notifyState("監視中・DataChannel直接通信")
+                rtc?.sendCameraCapabilities(sessionId)
                 if (lastNetworkError.isNotBlank()) {
                     val reason = lastNetworkError
                     scope.launch {
@@ -363,7 +364,12 @@ class MonitorService : Service() {
     }
     private suspend fun executeDataChannelCommand(sessionId:String,name:String,payload:JSONObject):String {
         when(name) {
-            "camera" -> (rtc?:error("WebRTCが終了しています。")).switchCamera(payload.optString("facing","back"))
+            "camera" -> {
+                val engine = rtc ?: error("WebRTCが終了しています。")
+                val cameraId = payload.optString("cameraId", "")
+                if (cameraId.isNotBlank()) engine.selectCamera(cameraId)
+                else engine.switchCamera(payload.optString("facing", "back"))
+            }
             "torch" -> setTorch(payload.optBoolean("enabled",false))
             "volume","speaker_volume" -> {
                 val pct=payload.optInt("percent",70).coerceIn(0,100)
