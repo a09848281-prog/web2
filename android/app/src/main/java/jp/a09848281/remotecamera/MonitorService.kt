@@ -102,10 +102,15 @@ class MonitorService : Service() {
             return START_NOT_STICKY
         }
         if(action==ACTION_UPDATE_SETTINGS){
+            gasUrl=prefs.getString("gasUrl","")?:""
+            if(!gasUrl.startsWith("https://script.google.com/macros/s/")||!gasUrl.endsWith("/exec")){stopSelf(startId);return START_NOT_STICKY}
             pollIntervalSeconds=prefs.getInt("pollIntervalSeconds",AppConfig.POLL_SECONDS.toInt()).coerceIn(AppConfig.MIN_POLL_SECONDS,AppConfig.MAX_POLL_SECONDS).toLong()
             maxBitrateKbps=intent?.getIntExtra(EXTRA_MAX_BITRATE_KBPS,prefs.getInt("maxBitrateKbps",2500))?.coerceIn(150,8000)?:prefs.getInt("maxBitrateKbps",2500).coerceIn(150,8000)
-            prefs.edit().putInt("maxBitrateKbps",maxBitrateKbps).apply()
+            prefs.edit().putInt("maxBitrateKbps",maxBitrateKbps).putBoolean("monitoringEnabled",true).apply()
+            try{startMonitoringForeground()}catch(error:Exception){Log.e("RemoteCameraService","Could not promote service for settings update",error);stopSelf(startId);return START_NOT_STICKY}
             applyVideoSettings(JSONObject().put("maxBitrateKbps",maxBitrateKbps))
+            if(pollJob?.isActive!=true)pollJob=scope.launch{pollLoop()}
+            if(locationJob?.isActive!=true)locationJob=scope.launch{locationLoop()}
             notifyState("待機中の通信量上限を "+maxBitrateKbps+" kbps に変更しました")
             return START_STICKY
         }
