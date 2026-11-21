@@ -104,10 +104,17 @@
     <section class="telemetry">
 <div><b>Android通信量（接続開始から）</b><span id="deviceTx">送信 --</span><span id="deviceRx">受信 --</span><span id="deviceTxSpeed">送信速度 --</span><span id="deviceRxSpeed">受信速度 --</span><strong id="deviceTotal">合計 --</strong></div>
 <div><b>WebRTC通信</b><span id="rtcStats">RTT -- / 損失 --</span><span id="networkSummary">ネットワーク情報待ち</span></div>
-<div><b>Android端末</b><span id="deviceHealth">バッテリー -- / 温度 --</span></div>
+<div><b>Android端末</b><span id="deviceHealth">バッテリー -- / 温度 --</span><button id="deviceInfo" type="button" class="smallAction" disabled>端末情報を詳しく見る</button></div>
 <div><b>ネットワーク診断</b><pre id="diagnosticOutput">接続後に診断情報を表示します。</pre></div>
 </section>
-<div id="mapPane" class="hidden"><div id="map"></div><p id="locationInfo">位置情報はありません。</p></div>
+<div id="mapPane" class="hidden">
+  <div class="mapActions">
+    <button id="followLocation" type="button" class="active">最新位置を追尾 ON</button>
+    <button id="copyCoordinates" type="button" disabled>座標をコピー</button>
+  </div>
+  <div id="map"></div>
+  <p id="locationInfo">位置情報はありません。</p>
+</div>
     <p class="footer">録画・録音機能はありません。カメラ・マイクはAndroid側で待機を開始した後、接続時に使用します。</p>
   </section>
 </main>
@@ -146,6 +153,15 @@
     <h2>動体検知履歴</h2>
     <p>検知時刻と動きの強さのみを記録しています。映像・画像・音声は保存していません。</p>
     <div id="motionRows" class="motionRows"></div>
+    <button class="wide">閉じる</button>
+  </form>
+</dialog>
+<dialog id="deviceInfoDialog">
+  <form method="dialog" class="dialog">
+    <button class="close" aria-label="閉じる">×</button>
+    <h2>Android端末情報</h2>
+    <p>接続中の端末から受け取った情報です。取得できない項目は表示されません。</p>
+    <pre id="deviceInfoOutput" class="deviceInfoOutput">端末接続後に表示します。</pre>
     <button class="wide">閉じる</button>
   </form>
 </dialog>
