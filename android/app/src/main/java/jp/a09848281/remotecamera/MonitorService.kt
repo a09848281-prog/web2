@@ -191,6 +191,7 @@ class MonitorService : Service() {
         locationJob = null
         rtc?.dispose()
         rtc = null
+        updateStreamWakeLock(false)
         prefs.edit().putBoolean("monitoringEnabled", false).apply()
         stopForeground(STOP_FOREGROUND_REMOVE)
         getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
@@ -285,6 +286,7 @@ class MonitorService : Service() {
                                                 onDataChannelMessage=::handleDataChannelMessage,
                                                 onConnectionState=::onRtcConnectionState)
                                         }
+                                        rtc?.setIceServers(response.optJSONArray("iceServers"))
                                         rtc?.setNoiseSuppressionLevel(prefs.getInt("micNoise", 70))
                                         rtc?.setMicSensitivity(prefs.getInt("micSensitivity", 70))
                                         rtc?.setMicGain(prefs.getInt("micGain", 100))
@@ -385,7 +387,11 @@ class MonitorService : Service() {
                 val payload=req.optJSONObject("payload")?:JSONObject()
                 val result=executeDataChannelCommand(sessionId,name,payload)
                 rtc?.sendControl(sessionId,JSONObject().put("type","ack").put("requestId",requestId).put("ok",true).put("message",result))
-                if(name=="disconnect"){delay(150L);rtc?.closeSession(sessionId)}
+                if(name=="disconnect"){
+                    delay(150L)
+                    rtc?.closeSession(sessionId)
+                    updateStreamWakeLock(rtc?.hasPeers() == true)
+                }
             } catch(e:Exception) {
                 try{rtc?.sendControl(sessionId,JSONObject().put("type","ack").put("requestId",requestId).put("ok",false).put("message",e.message?:"命令を適用できませんでした"))}catch(_:Exception){}
                 lastNetworkError="DataChannel命令エラー: "+(e.message?:"不明")
@@ -412,11 +418,11 @@ class MonitorService : Service() {
                 val stream=AudioManager.STREAM_VOICE_CALL
                 audio.setStreamVolume(stream,(audio.getStreamMaxVolume(stream)*pct/100.0).toInt(),0)
             }
+            "adaptive_quality" -> {
+                applyAdaptiveQuality(payload)
+            }
             "quality","data_mode","settings_update" -> {
-                currentQuality=payload.optString("quality",currentQuality)
-                currentDataMode=payload.optString("dataMode",currentDataMode)
-                currentFps=payload.optInt("fps",currentFps).coerceIn(10,60)
-                rtc?.setQuality(currentQuality,currentDataMode,currentFps)
+                applyVideoSettings(payload)
                 rtc?.setNoiseSuppressionLevel(payload.optInt("micNoise",prefs.getInt("micNoise",70)))
                 rtc?.setMicSensitivity(payload.optInt("micSensitivity",prefs.getInt("micSensitivity",70)))
                 rtc?.setMicGain(payload.optInt("micGain",prefs.getInt("micGain",100)))
@@ -575,24 +581,79 @@ class MonitorService : Service() {
         )
     }
 
+    private fun applyVideoSettings(settings: JSONObject) {
+        val requestedQuality = settings.optString(
+            "quality", prefs.getString("requestedQuality", "720") ?: "720"
+        )
+        val requestedDataMode = settings.optString(
+            "dataMode", prefs.getString("requestedDataMode", "standard") ?: "standard"
+        )
+        val previousQuality = prefs.getString("requestedQuality", "720") ?: "720"
+        val previousDataMode = prefs.getString("requestedDataMode", "standard") ?: "standard"
+        val requestChanged = requestedQuality != previousQuality || requestedDataMode != previousDataMode
+        val requestedFps = settings.optInt("fps", prefs.getInt("fps", 24)).coerceIn(10, 60)
+        val editor = prefs.edit()
+            .putString("requestedQuality", requestedQuality)
+            .putString("requestedDataMode", requestedDataMode)
+            .putInt("fps", requestedFps)
+        if (requestChanged) {
+            editor.remove("adaptiveQuality")
+                .remove("adaptiveDataMode")
+                .remove("adaptiveFps")
+        }
+        editor.apply()
+
+        currentQuality = if (requestedQuality == "auto") {
+            prefs.getString("adaptiveQuality", "720") ?: "720"
+        } else requestedQuality
+        currentDataMode = if (requestedDataMode == "auto") {
+            prefs.getString("adaptiveDataMode", "standard") ?: "standard"
+        } else requestedDataMode
+        val automatic = requestedQuality == "auto" || requestedDataMode == "auto"
+        currentFps = if (automatic) {
+            prefs.getInt("adaptiveFps", requestedFps).coerceIn(10, 60)
+        } else requestedFps
+        rtc?.setQuality(currentQuality, currentDataMode, currentFps)
+    }
+
+    private fun applyAdaptiveQuality(payload: JSONObject) {
+        val requestedQuality = prefs.getString("requestedQuality", "720") ?: "720"
+        val requestedDataMode = prefs.getString("requestedDataMode", "standard") ?: "standard"
+        if (requestedQuality != "auto" && requestedDataMode != "auto") return
+
+        val quality = payload.optString("quality", currentQuality)
+        val dataMode = payload.optString("dataMode", currentDataMode)
+        val allowedQuality = setOf("360", "480", "720", "1080")
+        val allowedMode = setOf("auto", "ultra", "save", "standard", "high")
+        if (quality !in allowedQuality || dataMode !in allowedMode) {
+            throw IllegalArgumentException("自動画質の指定が不正です。")
+        }
+        val fps = payload.optInt("fps", currentFps).coerceIn(10, 60)
+        currentQuality = if (requestedQuality == "auto") quality else requestedQuality
+        currentDataMode = if (requestedDataMode == "auto") dataMode else requestedDataMode
+        currentFps = fps
+        prefs.edit()
+            .putString("adaptiveQuality", quality)
+            .putString("adaptiveDataMode", dataMode)
+            .putInt("adaptiveFps", fps)
+            .apply()
+        rtc?.setQuality(currentQuality, currentDataMode, currentFps)
+    }
+
     private fun applySettings(settings: JSONObject) {
         connectedLocationEnabled = settings.optBoolean("connectedLocationEnabled", false)
         idleLocationEnabled = settings.optBoolean("idleLocationEnabled", false)
         connectedInterval = settings.optLong("connectedInterval", 30).coerceIn(10, 3600)
         idleInterval = settings.optLong("idleInterval", 300).coerceIn(10, 3600)
-        currentQuality = settings.optString("quality", "720")
-        currentDataMode = settings.optString("dataMode", "standard")
-        currentFps = settings.optInt("fps", prefs.getInt("fps", 24)).coerceIn(10, 60)
+        applyVideoSettings(settings)
         val micNoise = settings.optInt("micNoise", prefs.getInt("micNoise", 70)).coerceIn(0, 100)
         val micSensitivity = settings.optInt("micSensitivity", prefs.getInt("micSensitivity", 70)).coerceIn(0, 100)
         val micGain = settings.optInt("micGain", prefs.getInt("micGain", 100)).coerceIn(0, 100)
         val speakerVolume = settings.optInt("speakerVolume", prefs.getInt("speakerVolume", 70)).coerceIn(0, 100)
         val nightMode = settings.optBoolean("nightMode", prefs.getBoolean("nightMode", false))
-        prefs.edit().putInt("fps", currentFps).putInt("micNoise", micNoise)
+        prefs.edit().putInt("micNoise", micNoise)
             .putInt("micSensitivity", micSensitivity).putInt("micGain", micGain)
             .putInt("speakerVolume", speakerVolume).putBoolean("nightMode", nightMode).apply()
-        rtc?.setQuality(currentQuality, currentDataMode, currentFps)
-        rtc?.setNoiseSuppressionLevel(micNoise)
         rtc?.setMicSensitivity(micSensitivity)
         rtc?.setMicGain(micGain)
         rtc?.setNightMode(nightMode)
@@ -626,12 +687,8 @@ class MonitorService : Service() {
                     val max = audio.getStreamMaxVolume(stream)
                     audio.setStreamVolume(stream, (max * percent / 100.0).toInt(), 0)
                 }
-                "quality", "data_mode" -> {
-                    currentQuality = payload.optString("quality", currentQuality)
-                    currentDataMode = payload.optString("dataMode", currentDataMode)
-                    currentFps = payload.optInt("fps", currentFps).coerceIn(10, 60)
-                    rtc?.setQuality(currentQuality, currentDataMode, currentFps)
-                }
+                "adaptive_quality" -> applyAdaptiveQuality(payload)
+                "quality", "data_mode" -> applyVideoSettings(payload)
                 "disconnect" -> {
                     rtc?.dispose()
                     rtc = null
