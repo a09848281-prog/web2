@@ -249,6 +249,7 @@ class MonitorService : Service() {
                         // A controller can revoke pairing remotely. Stop media immediately on the next poll.
                         rtc?.dispose()
                         rtc = null
+                        updateStreamWakeLock(false)
                         val pairingCodeActive = response.optBoolean("pairingCodeActive", false)
                         if (!pairingCodeActive || System.currentTimeMillis() - lastCodeRefresh > 8 * 60 * 1000L) {
                             refreshCode()
@@ -420,7 +421,7 @@ class MonitorService : Service() {
                 audio.setStreamVolume(stream,(audio.getStreamMaxVolume(stream)*pct/100.0).toInt(),0)
             }
             "adaptive_quality" -> {
-                applyAdaptiveQuality(payload)
+                if (!powerSaveActive) applyAdaptiveQuality(payload)
             }
             "quality","data_mode","settings_update" -> {
                 applyVideoSettings(payload)
@@ -629,6 +630,7 @@ class MonitorService : Service() {
     }
 
     private fun applyAdaptiveQuality(payload: JSONObject) {
+        if (powerSaveActive) return
         val requestedQuality = prefs.getString("requestedQuality", "720") ?: "720"
         val requestedDataMode = prefs.getString("requestedDataMode", "standard") ?: "standard"
         if (requestedQuality != "auto" && requestedDataMode != "auto") return
@@ -705,6 +707,7 @@ class MonitorService : Service() {
                 "disconnect" -> {
                     rtc?.dispose()
                     rtc = null
+                    updateStreamWakeLock(false)
                     notifyState("監視待機中")
                 }
             }
