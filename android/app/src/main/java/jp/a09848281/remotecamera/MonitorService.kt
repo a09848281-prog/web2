@@ -74,6 +74,7 @@ class MonitorService : Service() {
     private var lastTrafficAt = 0L
     private var lastNetworkError = ""
     private val apiReady = CompletableDeferred<Unit>()
+    private var streamWakeLock: PowerManager.WakeLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -83,29 +84,33 @@ class MonitorService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val startIntent = intent
-        if (startIntent == null) {
-            stopSelf()
+        val action = intent?.action
+        val restoredAfterProcessDeath = intent == null && prefs.getBoolean("monitoringEnabled", false)
+        if (intent == null && !restoredAfterProcessDeath) {
+            stopSelf(startId)
             return START_NOT_STICKY
         }
-        val action = startIntent.action
         if (action == ACTION_STOP) {
             stopMonitoringNow(startId)
             return START_NOT_STICKY
         }
-        if (action != ACTION_START && action != ACTION_REFRESH_CODE) {
-            stopSelf()
+        if (intent != null && action != ACTION_START && action != ACTION_REFRESH_CODE) {
+            stopSelf(startId)
             return START_NOT_STICKY
         }
-        gasUrl = startIntent.getStringExtra(EXTRA_GAS_URL)
+        gasUrl = intent?.getStringExtra(EXTRA_GAS_URL)
             ?: prefs.getString("gasUrl", "")
             ?: ""
         if (!gasUrl.startsWith("https://script.google.com/")) {
-            stopSelf()
+            prefs.edit().putBoolean("monitoringEnabled", false).apply()
+            stopSelf(startId)
             return START_NOT_STICKY
         }
         prefs.edit().putString("gasUrl", gasUrl).apply()
-        val requestedPoll = startIntent.getIntExtra(EXTRA_POLL_INTERVAL_SECONDS,prefs.getInt("pollIntervalSeconds",AppConfig.POLL_SECONDS.toInt()))
+        val requestedPoll = intent?.getIntExtra(
+            EXTRA_POLL_INTERVAL_SECONDS,
+            prefs.getInt("pollIntervalSeconds", AppConfig.POLL_SECONDS.toInt())
+        ) ?: prefs.getInt("pollIntervalSeconds", AppConfig.POLL_SECONDS.toInt())
         pollIntervalSeconds = requestedPoll.coerceIn(AppConfig.MIN_POLL_SECONDS,AppConfig.MAX_POLL_SECONDS).toLong()
         prefs.edit().putInt("pollIntervalSeconds",pollIntervalSeconds.toInt()).apply()
         try { startMonitoringForeground() } catch(e:Exception) {
@@ -128,7 +133,7 @@ class MonitorService : Service() {
                 }
             }
         }
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     private fun startMonitoringForeground() {
@@ -323,8 +328,17 @@ class MonitorService : Service() {
                 delay(if (rtc?.hasOpenControlChannel()==true) 2000L else pollIntervalSeconds*1000L)
             }
         } catch (e: Exception) {
-            if (!apiReady.isCompleted) apiReady.completeExceptionally(e)
-            notifyState("待機サービスを開始できませんでした")
+            Log.e("RemoteCameraService", "Initial GAS registration failed; retry will continue", e)
+            lastNetworkError = e.message ?: "Initial GAS registration failed"
+            notifyState("初期接続に失敗しました。5秒後に自動再試行します")
+            // Keep apiReady pending so a manual pairing-code refresh can complete
+            // after the retry succeeds instead of retaining a permanent failed Deferred.
+            scope.launch {
+                delay(5000L)
+                if (scope.isActive && prefs.getBoolean("monitoringEnabled", false)) {
+                    pollJob = scope.launch { pollLoop() }
+                }
+            }
         }
     }
 
@@ -685,7 +699,7 @@ class MonitorService : Service() {
         locationJob?.cancel()
         rtc?.dispose()
         rtc = null
-        prefs.edit().putBoolean("monitoringEnabled", false).apply()
+        try { updateStreamWakeLock(false) } catch (_: Exception) {}
         scope.cancel()
         super.onDestroy()
     }
