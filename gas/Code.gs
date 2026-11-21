@@ -8,6 +8,7 @@ const TABLES = {
   Commands: ["commandId","deviceId","ownerUserId","command","payloadJson","createdAt","expiresAt","status"],
   Signals: ["seq","sessionId","deviceId","sender","recipient","kind","sdp","candidateJson","createdAt","expiresAt"],
   Settings: ["deviceId","settingsJson","updatedAt"],
+  Controllers: ["controllerId","deviceId","controllerTokenHash","createdAt","lastSeen","status"],
   LocationHistory: ["locationId","userId","deviceId","lat","lng","accuracy","timestamp","mode"],
   SecurityLog: ["timestamp","userId","deviceId","eventType","success","detail"]
 };
@@ -267,15 +268,48 @@ function authDevice_(deviceId, secret) {
   }
   return { deviceId: d.v[0], row: d.row, v: d.v };
 }
+function activeControllerCount_(deviceId) {
+  let active = 0;
+  try {
+    active = rows_("Controllers").filter(function(row) {
+      return String(row[1]) === String(deviceId) && String(row[5]) === "active";
+    }).length;
+  } catch (err) {
+    active = 0;
+  }
+  const device = find_("Devices", 0, deviceId);
+  const legacyActive = device && device.v[10] ? 1 : 0;
+  return active + legacyActive;
+}
 function authController_(r) {
   const id = String(r.deviceId || "");
   const token = String(r.controllerToken || "");
   if (!id || !token) throw Error("Androidとのペアリングが必要です。");
   const d = find_("Devices", 0, id);
-  if (!d || d.v[9] !== "active" || !d.v[10] || hash_(token) !== d.v[10]) {
-    throw Error("操作権限がありません。Androidのペアリングコードで再接続してください。");
+  if (!d || d.v[9] !== "active") throw Error("操作権限がありません。Androidのペアリングコードで再接続してください。");
+  const tokenHash = hash_(token);
+  let controllerHit = null;
+  try {
+    const data = rows_("Controllers");
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      if (String(row[1]) === id && String(row[2]) === tokenHash && String(row[5]) === "active") {
+        controllerHit = { row: i + 2 };
+        break;
+      }
+    }
+  } catch (err) {
+    // Compatibility with installations that have not yet created Controllers.
   }
-  return { deviceId: d.v[0], row: d.row, v: d.v };
+  if (controllerHit) {
+    sheet_("Controllers").getRange(controllerHit.row, 5).setValue(now_());
+    return { deviceId: d.v[0], row: d.row, v: d.v, controllerId: true };
+  }
+  // Accept existing v4.0 single-controller tokens during migration.
+  if (d.v[10] && tokenHash === d.v[10]) {
+    return { deviceId: d.v[0], row: d.row, v: d.v, legacyController: true };
+  }
+  throw Error("操作権限がありません。Androidのペアリングコードで再接続してください。");
 }
 function ownerController_(r) { return authController_(r); }
 
@@ -339,17 +373,18 @@ function claimDevice_(r) {
       throw Error("登録コードが無効または期限切れです。Android側で再発行してください。");
     }
     const name = String(r.deviceName || hit.v[2] || "Android端末").trim().slice(0, 40) || "Android端末";
+    deviceId = String(hit.v[0]);
+    if (activeControllerCount_(deviceId) >= 3) throw Error("このAndroid端末はWeb操作端末を最大3台まで登録できます。使っていないブラウザーのペアリングを解除してください。");
     const controllerToken = randomToken_();
     const sh = sheet_("Devices");
     sh.getRange(hit.row, 2).setValue("");
     sh.getRange(hit.row, 3).setValue(name);
     sh.getRange(hit.row, 5, 1, 2).setValues([["", ""]]); // one-time code is consumed
     sh.getRange(hit.row, 8, 1, 3).setValues([[now_(), hit.v[8], "active"]]);
-    sh.getRange(hit.row, 11).setValue(hash_(controllerToken));
-    deviceId = String(hit.v[0]);
+    append_("Controllers", [Utilities.getUuid(), deviceId, hash_(controllerToken), now_(), now_(), "active"]);
     clearPairRate_();
-    log_(deviceId, "pair_claim", true, "viewer paired");
-    return { ok: true, deviceId: deviceId, deviceName: name, controllerToken: controllerToken };
+    log_(deviceId, "pair_claim", true, "viewer paired; active viewers=" + activeControllerCount_(deviceId));
+    return { ok: true, deviceId: deviceId, deviceName: name, controllerToken: controllerToken, activeControllers: activeControllerCount_(deviceId) };
   } finally {
     lock.releaseLock();
   }
@@ -357,22 +392,37 @@ function claimDevice_(r) {
 
 function unpairDevice_(r) {
   const d = authController_(r);
+  const tokenHash = hash_(String(r.controllerToken || ""));
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
+  let remaining = 0;
   try {
-    const current = find_("Devices", 0, d.deviceId);
-    if (!current || !current.v[10] || current.v[10] !== hash_(String(r.controllerToken || ""))) {
-      throw Error("ペアリング状態が変更されています。端末一覧を更新してください。");
+    const rows = rows_("Controllers");
+    let revoked = false;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (String(row[1]) === d.deviceId && String(row[2]) === tokenHash && String(row[5]) === "active") {
+        sheet_("Controllers").getRange(i + 2, 6).setValue("revoked");
+        revoked = true;
+        break;
+      }
     }
-    const sh = sheet_("Devices");
-    sh.getRange(current.row, 5, 1, 2).clearContent();
-    sh.getRange(current.row, 10).setValue("pending");
-    sh.getRange(current.row, 11).clearContent();
+    const current = find_("Devices", 0, d.deviceId);
+    if (!revoked && current && current.v[10] === tokenHash) {
+      sheet_("Devices").getRange(current.row, 11).clearContent();
+      revoked = true;
+    }
+    if (!revoked) throw Error("ペアリング状態が変更されています。端末一覧を更新してください。");
+    remaining = activeControllerCount_(d.deviceId);
+    if (remaining === 0) {
+      sheet_("Devices").getRange(current.row, 10).setValue("pending");
+      sheet_("Devices").getRange(current.row, 5, 1, 2).clearContent();
+    }
   } finally {
     lock.releaseLock();
   }
-  log_(d.deviceId, "unpair_device", true, "controller pairing revoked");
-  return { ok: true, deviceId: d.deviceId, unpaired: true };
+  log_(d.deviceId, "unpair_device", true, "controller pairing revoked; remaining=" + remaining);
+  return { ok: true, deviceId: d.deviceId, unpaired: true, remainingControllers: remaining };
 }
 
 function devicePoll_(r) {
@@ -411,13 +461,13 @@ function devicePoll_(r) {
     }
   }
   const settingsHit = find_("Settings", 0, id);
-  let settings = { quality: "720", dataMode: "standard", connectedLocationEnabled: false, idleLocationEnabled: false, connectedInterval: 30, idleInterval: 300 };
+  let settings = { quality: "720", dataMode: "standard", fps: 24, aspectRatio: "16:9", micNoise: 70, micSensitivity: 70, micGain: 100, speakerVolume: 70, nightMode: false, connectedLocationEnabled: false, idleLocationEnabled: false, connectedInterval: 30, idleInterval: 300 };
   if (settingsHit) {
     try { settings = Object.assign(settings, JSON.parse(settingsHit.v[1] || "{}")); } catch (err) {}
   }
   return {
     ok: true, registered: true,
-    needsPairing: !d.v[10],
+    needsPairing: activeControllerCount_(id) === 0,
     pairingCodeActive: !!d.v[4] && new Date(d.v[5]).getTime() > Date.now(),
     commands: commands, signals: signals,
     latestSeq: signals.reduce(function(max, signal) { return Math.max(max, signal.seq); }, after),
@@ -503,7 +553,7 @@ function clamp_(value, min, max, fallback) {
 function getSettings_(r) {
   const d = authController_(r);
   const found = find_("Settings", 0, d.deviceId);
-  let settings = { quality: "720", dataMode: "standard", connectedLocationEnabled: false, idleLocationEnabled: false, connectedInterval: 30, idleInterval: 300 };
+  let settings = { quality: "720", dataMode: "standard", fps: 24, aspectRatio: "16:9", micNoise: 70, micSensitivity: 70, micGain: 100, speakerVolume: 70, nightMode: false, connectedLocationEnabled: false, idleLocationEnabled: false, connectedInterval: 30, idleInterval: 300 };
   if (found) {
     try { settings = Object.assign(settings, JSON.parse(found.v[1] || "{}")); } catch (err) {}
   }
@@ -515,6 +565,13 @@ function saveSettings_(r) {
   const clean = {
     quality: ["auto", "360", "480", "720", "1080"].includes(String(s.quality)) ? String(s.quality) : "720",
     dataMode: ["auto", "ultra", "save", "standard", "high"].includes(String(s.dataMode)) ? String(s.dataMode) : "standard",
+    fps: clamp_(s.fps, 10, 60, 24),
+    aspectRatio: ["16:9", "4:3", "1:1", "original"].includes(String(s.aspectRatio)) ? String(s.aspectRatio) : "16:9",
+    micNoise: clamp_(s.micNoise, 0, 100, 70),
+    micSensitivity: clamp_(s.micSensitivity, 0, 100, 70),
+    micGain: clamp_(s.micGain, 0, 100, 100),
+    speakerVolume: clamp_(s.speakerVolume, 0, 100, 70),
+    nightMode: s.nightMode === true,
     connectedLocationEnabled: s.connectedLocationEnabled === true,
     idleLocationEnabled: s.idleLocationEnabled === true,
     connectedInterval: clamp_(s.connectedInterval, 10, 3600, 30),
