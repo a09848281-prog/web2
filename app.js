@@ -765,7 +765,27 @@ function selectDevice(device) {
     toast("接続処理中または接続中は端末を切り替えられません。先に切断してください。");
     return;
   }
+  const mapWasVisible = !$("mapPane").classList.contains("hidden");
+  stopLocationRefresh();
+  const previousId = S.device && S.device.deviceId;
   S.device = device;
+  if (previousId !== device.deviceId) {
+    S.history = [];
+    S.lastLocation = null;
+    S.followMap = true;
+    S.deviceTelemetry = null;
+    S.deviceDiagnostics = null;
+    if (S.map) drawMap([]);
+    $("deviceTx").textContent = "送信 --";
+    $("deviceRx").textContent = "受信 --";
+    $("deviceTxSpeed").textContent = "送信速度 --";
+    $("deviceRxSpeed").textContent = "受信速度 --";
+    $("deviceTotal").textContent = "合計 --";
+    $("deviceHealth").textContent = "端末情報待機中";
+    $("cameraFacing").textContent = "カメラ --";
+    $("flashState").textContent = "ライト --";
+    $("deviceInfoOutput").textContent = "端末接続後に表示します。";
+  }
   localStorage.setItem(SELECTED_KEY, device.deviceId);
   $("deviceName").textContent = device.deviceName || "Android端末";
   $("deviceMeta").textContent = "端末ID: " + device.deviceId + " / このiPadにペアリング済み";
@@ -775,6 +795,7 @@ function selectDevice(device) {
   status("ペアリング済み");
   loadSettings().catch(error => toast(error.message));
   flushMotionEvents().catch(error => console.warn("Motion queue flush failed", error));
+  if (mapWasVisible) startLocationRefresh();
 }
 function refreshDeviceList() {
   S.devices = readDevices();
@@ -787,7 +808,12 @@ function refreshDeviceList() {
     const id = localStorage.getItem(SELECTED_KEY);
     selectDevice(S.devices.find(x => x.deviceId === id) || S.devices[0]);
   } else if (!S.devices.length) {
+    stopLocationRefresh();
     S.device = null;
+    S.deviceTelemetry = null;
+    S.deviceDiagnostics = null;
+    S.history = [];
+    S.lastLocation = null;
     $("deviceName").textContent = "Android端末をペアリングしてください";
     $("deviceMeta").textContent = "待機中";
     setControlsEnabled(false);
