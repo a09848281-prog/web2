@@ -16,6 +16,7 @@ const audioUtils = fs.readFileSync("audio-utils.js", "utf8");
 const audioTests = fs.readFileSync("tests/audio-utils.test.cjs", "utf8");
 const androidBuild = fs.readFileSync("android/app/build.gradle.kts", "utf8");
 const webConfig = fs.readFileSync("config.json", "utf8");
+const manifestJson = JSON.parse(fs.readFileSync("manifest.webmanifest", "utf8"));
 
 const htmlIdMatches = [...html.matchAll(/\bid=["']([^"']+)["']/g)];
 const htmlIds = new Set(htmlIdMatches.map(match => match[1]));
@@ -47,6 +48,11 @@ assert.ok(js.includes("function attachRemoteAudio("), "Web Audio receive routing
 assert.ok(js.includes("createGain()"), "Web Audio receive volume gain missing");
 assert.ok(js.includes("function setReceiveVolume("), "0-200% receive volume control missing");
 assert.ok(js.includes("function startAudioMeter("), "Incoming audio meter missing");
+assert.equal([...js.matchAll(/function\s+ptt\s*\(/g)].length, 1, "Only one effective PTT function must exist");
+assert.ok(js.includes("disconnect(false, automatic, true)"), "Automatic reconnect must end the previous remote RTC session");
+assert.ok(js.includes("notifyRemote = sendCommand"), "Disconnect must support remote session cleanup independently from manual stop");
+assert.ok(js.includes("function showVideo()") && js.includes("restoreRemotePlayback();"), "Returning from map must restore video playback");
+assert.ok(js.includes("S.pttActive) ptt(false)"), "PTT must stop when the page is backgrounded or RTC fails");
 assert.ok(js.includes("function togglePttLock("), "PTT lock missing");
 assert.ok(js.includes("180000"), "PTT three-minute safety timeout missing");
 assert.ok(js.includes("function startVideoWatchdog("), "Video frame watchdog missing");
@@ -81,6 +87,10 @@ assert.ok(rtc.includes("stun:stun.l.google.com:19302"), "Android STUN configurat
 assert.ok(rtc.includes("fun setIceServers("), "Android dynamic ICE server setup missing");
 assert.ok(rtc.includes("private fun failSession("), "RTC failure cleanup missing");
 assert.ok(rtc.includes("JavaAudioDeviceModule.builder"), "Android ambient audio device module missing");
+assert.ok(rtc.includes("ensureWebRtcInitialized(context.applicationContext)"), "WebRTC native factory initialization must be process-scoped");
+assert.ok(rtc.includes("private fun startCaptureWithFallback("), "Aspect-ratio preserving camera format fallback missing");
+assert.ok(rtc.includes("private fun fallbackCaptureSizes()"), "Camera fallback size profiles missing");
+assert.ok(rtc.includes("Media startup failed; releasing partial resources"), "Partial camera/ADM startup rollback missing");
 assert.ok(rtc.includes("MediaRecorder.AudioSource.MIC"), "Ambient microphone input source missing");
 assert.ok(rtc.includes("setUseHardwareAcousticEchoCanceler"), "Selectable hardware AEC handling missing");
 assert.ok(rtc.includes("setUseHardwareNoiseSuppressor"), "Selectable hardware noise suppressor handling missing");
@@ -135,5 +145,8 @@ assert.ok(gas.includes("function iceServers_("), "GAS ICE/TURN configuration mis
 assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from Script Properties");
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.2.0"'), "GAS API version must be 1.2.0");
+assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
+assert.ok(androidBuild.includes("versionCode = 403"), "Android version code must be incremented for v1.2");
+assert.equal(manifestJson.name, "Remote Camera Web2 v1.2", "PWA display name must match v1.2");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 console.log("Web2 source checks passed.");
