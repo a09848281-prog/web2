@@ -1181,6 +1181,8 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   $("disconnect").disabled = true;
   $("camera").disabled = true;
   $("torch").disabled = true;
+  $("cameraTransmit").disabled = true;
+  $("micTransmit").disabled = true;
   $("diagnostics").disabled = true;
   $("remoteMute").disabled = true;
   $("ptt").disabled = true;
@@ -1214,22 +1216,19 @@ async function loadSettings() {
   if (!S.device || S.device.deviceId !== device.deviceId) return;
   const settings = result.settings || {};
   $("quality").value = settings.quality || "720";
-  $("dataMode").value = settings.dataMode || "standard";
   $("connectedLoc").checked = !!settings.connectedLocationEnabled;
   $("idleLoc").checked = !!settings.idleLocationEnabled;
   $("connectedInterval").value = String(settings.connectedInterval || 30);
   $("idleInterval").value = String(settings.idleInterval || 300);
   $("micNoise").value=String(settings.micNoise ?? 0);
-  $("micSensitivity").value=String(settings.micSensitivity ?? 0);
-  $("micGain").value=String(settings.micGain ?? 100);
   $("androidSpeakerVolume").value=String(settings.speakerVolume ?? 70);
-  $("micMode").value=["ambient","balanced","voice"].includes(settings.micMode) ? settings.micMode : "ambient";
   const storedReceive = localStorage.getItem("rc_receive_volume_v1");
   setReceiveVolume(storedReceive === null ? 70 : Number(storedReceive), false);
   $("nightMode").checked=localStorage.getItem(nightViewStorageKey()) === "true";
   applyNightViewFilter();
   $("fps").value=String(settings.fps || 24);
-  $("aspectRatio").value=settings.aspectRatio || "16:9";
+  $("aspectRatio").value=settings.aspectRatio || "4:3";
+  $("maxBitrate").value=String(settings.maxBitrateKbps || 2500);
   applyAspectRatio($("aspectRatio").value);
   updateSliderLabels();
 }
@@ -1388,6 +1387,7 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
   S.torchEnabled=d.flashEnabled===true;
   if(d.capture){S.cameraTxEnabled=d.capture.cameraEnabled!==false;S.micTxEnabled=d.capture.microphoneEnabled!==false;$("captureApplied").textContent="実適用 "+d.capture.width+"×"+d.capture.height+" / "+d.capture.fps+"FPS";$("cameraTransmit").textContent=S.cameraTxEnabled?"📷 カメラ送信 ON":"📷 カメラ送信 OFF";$("micTransmit").textContent=S.micTxEnabled?"🎙 マイク送信 ON":"🎙 マイク送信 OFF";}
   $("torch").disabled=!S.flashAvailable||!S.control||S.control.readyState!=="open";
+  $("cameraTransmit").disabled=!S.control||S.control.readyState!=="open";$("micTransmit").disabled=!S.control||S.control.readyState!=="open";
   $("cameraTransmit").disabled=!S.control||S.control.readyState!=="open";$("micTransmit").disabled=!S.control||S.control.readyState!=="open";
   $("torch").textContent=!S.flashAvailable?"ライト非対応":(S.torchEnabled?"ライトをOFF":"ライトをON");
   $("flashState").textContent=!S.flashAvailable?"ライト非対応":(S.torchEnabled?"ライト ON":"ライト OFF");
