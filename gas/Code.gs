@@ -30,7 +30,7 @@ function doGet() {
 }
 
 function health_() {
-  const version = "1.1.0";
+  const version = "1.2.0";
   const spreadsheetId = PropertiesService.getScriptProperties().getProperty("DB_SPREADSHEET_ID");
   if (!spreadsheetId) {
     return {
@@ -478,7 +478,7 @@ function devicePoll_(r) {
     }
   }
   const settingsHit = find_("Settings", 0, id);
-  let settings = { quality: "720", dataMode: "standard", fps: 24, aspectRatio: "16:9", micNoise: 70, micSensitivity: 70, micGain: 100, speakerVolume: 70, nightMode: false, connectedLocationEnabled: false, idleLocationEnabled: false, connectedInterval: 30, idleInterval: 300 };
+  let settings = { quality: "720", dataMode: "standard", fps: 24, aspectRatio: "16:9", micNoise: 0, micSensitivity: 0, micGain: 100, micMode: "ambient", speakerVolume: 70, nightMode: false, connectedLocationEnabled: false, idleLocationEnabled: false, connectedInterval: 30, idleInterval: 300 };
   if (settingsHit) {
     try { settings = Object.assign(settings, JSON.parse(settingsHit.v[1] || "{}")); } catch (err) {}
   }
@@ -571,7 +571,7 @@ function clamp_(value, min, max, fallback) {
 function getSettings_(r) {
   const d = authController_(r);
   const found = find_("Settings", 0, d.deviceId);
-  let settings = { quality: "720", dataMode: "standard", fps: 24, aspectRatio: "16:9", micNoise: 70, micSensitivity: 70, micGain: 100, speakerVolume: 70, nightMode: false, connectedLocationEnabled: false, idleLocationEnabled: false, connectedInterval: 30, idleInterval: 300 };
+  let settings = { quality: "720", dataMode: "standard", fps: 24, aspectRatio: "16:9", micNoise: 0, micSensitivity: 0, micGain: 100, micMode: "ambient", speakerVolume: 70, nightMode: false, connectedLocationEnabled: false, idleLocationEnabled: false, connectedInterval: 30, idleInterval: 300 };
   if (found) {
     try { settings = Object.assign(settings, JSON.parse(found.v[1] || "{}")); } catch (err) {}
   }
@@ -585,9 +585,10 @@ function saveSettings_(r) {
     dataMode: ["auto", "ultra", "save", "standard", "high"].includes(String(s.dataMode)) ? String(s.dataMode) : "standard",
     fps: clamp_(s.fps, 10, 60, 24),
     aspectRatio: ["16:9", "4:3", "1:1", "original"].includes(String(s.aspectRatio)) ? String(s.aspectRatio) : "16:9",
-    micNoise: clamp_(s.micNoise, 0, 100, 70),
-    micSensitivity: clamp_(s.micSensitivity, 0, 100, 70),
+    micNoise: clamp_(s.micNoise, 0, 100, 0),
+    micSensitivity: clamp_(s.micSensitivity, 0, 100, 0),
     micGain: clamp_(s.micGain, 0, 100, 100),
+    micMode: ["ambient", "balanced", "voice"].includes(String(s.micMode)) ? String(s.micMode) : "ambient",
     speakerVolume: clamp_(s.speakerVolume, 0, 100, 70),
     nightMode: s.nightMode === true,
     connectedLocationEnabled: s.connectedLocationEnabled === true,
