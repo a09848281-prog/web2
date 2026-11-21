@@ -7,6 +7,7 @@ const rtc = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera
 const service = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MonitorService.kt", "utf8");
 const manifest = fs.readFileSync("android/app/src/main/AndroidManifest.xml", "utf8");
 const main = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MainActivity.kt", "utf8");
+const schedule = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/ScheduleReceiver.kt", "utf8");
 const apiClient = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/ApiClient.kt", "utf8");
 const gas = fs.readFileSync("gas/Code.gs", "utf8");
 const config = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/Config.kt", "utf8");
@@ -162,8 +163,8 @@ assert.ok(gas.includes("Controllers:"), "Multi-controller storage sheet missing"
 assert.ok(gas.includes("activeControllerCount_(deviceId) >= 3"), "Three-controller pairing limit missing");
 assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi permission missing");
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
-assert.ok(androidBuild.includes('versionName = "2.0.1-preview"'), "Android app version must be 1.2.0");
-assert.ok(webConfig.includes('"appVersion": "2.0.1-preview"'), "Web config version must be 1.2.0");
+assert.ok(androidBuild.includes('versionName = "2.1.0-preview"'), "Android app version must be v2.1.0");
+assert.ok(webConfig.includes('"appVersion": "2.1.0-preview"'), "Web config version must be v2.1.0");
 assert.ok(gas.includes("MotionEvents:"), "Motion event metadata sheet missing");
 assert.ok(gas.includes("function addMotionEvent_("), "Motion event write endpoint missing");
 assert.ok(gas.includes("function getMotionEvents_("), "Motion event history endpoint missing");
@@ -174,8 +175,8 @@ assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from S
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.2.0"'), "GAS API version must be 1.2.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 421"), "Android version code must be incremented for v1.2");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.0.1 Preview", "PWA display name must match v1.2");
+assert.ok(androidBuild.includes("versionCode = 422"), "Android version code must be incremented for v1.2");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.1.0 Preview", "PWA display name must match v1.2");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 console.log("Web2 source checks passed.");
 
@@ -187,4 +188,15 @@ assert.ok(!html.includes('id="snapshot"'), "Static image capture must remain exc
 assert.equal([...js.matchAll(/\$\("fitMode"\)\.addEventListener\("click"/g)].length, 1, "Fit/fill action must be registered once");
 assert.ok(!js.includes('"pointerup", "pointerleave"'), "Pointer capture must not stop PTT on pointer leave");
 assert.ok(html.includes("RTC接続中はAndroidの現在地をDataChannelで直接受信"), "Location UI must explain RTC live updates");
-console.log("Web2 v2.0.1 Preview UI, RTC location and stability checks passed.");
+console.log("Web2 v2.1.0 Preview UI, RTC location and stability checks passed.");
+
+assert.ok(main.includes("addTextChangedListener") && main.includes('putInt("pollIntervalSeconds", seconds)'), "Polling interval must be saved as it is edited");
+assert.ok(main.includes("saveMonitoringSchedule()") && main.includes("setAndAllowWhileIdle"), "Android standby schedule UI missing");
+assert.ok(schedule.includes("ACTION_START") && schedule.includes("ACTION_STOP"), "Android scheduled start/stop receiver missing");
+assert.ok(service.includes("WIFI_MODE_FULL") && service.includes("PARTIAL_WAKE_LOCK"), "Live screen-off connection locks missing");
+assert.ok(service.includes("txBytes7d") && service.includes("txBytes30d"), "7/30-day traffic aggregation missing");
+assert.ok(js.includes('d.type==="device_settings"'), "Android settings synchronization missing");
+assert.ok(js.includes('media_toggle') && js.includes('cameraToggle') && js.includes('micToggle'), "Remote camera/microphone toggles missing");
+assert.ok(rtc.includes("1920 to 1080") && rtc.includes("setCameraEnabled") && rtc.includes("captureInfo"), "Wide 16:9 camera capture and live media controls missing");
+assert.ok(html.includes('id="actualVideoFormat"') && html.includes('id="deviceTotal30d"'), "Actual video format and traffic history UI missing");
+assert.ok(!html.includes('option value="ultra"') && html.includes('type="hidden" id="dataMode"'), "Legacy confusing data-mode selector must be hidden");

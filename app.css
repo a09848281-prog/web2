@@ -174,3 +174,9 @@
 }
 @media(min-width:901px){.side{max-height:calc(100vh - 92px)}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
+/* v2.1.0: connected Android controls and verified device status */
+#cameraToggle,#micToggle{min-width:132px}
+#actualVideoFormat,#androidMediaState{font-variant-numeric:tabular-nums}
+#remoteMute[hidden]{display:none!important}
+#deviceTotal7d,#deviceTotal30d{font-weight:700}

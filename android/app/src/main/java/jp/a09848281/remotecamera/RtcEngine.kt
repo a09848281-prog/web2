@@ -28,7 +28,7 @@ class RtcEngine(
     private val onState: (String) -> Unit,
     private val onDataChannelMessage: (String, String) -> Unit,
     private val onConnectionState: (String, String) -> Unit,
-    private val microphoneMode: String = "ambient",
+    private val microphoneMode: String = "balanced",
     private val captureAspectRatio: String = "16:9"
 ) {
     companion object {
@@ -74,6 +74,8 @@ class RtcEngine(
     private var captureWidth = 1280
     private var captureHeight = 720
     private var captureFps = 24
+    @Volatile private var cameraEnabled = true
+    @Volatile private var microphoneEnabled = true
     @Volatile private var iceServerConfig = JSONArray()
 
     fun setIceServers(servers: JSONArray?) {
@@ -175,8 +177,7 @@ class RtcEngine(
     }
 
     private fun profileFor(quality: String, dataMode: String, requestedFps: Int = currentFps): VideoProfile {
-        // Aspect ratio is fixed for the life of this RTC engine. A ratio change is
-        // applied on the next connection so we never restart a live camera abruptly.
+        // Apply the selected aspect ratio to the active capturer without rebuilding PeerConnections.
         val tier = when (quality) { "360" -> 360; "480" -> 480; "1080" -> 1080; else -> 720 }
         val dimensions = when (currentAspectRatio) {
             "4:3" -> when (tier) {
@@ -207,8 +208,8 @@ class RtcEngine(
         val baseBitrate = when (tier) {
             360 -> 650000
             480 -> 1000000
-            1080 -> 3200000
-            else -> 1700000
+            1080 -> if (requestedFps >= 50) 6000000 else 3800000
+            else -> 1900000
         }
         val base = VideoProfile(dimensions.first, dimensions.second, requestedFps.coerceIn(10, 60), baseBitrate)
         val modeProfile = when (dataMode) {
@@ -229,10 +230,10 @@ class RtcEngine(
     )
 
     private fun fallbackCaptureSizes(): List<Pair<Int, Int>> = when (currentAspectRatio) {
-        "4:3" -> listOf(960 to 720, 640 to 480)
-        "1:1" -> listOf(720 to 720, 480 to 480, 360 to 360)
-        "9:16" -> listOf(720 to 1280, 480 to 854, 360 to 640)
-        else -> listOf(960 to 540, 640 to 360)
+        "4:3" -> listOf(1920 to 1440, 1600 to 1200, 1280 to 960, 960 to 720, 640 to 480)
+        "1:1" -> listOf(1440 to 1440, 1080 to 1080, 720 to 720, 480 to 480, 360 to 360)
+        "9:16" -> listOf(1080 to 1920, 720 to 1280, 480 to 854, 360 to 640)
+        else -> listOf(1920 to 1080, 1600 to 900, 1280 to 720, 960 to 540, 640 to 360)
     }
 
     private fun startCaptureWithFallback(
@@ -243,9 +244,15 @@ class RtcEngine(
         requested: VideoProfile
     ): StartedCapture {
         val requestedSize = requested.width to requested.height
+        val requestedPixels = requested.width.toLong() * requested.height.toLong()
+        val requestedRatio = requested.width.toDouble() / requested.height.toDouble()
         val alternativeSizes = fallbackCaptureSizes()
-            .filter { it != requestedSize }
-            .sortedBy { it.first.toLong() * it.second.toLong() }
+            .filter { size ->
+                size != requestedSize &&
+                    size.first.toLong() * size.second.toLong() <= requestedPixels &&
+                    kotlin.math.abs(size.first.toDouble() / size.second.toDouble() - requestedRatio) < 0.035
+            }
+            .sortedByDescending { it.first.toLong() * it.second.toLong() }
         val sizes = listOf(requestedSize) + alternativeSizes
         val fpsOptions = listOf(requested.fps, 30, 24, 20, 15, 10)
             .distinct()
@@ -291,7 +298,7 @@ class RtcEngine(
                     else -> MediaRecorder.AudioSource.MIC
                 }
                 val hardwareAec = microphoneMode == "voice"
-                val hardwareNoiseSuppression = microphoneMode == "balanced" || microphoneMode == "voice"
+                val hardwareNoiseSuppression = microphoneMode != "ambient" && noiseSuppressionLevel > 0
                 audioDeviceModule = JavaAudioDeviceModule.builder(context.applicationContext)
                     .setAudioSource(audioSourceType)
                     .setUseHardwareAcousticEchoCanceler(hardwareAec)
@@ -523,6 +530,38 @@ class RtcEngine(
     fun setMicGain(level:Int){micGain=level.coerceIn(0,100);try{audioTrack?.setVolume(micGain/100.0)}catch(e:Exception){Log.w("RemoteCameraRTC","Mic gain update failed",e)}}
     fun setNightMode(enabled:Boolean){nightModeEnabled=enabled;onState(if(enabled)"夜間モード要求ON（露出制御は端末依存）" else "夜間モードOFF")}
 
+    @Synchronized
+    fun setCameraEnabled(enabled: Boolean) {
+        if (cameraEnabled == enabled) return
+        val camera = capturer ?: error("カメラが起動していません。")
+        val track = videoTrack ?: error("映像トラックがありません。")
+        if (enabled) {
+            camera.startCapture(captureWidth, captureHeight, captureFps)
+            track.setEnabled(true)
+            cameraEnabled = true
+        } else {
+            track.setEnabled(false)
+            camera.stopCapture()
+            cameraEnabled = false
+        }
+    }
+
+    @Synchronized
+    fun setMicrophoneEnabled(enabled: Boolean) {
+        val track = audioTrack ?: error("マイク音声トラックがありません。")
+        track.setEnabled(enabled)
+        microphoneEnabled = enabled
+    }
+
+    fun isCameraEnabled(): Boolean = cameraEnabled
+    fun isMicrophoneEnabled(): Boolean = microphoneEnabled
+    fun captureInfo(): JSONObject = JSONObject()
+        .put("width", captureWidth)
+        .put("height", captureHeight)
+        .put("fps", captureFps)
+        .put("cameraEnabled", cameraEnabled)
+        .put("microphoneEnabled", microphoneEnabled)
+
     fun switchCamera(facing: String) {
         val camera = capturer ?: return
         val wantFront = facing == "front"
@@ -576,23 +615,33 @@ class RtcEngine(
         }
     }
 
-    fun setQuality(quality: String, dataMode: String, fps: Int = currentFps) {
+    @Synchronized
+    fun setQuality(quality: String, dataMode: String, fps: Int = currentFps, aspectRatio: String = currentAspectRatio) {
         currentQuality = quality
         currentDataMode = dataMode
         currentFps = fps.coerceIn(10, 60)
+        val safeRatio = aspectRatio.takeIf { it in setOf("16:9", "4:3", "1:1", "9:16") } ?: "16:9"
+        currentAspectRatio = safeRatio
         val profile = profileFor(currentQuality, currentDataMode, currentFps)
         val camera = capturer
         if (camera != null &&
             (profile.width != captureWidth || profile.height != captureHeight || profile.fps != captureFps)
         ) {
-            try {
-                camera.changeCaptureFormat(profile.width, profile.height, profile.fps)
+            if (!cameraEnabled) {
                 captureWidth = profile.width
                 captureHeight = profile.height
                 captureFps = profile.fps
-            } catch (e: Exception) {
-                Log.w("RemoteCameraRTC", "Could not change camera capture format", e)
-                onState("画質変更に失敗しました。端末が対応する画質を確認してください。")
+            } else {
+                try {
+                    camera.changeCaptureFormat(profile.width, profile.height, profile.fps)
+                    captureWidth = profile.width
+                    captureHeight = profile.height
+                    captureFps = profile.fps
+                    onState("撮影設定を反映しました：${captureWidth}×${captureHeight} @ ${captureFps}FPS")
+                } catch (e: Exception) {
+                    Log.w("RemoteCameraRTC", "Could not change camera capture format", e)
+                    onState("画質変更に失敗しました。現在の撮影形式を維持します。")
+                }
             }
         }
         videoSenders.values.forEach { sender ->

@@ -2,15 +2,26 @@ package jp.a09848281.remotecamera
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlarmManager
+import android.app.DatePickerDialog
+import android.app.PendingIntent
+import android.app.TimePickerDialog
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.text.InputType
+import android.text.Editable
+import android.text.TextWatcher
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.Spinner
+import android.widget.ArrayAdapter
+import android.widget.AdapterView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
@@ -18,6 +29,10 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Calendar
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -27,6 +42,14 @@ class MainActivity : Activity() {
     private lateinit var refreshCodeButton: Button
     private lateinit var stopButton: Button
     private lateinit var pollIntervalInput: EditText
+    private lateinit var qualitySpinner: Spinner
+    private lateinit var fpsSpinner: Spinner
+    private lateinit var scheduleStartButton: Button
+    private lateinit var scheduleEndButton: Button
+    private lateinit var scheduleStatus: TextView
+    private var scheduleStartAt = 0L
+    private var scheduleEndAt = 0L
+    private var uiInitialized = false
     private var gasUrl = ""
     private val prefs by lazy { getSharedPreferences(AppConfig.PREFS, MODE_PRIVATE) }
 
@@ -86,6 +109,74 @@ class MainActivity : Activity() {
             hint = "例：10"
         }
         root.addView(pollIntervalInput, LinearLayout.LayoutParams(-1, -2))
+        pollIntervalInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val seconds = s?.toString()?.toIntOrNull()
+                if (seconds != null && seconds in AppConfig.MIN_POLL_SECONDS..AppConfig.MAX_POLL_SECONDS) {
+                    prefs.edit().putInt("pollIntervalSeconds", seconds).apply()
+                }
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        root.addView(TextView(this).apply {
+            text = "待機中の撮影設定"
+            textSize = 14f
+            setTextColor(0xFF586980.toInt())
+            setPadding(0, 18, 0, 4)
+        })
+        qualitySpinner = Spinner(this)
+        val qualityLabels = listOf("360p", "480p", "720p", "1080p")
+        qualitySpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, qualityLabels)
+        val savedQuality = prefs.getString("requestedQuality", "720") ?: "720"
+        qualitySpinner.setSelection(listOf("360", "480", "720", "1080").indexOf(savedQuality).coerceAtLeast(0))
+        root.addView(qualitySpinner, LinearLayout.LayoutParams(-1, -2))
+        fpsSpinner = Spinner(this)
+        val fpsOptions = listOf("10 FPS", "15 FPS", "20 FPS", "24 FPS", "30 FPS", "60 FPS")
+        fpsSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, fpsOptions)
+        val savedFps = prefs.getInt("fps", 24)
+        fpsSpinner.setSelection(listOf(10, 15, 20, 24, 30, 60).indexOf(savedFps).coerceAtLeast(0))
+        root.addView(fpsSpinner, LinearLayout.LayoutParams(-1, -2))
+        root.addView(TextView(this).apply {
+            text = "画角は16:9です。1080p・60FPSは端末カメラが対応する場合のみ実際に反映されます。通信量は画質・FPSに応じて増減します。"
+            textSize = 12f
+            setTextColor(0xFF66758B.toInt())
+            setPadding(0, 4, 0, 10)
+        })
+        root.addView(Button(this).apply {
+            text = "待機画質・FPSを保存"
+            setOnClickListener { saveNativeVideoSettings() }
+        }, LinearLayout.LayoutParams(-1, -2))
+        root.addView(TextView(this).apply {
+            text = "待機開始・終了の予約"
+            textSize = 14f
+            setTextColor(0xFF586980.toInt())
+            setPadding(0, 18, 0, 4)
+        })
+        scheduleStartAt = prefs.getLong("scheduleStartAt", 0L)
+        scheduleEndAt = prefs.getLong("scheduleEndAt", 0L)
+        scheduleStartButton = Button(this).apply { setOnClickListener { pickScheduleTime(true) } }
+        scheduleEndButton = Button(this).apply { setOnClickListener { pickScheduleTime(false) } }
+        root.addView(scheduleStartButton, LinearLayout.LayoutParams(-1, -2))
+        root.addView(scheduleEndButton, LinearLayout.LayoutParams(-1, -2))
+        val scheduleSaveButton = Button(this).apply {
+            text = "開始・終了を予約"
+            setOnClickListener { saveMonitoringSchedule() }
+        }
+        val scheduleClearButton = Button(this).apply {
+            text = "予約を解除"
+            setOnClickListener { clearMonitoringSchedule() }
+        }
+        root.addView(scheduleSaveButton, LinearLayout.LayoutParams(-1, -2))
+        root.addView(scheduleClearButton, LinearLayout.LayoutParams(-1, -2))
+        scheduleStatus = TextView(this).apply {
+            textSize = 12f
+            setTextColor(0xFF66758B.toInt())
+            setPadding(0, 4, 0, 8)
+        }
+        root.addView(scheduleStatus, LinearLayout.LayoutParams(-1, -2))
+        updateScheduleLabels()
         root.addView(refreshCodeButton, LinearLayout.LayoutParams(-1, -2))
         root.addView(startButton, LinearLayout.LayoutParams(-1, -2))
         root.addView(stopButton, LinearLayout.LayoutParams(-1, -2))
@@ -95,7 +186,9 @@ class MainActivity : Activity() {
             setTextColor(0xFF66758B.toInt())
             setPadding(0, 22, 0, 0)
         })
-        setContentView(root)
+        val scroll = ScrollView(this).apply { addView(root) }
+        setContentView(scroll)
+        uiInitialized = true
         loadRemoteConfig()
     }
 
@@ -115,6 +208,7 @@ class MainActivity : Activity() {
                     gasUrl.contains("PASTE_YOUR_DEPLOYMENT_ID")) {
                     status.text = "GitHubの config.json にGAS URLを設定してください。"
                 } else {
+                    prefs.edit().putString("gasUrl", gasUrl).apply()
                     status.text = "設定を取得しました。必要な権限を許可して待機を開始できます。"
                     refreshMonitoringButtons()
                     refreshCodeButton.isEnabled = true
@@ -124,6 +218,109 @@ class MainActivity : Activity() {
                 status.text = "設定取得エラー：" + (e.message ?: "通信エラー")
             }
         }
+    }
+
+    private fun saveNativeVideoSettings() {
+        val quality = listOf("360", "480", "720", "1080").getOrElse(qualitySpinner.selectedItemPosition) { "720" }
+        val fps = listOf(10, 15, 20, 24, 30, 60).getOrElse(fpsSpinner.selectedItemPosition) { 24 }
+        prefs.edit()
+            .putString("requestedQuality", quality)
+            .putInt("fps", fps)
+            .putString("aspectRatio", "16:9")
+            .putString("requestedDataMode", "standard")
+            .putBoolean("nativeVideoOverride", true)
+            .apply()
+        if (prefs.getBoolean("monitoringEnabled", false)) {
+            try {
+                val update = Intent(this, MonitorService::class.java).apply {
+                    action = MonitorService.ACTION_VIDEO_SETTINGS
+                    putExtra("quality", quality)
+                    putExtra("fps", fps)
+                    putExtra("aspectRatio", "16:9")
+                }
+                ContextCompat.startForegroundService(this, update)
+                status.text = "撮影設定を保存し、待機サービスへ送信しました。"
+            } catch (error: Exception) {
+                status.text = "設定は保存しました。サービス反映は次回接続時に行います。"
+            }
+        }
+    }
+
+    private fun pickScheduleTime(isStart: Boolean) {
+        val initial = Calendar.getInstance().apply {
+            val stored = if (isStart) scheduleStartAt else scheduleEndAt
+            if (stored > 0L) timeInMillis = stored
+            else add(Calendar.MINUTE, 10)
+        }
+        DatePickerDialog(this, { _, year, month, day ->
+            val selected = Calendar.getInstance().apply {
+                set(Calendar.YEAR, year)
+                set(Calendar.MONTH, month)
+                set(Calendar.DAY_OF_MONTH, day)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            TimePickerDialog(this, { _, hour, minute ->
+                selected.set(Calendar.HOUR_OF_DAY, hour)
+                selected.set(Calendar.MINUTE, minute)
+                val stamp = selected.timeInMillis
+                if (isStart) scheduleStartAt = stamp else scheduleEndAt = stamp
+                updateScheduleLabels()
+            }, initial.get(Calendar.HOUR_OF_DAY), initial.get(Calendar.MINUTE), true).show()
+        }, initial.get(Calendar.YEAR), initial.get(Calendar.MONTH), initial.get(Calendar.DAY_OF_MONTH)).show()
+    }
+
+    private fun formatScheduleTime(value: Long): String {
+        if (value <= 0L) return "未設定"
+        return SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.JAPAN).format(Date(value))
+    }
+
+    private fun updateScheduleLabels() {
+        if (!::scheduleStartButton.isInitialized) return
+        scheduleStartButton.text = "開始：${formatScheduleTime(scheduleStartAt)} を選択"
+        scheduleEndButton.text = "終了：${formatScheduleTime(scheduleEndAt)} を選択"
+        if (::scheduleStatus.isInitialized) {
+            scheduleStatus.text = if (scheduleStartAt > 0L && scheduleEndAt > scheduleStartAt) {
+                "予約設定あり（Androidの省電力・起動制限により時刻が遅れる場合があります）"
+            } else "開始・終了の両方を選択してください。"
+        }
+    }
+
+    private fun createSchedulePendingIntent(action: String): PendingIntent {
+        val requestCode = if (action == ScheduleReceiver.ACTION_START) 8101 else 8102
+        val intent = Intent(this, ScheduleReceiver::class.java).setAction(action)
+        return PendingIntent.getBroadcast(
+            this, requestCode, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun saveMonitoringSchedule() {
+        if (!gasUrl.startsWith("https://script.google.com/macros/s/") || !gasUrl.endsWith("/exec")) {
+            Toast.makeText(this, "GAS URLの読み込みが完了してから予約してください。", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (scheduleStartAt <= System.currentTimeMillis() || scheduleEndAt <= scheduleStartAt) {
+            Toast.makeText(this, "未来の開始時刻と、その後の終了時刻を選択してください。", Toast.LENGTH_LONG).show()
+            return
+        }
+        val alarm = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, scheduleStartAt, createSchedulePendingIntent(ScheduleReceiver.ACTION_START))
+        alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, scheduleEndAt, createSchedulePendingIntent(ScheduleReceiver.ACTION_STOP))
+        prefs.edit().putLong("scheduleStartAt", scheduleStartAt).putLong("scheduleEndAt", scheduleEndAt).apply()
+        updateScheduleLabels()
+        Toast.makeText(this, "待機開始・終了を予約しました。", Toast.LENGTH_LONG).show()
+    }
+
+    private fun clearMonitoringSchedule() {
+        val alarm = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        alarm.cancel(createSchedulePendingIntent(ScheduleReceiver.ACTION_START))
+        alarm.cancel(createSchedulePendingIntent(ScheduleReceiver.ACTION_STOP))
+        scheduleStartAt = 0L
+        scheduleEndAt = 0L
+        prefs.edit().remove("scheduleStartAt").remove("scheduleEndAt").apply()
+        updateScheduleLabels()
+        Toast.makeText(this, "予約を解除しました。", Toast.LENGTH_SHORT).show()
     }
 
     private fun requestStart() {
@@ -268,6 +465,14 @@ class MainActivity : Activity() {
                 showSavedCode()
             }
         }
+    }
+
+    override fun onStop() {
+        val seconds = pollIntervalInput.text?.toString()?.toIntOrNull()
+        if (seconds != null && seconds in AppConfig.MIN_POLL_SECONDS..AppConfig.MAX_POLL_SECONDS) {
+            prefs.edit().putInt("pollIntervalSeconds", seconds).commit()
+        }
+        super.onStop()
     }
 
     override fun onDestroy() {

@@ -31,6 +31,7 @@ const S = {
   adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 },
   audioContext: null, remoteGain: null, remoteAudioSource: null, remoteAnalyser: null,
   flashAvailable: false,
+  androidCameraEnabled: true, androidMicEnabled: true,
   audioMeterFrame: null, receiveVolume: 70, remoteAudioMuted: false,
   pttLocked: false, pttStartedAt: 0, pttTimeout: null, pttKeyActive: false,
   wakeLock: null, keepAwakeWanted: false,
@@ -752,7 +753,7 @@ function renderDevices() {
   });
 }
 function setControlsEnabled(enabled) {
-  ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair", "reserveConnection", "motionHistory", "motionExport", "motionClear", "remoteMute", "deviceInfo"].forEach(id => {
+  ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair", "reserveConnection", "motionHistory", "motionExport", "motionClear", "remoteMute", "cameraToggle", "micToggle", "deviceInfo"].forEach(id => {
     $(id).disabled = !enabled;
   });
   $("pttLock").disabled = !enabled || !S.pc;
@@ -762,7 +763,8 @@ function setControlsEnabled(enabled) {
   $("torch").disabled = !S.pc || !S.control || S.control.readyState !== "open" || !S.flashAvailable;
   $("camera").disabled = !enabled || !S.pc;
   $("ptt").disabled = !S.pc || !S.mic;
-  $("remoteMute").disabled = !enabled || !S.pc || !S.control || S.control.readyState !== "open";
+  $("remoteMute").disabled = true;
+  updateAndroidMediaButtons();
   $("pttLock").disabled = !enabled || !S.pc || !S.mic;
   $("keepAwake").disabled = !enabled || !S.pc;
 }
@@ -941,8 +943,8 @@ async function connect(automatic = false) {
       $("streamState").textContent = "映像・音声・DataChannel接続中";
       startRtcStats();
       startVideoWatchdog(pc);
-      sendControl("settings_update", readLiveSettings());
-      $("remoteMute").disabled = false;
+       updateAndroidMediaButtons();
+       $("remoteMute").disabled = true;
       $("pttLock").disabled = false;
       $("keepAwake").disabled = false;
       if (S.keepAwakeWanted && !S.wakeLock) enableScreenWakeLock().catch(() => {});
@@ -952,6 +954,9 @@ async function connect(automatic = false) {
       $("diagnostics").disabled = true;
       $("torch").disabled = true;
       $("remoteMute").disabled = true;
+      $("cameraToggle").disabled = true;
+      $("micToggle").disabled = true;
+      updateAndroidMediaButtons();
       $("pttLock").disabled = true;
       if (S.pttActive) ptt(false);
       S.pttLocked = false;
@@ -1183,6 +1188,9 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   $("torch").disabled = true;
   $("diagnostics").disabled = true;
   $("remoteMute").disabled = true;
+  $("cameraToggle").disabled = true;
+  $("micToggle").disabled = true;
+  updateAndroidMediaButtons();
   $("ptt").disabled = true;
   $("pttLock").disabled = true;
   $("keepAwake").disabled = true;
@@ -1219,11 +1227,11 @@ async function loadSettings() {
   $("idleLoc").checked = !!settings.idleLocationEnabled;
   $("connectedInterval").value = String(settings.connectedInterval || 30);
   $("idleInterval").value = String(settings.idleInterval || 300);
-  $("micNoise").value=String(settings.micNoise ?? 0);
-  $("micSensitivity").value=String(settings.micSensitivity ?? 0);
+  $("micNoise").value=String(settings.micNoise ?? 70);
+  $("micSensitivity").value=String(settings.micSensitivity ?? 70);
   $("micGain").value=String(settings.micGain ?? 100);
   $("androidSpeakerVolume").value=String(settings.speakerVolume ?? 70);
-  $("micMode").value=["ambient","balanced","voice"].includes(settings.micMode) ? settings.micMode : "ambient";
+  $("micMode").value="balanced";
   const storedReceive = localStorage.getItem("rc_receive_volume_v1");
   setReceiveVolume(storedReceive === null ? 70 : Number(storedReceive), false);
   $("nightMode").checked=localStorage.getItem(nightViewStorageKey()) === "true";
@@ -1286,6 +1294,23 @@ function sendControl(name,payload={}) {
     return false;
   }
 }
+function updateAndroidMediaButtons() {
+  const open = S.control?.readyState === "open";
+  $("cameraToggle").disabled = !open;
+  $("micToggle").disabled = !open;
+  $("cameraToggle").textContent = S.androidCameraEnabled ? "📷 Androidカメラ OFF" : "📷 Androidカメラ ON";
+  $("micToggle").textContent = S.androidMicEnabled ? "🎙 Androidマイク OFF" : "🎙 Androidマイク ON";
+}
+function toggleAndroidCamera() {
+  if (!S.control || S.control.readyState !== "open") return toast("AndroidとのDataChannel接続が必要です。");
+  const next = !S.androidCameraEnabled;
+  if (sendControl("media_toggle", { cameraEnabled: next })) toast(next ? "Androidカメラの再開を要求しました。" : "Androidカメラの停止を要求しました。");
+}
+function toggleAndroidMicrophone() {
+  if (!S.control || S.control.readyState !== "open") return toast("AndroidとのDataChannel接続が必要です。");
+  const next = !S.androidMicEnabled;
+  if (sendControl("media_toggle", { microphoneEnabled: next })) toast(next ? "Androidマイクの再開を要求しました。" : "Androidマイクの停止を要求しました。");
+}
 function readLiveSettings(){return {quality:$("quality").value,dataMode:$("dataMode").value,fps:Number($("fps").value),aspectRatio:$("aspectRatio").value,micNoise:Number($("micNoise").value),micSensitivity:Number($("micSensitivity").value),micGain:Number($("micGain").value),speakerVolume:Number($("androidSpeakerVolume").value),micMode:$("micMode").value};}
 function bytesText(value){const b=Math.max(0,Number(value)||0);if(b<1024)return b.toFixed(0)+" B";if(b<1048576)return (b/1024).toFixed(1)+" KB";return (b/1048576).toFixed(2)+" MB";}
 function renderDeviceInfo() {
@@ -1317,7 +1342,7 @@ function renderDeviceInfo() {
   $("deviceInfoOutput").textContent = JSON.stringify(safe, null, 2);
 }
 
-function updateSliderLabels(){$("androidSpeakerVolumeValue").value=$("androidSpeakerVolume").value+"%";$("micNoiseValue").value=$("micNoise").value+"%";$("micSensitivityValue").value=$("micSensitivity").value+"%";$("micGainValue").value=$("micGain").value+"%";$("receiveVolumeValue").value=S.receiveVolume+"%";}
+function updateSliderLabels(){ $("androidSpeakerVolumeValue").value=$("androidSpeakerVolume").value+"%"; $("micNoiseValue").value=Number($("micNoise").value)>0?"ON（端末依存）":"OFF"; $("micSensitivityValue").value=$("micSensitivity").value+"%"; $("micGainValue").value=$("micGain").value+"%"; $("receiveVolumeValue").value=S.receiveVolume+"%"; }
 function applyLiveLocationUpdate(raw) {
   const point = LocationUtils && LocationUtils.normalizeLiveLocation(raw);
   if (!point) { console.warn("Rejected invalid RTC location update"); return; }
@@ -1338,6 +1363,19 @@ function applyLiveLocationUpdate(raw) {
 
 function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;}
  if(d.type==="ack"){$("networkSummary").textContent=d.message||(d.ok?"Android受信済み":"適用失敗");if(!d.ok)toast(d.message||"Android側で適用失敗");}
+ else if(d.type==="device_settings"){
+  const v=d.settings||{};
+  if(["auto","360","480","720","1080"].includes(String(v.quality))) $("quality").value=String(v.quality);
+  $("dataMode").value="standard";
+  if(Number.isFinite(Number(v.fps))) $("fps").value=String(Math.max(10,Math.min(60,Number(v.fps))));
+  if(["16:9","4:3","1:1","9:16","original"].includes(String(v.aspectRatio))) $("aspectRatio").value=String(v.aspectRatio);
+  if(Number.isFinite(Number(v.micNoise))) $("micNoise").value=String(v.micNoise);
+  if(Number.isFinite(Number(v.speakerVolume))) $("androidSpeakerVolume").value=String(v.speakerVolume);
+   $("micMode").value="balanced";
+  applyAspectRatio($("aspectRatio").value);
+  updateSliderLabels();
+  saveSettings().catch(error=>toast("Android設定のWeb保存に失敗しました: "+error.message));
+ }
  else if(d.type==="location_update"){
    applyLiveLocationUpdate(d.location || d);
  }
@@ -1362,12 +1400,29 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
  }
  else if(d.type==="telemetry"){
   S.deviceTelemetry = d;
+  S.androidCameraEnabled = d.cameraEnabled !== false;
+  S.androidMicEnabled = d.microphoneEnabled !== false;
+  updateAndroidMediaButtons();
+  const width=Number(d.captureWidth)||0,height=Number(d.captureHeight)||0,actualFps=Number(d.captureFps)||0;
+  $("actualVideoFormat").textContent = width>0&&height>0 ? "撮影形式 "+width+"×"+height+" @ "+(actualFps||"--")+"FPS" : "撮影形式 取得待ち";
+  if(Number.isFinite(Number(d.speakerVolumePercent))) $("androidSpeakerVolume").value=String(Math.max(0,Math.min(100,Number(d.speakerVolumePercent))));
+  if(Number.isFinite(Number(d.micNoise))) $("micNoise").value=String(Math.max(0,Math.min(100,Number(d.micNoise))));
+  updateSliderLabels();
+  $("androidMediaState").textContent = "カメラ "+(S.androidCameraEnabled?"ON":"OFF")+" / マイク "+(S.androidMicEnabled?"ON":"OFF")+" / Androidスピーカー "+$("androidSpeakerVolume").value+"%";
   const tx=Number(d.txBytesSinceConnect),rx=Number(d.rxBytesSinceConnect);
   $("deviceTx").textContent="送信 "+(tx<0?"取得不可":bytesText(tx));
   $("deviceRx").textContent="受信 "+(rx<0?"取得不可":bytesText(rx));
   $("deviceTxSpeed").textContent="送信速度 "+(Number(d.txBytesPerSecond)<0?"取得不可":bytesText(d.txBytesPerSecond)+"/s");
   $("deviceRxSpeed").textContent="受信速度 "+(Number(d.rxBytesPerSecond)<0?"取得不可":bytesText(d.rxBytesPerSecond)+"/s");
   $("deviceTotal").textContent="合計 "+(tx<0||rx<0?"取得不可":bytesText(tx+rx));
+  const tx7=Number(d.txBytes7d),rx7=Number(d.rxBytes7d),tx30=Number(d.txBytes30d),rx30=Number(d.rxBytes30d);
+  const usageText=value=>Number.isFinite(value)&&value>=0?bytesText(value):"取得不可";
+  $("deviceTx7d").textContent="過去7日・送信 "+usageText(tx7);
+  $("deviceRx7d").textContent="過去7日・受信 "+usageText(rx7);
+  $("deviceTotal7d").textContent="過去7日・合計 "+(Number.isFinite(tx7)&&Number.isFinite(rx7)&&tx7>=0&&rx7>=0?bytesText(tx7+rx7):"取得不可");
+  $("deviceTx30d").textContent="過去30日・送信 "+usageText(tx30);
+  $("deviceRx30d").textContent="過去30日・受信 "+usageText(rx30);
+  $("deviceTotal30d").textContent="過去30日・合計 "+(Number.isFinite(tx30)&&Number.isFinite(rx30)&&tx30>=0&&rx30>=0?bytesText(tx30+rx30):"取得不可");
   const charging=d.batteryCharging===true?"・充電中":"";
   const thermal=d.thermalStatus>=4?"・高温注意":"";
   $("deviceHealth").textContent=(d.deviceModel||"Android")+" / 電池 "+(d.batteryPercent>=0?d.batteryPercent+"%":"--")+charging+" / 温度 "+(d.batteryTempC>=0?d.batteryTempC+"℃":"--")+thermal;
@@ -1394,8 +1449,7 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
 function stopRtcStats(){if(S.statsTimer)clearInterval(S.statsTimer);S.statsTimer=null;}
 function maybeAdaptQuality(rttMs, lossPercent) {
   const selectedQuality = $("quality").value;
-  const selectedMode = $("dataMode").value;
-  if (selectedQuality !== "auto" && selectedMode !== "auto") return;
+  if (selectedQuality !== "auto") return;
   const now = Date.now();
   const bad = (Number.isFinite(rttMs) && rttMs > 550) || (Number.isFinite(lossPercent) && lossPercent > 8);
   const good = (rttMs === null || rttMs < 260) && (lossPercent === null || lossPercent < 1.8);
@@ -1409,17 +1463,12 @@ function maybeAdaptQuality(rttMs, lossPercent) {
   S.adaptive.tier = nextTier;
   S.adaptive.bad = 0; S.adaptive.good = 0; S.adaptive.lastChange = now;
   const tiers = [
-    { quality: "360", dataMode: "ultra", fps: 15, label: "低負荷 360p" },
-    { quality: "480", dataMode: "save", fps: 15, label: "節約 480p" },
-    { quality: "720", dataMode: "standard", fps: 24, label: "標準 720p" }
+    { quality: "360", fps: 15, label: "低負荷 360p" },
+    { quality: "480", fps: 20, label: "中負荷 480p" },
+    { quality: "720", fps: 24, label: "標準 720p" }
   ];
   const tier = tiers[nextTier];
-  const payload = {
-    quality: selectedQuality === "auto" ? tier.quality : selectedQuality,
-    dataMode: selectedMode === "auto" ? tier.dataMode : selectedMode,
-    fps: tier.fps,
-    adaptive: true
-  };
+  const payload = { quality: tier.quality, fps: tier.fps, adaptive: true };
   if (sendControl("adaptive_quality", payload)) {
     $("networkSummary").textContent = "自動画質：" + tier.label;
     toast("通信状態に合わせて画質を調整しました（" + tier.label + "）。");
@@ -1905,7 +1954,14 @@ document.addEventListener("DOMContentLoaded", async () => {
       .catch(error => toast(error.message));
   });
   $("diagnostics").addEventListener("click",()=>command("diagnostics").catch(e=>toast(e.message)));
-  $("torch").addEventListener("click",()=>{S.torchEnabled=!S.torchEnabled;command("torch",{enabled:S.torchEnabled}).then(()=>{$("torch").textContent=S.torchEnabled?"ライトをOFF":"ライトをON";}).catch(e=>{S.torchEnabled=!S.torchEnabled;toast(e.message);});});
+  $("torch").addEventListener("click",()=>{
+    const desired=!S.torchEnabled;
+    command("torch",{enabled:desired})
+      .then(()=>toast("ライト切替要求をAndroidへ送りました。実際の状態は端末応答で更新します。"))
+      .catch(error=>toast(error.message));
+  });
+  $("cameraToggle").addEventListener("click",toggleAndroidCamera);
+  $("micToggle").addEventListener("click",toggleAndroidMicrophone);
   $("reserveConnection").addEventListener("click",()=>reserveConnection().catch(e=>toast(e.message)));
   $("cancelReservation").addEventListener("click",cancelConnectionReservation);
   $("micNoise").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
