@@ -14,7 +14,10 @@ const motionCore = fs.readFileSync("motion-core.js", "utf8");
 const motionTests = fs.readFileSync("tests/motion-core.test.cjs", "utf8");
 const audioUtils = fs.readFileSync("audio-utils.js", "utf8");
 const audioTests = fs.readFileSync("tests/audio-utils.test.cjs", "utf8");
+const locationUtils = fs.readFileSync("location-utils.js", "utf8");
+const locationTests = fs.readFileSync("tests/location-utils.test.cjs", "utf8");
 const androidBuild = fs.readFileSync("android/app/build.gradle.kts", "utf8");
+const serviceWorker = fs.readFileSync("sw.js", "utf8");
 const webConfig = fs.readFileSync("config.json", "utf8");
 const manifestJson = JSON.parse(fs.readFileSync("manifest.webmanifest", "utf8"));
 
@@ -48,6 +51,14 @@ assert.ok(js.includes("function attachRemoteAudio("), "Web Audio receive routing
 assert.ok(js.includes("createGain()"), "Web Audio receive volume gain missing");
 assert.ok(js.includes("function setReceiveVolume("), "0-200% receive volume control missing");
 assert.ok(js.includes("function startAudioMeter("), "Incoming audio meter missing");
+assert.ok(html.includes("./location-utils.js"), "RTC location helper must be loaded before app.js");
+assert.ok(serviceWorker.includes("location-utils.js"), "Location helper must be precached by the PWA service worker");
+assert.ok(js.includes('d.type==="location_update"'), "Web RTC location update receiver missing");
+assert.ok(js.includes("LocationUtils.normalizeLiveLocation"), "Incoming RTC coordinates must be validated");
+assert.ok(js.includes('S.control?.readyState !== "open"'), "GAS map polling must be fallback-only while RTC is open");
+assert.ok(locationUtils.includes("function normalizeLiveLocation("), "RTC location validation helper missing");
+assert.ok(locationUtils.includes("function mergeHistory("), "Location history merge helper missing");
+assert.ok(locationTests.includes("supports Unix timestamps in seconds"), "Location timestamp compatibility test missing");
 assert.equal([...js.matchAll(/function\s+ptt\s*\(/g)].length, 1, "Only one effective PTT function must exist");
 assert.ok(js.includes("disconnect(false, automatic, true)"), "Automatic reconnect must end the previous remote RTC session");
 assert.ok(js.includes("notifyRemote = sendCommand"), "Disconnect must support remote session cleanup independently from manual stop");
@@ -110,6 +121,13 @@ assert.ok(rtc.includes('"9:16"'), "Portrait video capture ratio missing");
 assert.ok(service.includes("pollIntervalSeconds"), "Custom polling interval missing");
 assert.ok(service.includes("delay(250L)"), "Connected polling scheduler must support the one-second interval");
 assert.ok(service.includes("sendTelemetry()"), "Android telemetry missing");
+assert.ok(service.includes('JSONObject().put("type", "location_update")'), "Android must send fresh location over RTC DataChannel");
+assert.ok(service.includes("rtc?.sendControlToOpenDataChannels("), "Android live location must reach each open Web controller");
+assert.ok(service.includes("private fun applyLocationSettings("), "Android live location settings handler missing");
+assert.ok(service.includes("applyLocationSettings(payload)"), "RTC settings update must apply periodic location preferences immediately");
+assert.ok(service.includes('putBoolean("connectedLocationEnabled", connectedLocationEnabled)'), "Connected tracking preference must persist from RTC settings");
+assert.ok(service.includes('putLong("idleInterval", idleInterval)'), "Idle tracking interval must persist from RTC settings");
+assert.ok(service.includes("cached.time < 5000L"), "Location tracking must not reuse two-minute-old cached coordinates");
 assert.ok(service.includes("networkInfo()"), "Network diagnostics missing");
 assert.ok(service.includes("setTorch("), "Android flashlight control missing");
 assert.ok(service.includes("lastNetworkError"), "Automatic network error diagnostics missing");
@@ -144,8 +162,8 @@ assert.ok(gas.includes("Controllers:"), "Multi-controller storage sheet missing"
 assert.ok(gas.includes("activeControllerCount_(deviceId) >= 3"), "Three-controller pairing limit missing");
 assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi permission missing");
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
-assert.ok(androidBuild.includes('versionName = "2.0.0-preview"'), "Android app version must be 1.2.0");
-assert.ok(webConfig.includes('"appVersion": "2.0.0-preview"'), "Web config version must be 1.2.0");
+assert.ok(androidBuild.includes('versionName = "2.0.1-preview"'), "Android app version must be 1.2.0");
+assert.ok(webConfig.includes('"appVersion": "2.0.1-preview"'), "Web config version must be 1.2.0");
 assert.ok(gas.includes("MotionEvents:"), "Motion event metadata sheet missing");
 assert.ok(gas.includes("function addMotionEvent_("), "Motion event write endpoint missing");
 assert.ok(gas.includes("function getMotionEvents_("), "Motion event history endpoint missing");
@@ -156,8 +174,8 @@ assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from S
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.2.0"'), "GAS API version must be 1.2.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 420"), "Android version code must be incremented for v1.2");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.0 Preview", "PWA display name must match v1.2");
+assert.ok(androidBuild.includes("versionCode = 421"), "Android version code must be incremented for v1.2");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.0.1 Preview", "PWA display name must match v1.2");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 console.log("Web2 source checks passed.");
 
@@ -168,4 +186,5 @@ assert.ok(html.includes('class="ptt pttProminent"'), "Prominent v4.1 PTT button 
 assert.ok(!html.includes('id="snapshot"'), "Static image capture must remain excluded");
 assert.equal([...js.matchAll(/\$\("fitMode"\)\.addEventListener\("click"/g)].length, 1, "Fit/fill action must be registered once");
 assert.ok(!js.includes('"pointerup", "pointerleave"'), "Pointer capture must not stop PTT on pointer leave");
-console.log("Web2 v2.0 Preview UI and stability checks passed.");
+assert.ok(html.includes("RTC接続中はAndroidの現在地をDataChannelで直接受信"), "Location UI must explain RTC live updates");
+console.log("Web2 v2.0.1 Preview UI, RTC location and stability checks passed.");
