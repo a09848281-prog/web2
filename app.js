@@ -429,6 +429,9 @@ async function loadSettings() {
   $("micGain").value=String(settings.micGain ?? 100);
   $("volume").value=String(settings.speakerVolume ?? 70);
   $("nightMode").checked=!!settings.nightMode;
+  $("fps").value=String(settings.fps || 24);
+  $("aspectRatio").value=settings.aspectRatio || "16:9";
+  applyAspectRatio($("aspectRatio").value);
   updateSliderLabels();
 }
 async function saveSettings() {
@@ -436,6 +439,8 @@ async function saveSettings() {
   const settings = {
     quality: $("quality").value,
     dataMode: $("dataMode").value,
+    fps: Number($("fps").value),
+    aspectRatio: $("aspectRatio").value,
     connectedLocationEnabled: $("connectedLoc").checked,
     idleLocationEnabled: $("idleLoc").checked,
     connectedInterval: Number($("connectedInterval").value),
@@ -457,7 +462,7 @@ function sendControl(name,payload={}) {
   if(!S.control||S.control.readyState!=="open"){toast("DataChannelが未接続です。");return false;}
   S.control.send(JSON.stringify({type:"command",command:name,requestId:rid(),payload}));return true;
 }
-function readLiveSettings(){return {quality:$("quality").value,dataMode:$("dataMode").value,micNoise:Number($("micNoise").value),micSensitivity:Number($("micSensitivity").value),micGain:Number($("micGain").value),speakerVolume:Number($("volume").value),nightMode:$("nightMode").checked};}
+function readLiveSettings(){return {quality:$("quality").value,dataMode:$("dataMode").value,fps:Number($("fps").value),aspectRatio:$("aspectRatio").value,micNoise:Number($("micNoise").value),micSensitivity:Number($("micSensitivity").value),micGain:Number($("micGain").value),speakerVolume:Number($("volume").value),nightMode:$("nightMode").checked};}
 function bytesText(value){const b=Math.max(0,Number(value)||0);if(b<1024)return b.toFixed(0)+" B";if(b<1048576)return (b/1024).toFixed(1)+" KB";return (b/1048576).toFixed(2)+" MB";}
 function updateSliderLabels(){$("volumeValue").value=$("volume").value+"%";$("micNoiseValue").value=$("micNoise").value+"%";$("micSensitivityValue").value=$("micSensitivity").value+"%";$("micGainValue").value=$("micGain").value+"%";}
 function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;}
@@ -531,6 +536,38 @@ function initMap() {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
   }).addTo(S.map);
+}
+function applyAspectRatio(value) {
+  const ratios = { "16:9": "16 / 9", "4:3": "4 / 3", "1:1": "1 / 1" };
+  const pane = $("videoPane");
+  if (!pane) return;
+  if (value === "original" || !ratios[value]) {
+    pane.style.aspectRatio = "";
+    pane.style.flex = "1";
+    pane.style.minHeight = "380px";
+  } else {
+    pane.style.aspectRatio = ratios[value];
+    pane.style.flex = "none";
+    pane.style.height = "auto";
+    pane.style.minHeight = "240px";
+    pane.style.maxHeight = "calc(100vh - 220px)";
+  }
+}
+async function toggleFullscreen() {
+  const pane = $("videoPane");
+  try {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      if (document.exitFullscreen) await document.exitFullscreen();
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      return;
+    }
+    if (pane.requestFullscreen) await pane.requestFullscreen();
+    else if (pane.webkitRequestFullscreen) pane.webkitRequestFullscreen();
+    else if ($("remoteVideo").webkitEnterFullscreen) $("remoteVideo").webkitEnterFullscreen();
+    else toast("このブラウザーでは全画面表示を利用できません。");
+  } catch (error) {
+    toast("全画面表示に失敗しました: " + (error.message || "ブラウザーの制限"));
+  }
 }
 function showMap() {
   $("videoPane").classList.add("hidden");
@@ -626,6 +663,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("deleteHistory").addEventListener("click", () => deleteHistory().catch(error => toast(error.message)));
   $("videoTab").addEventListener("click", showVideo);
   $("mapTab").addEventListener("click", showMap);
+  $("fullscreen").addEventListener("click", toggleFullscreen);
+  document.addEventListener("fullscreenchange", () => setTimeout(() => window.dispatchEvent(new Event("resize")), 100));
+  document.addEventListener("webkitfullscreenchange", () => setTimeout(() => window.dispatchEvent(new Event("resize")), 100));
+  $("fps").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
+  $("aspectRatio").addEventListener("change", () => { applyAspectRatio($("aspectRatio").value); saveSettings().catch(error => toast(error.message)); });
   ["volume","micNoise","micSensitivity","micGain"].forEach(id=>$(id).addEventListener("input",updateSliderLabels));
   $("diagnostics").addEventListener("click",()=>command("diagnostics").catch(e=>toast(e.message)));
   $("torch").addEventListener("click",()=>{S.torchEnabled=!S.torchEnabled;command("torch",{enabled:S.torchEnabled}).then(()=>{$("torch").textContent=S.torchEnabled?"ライトをOFF":"ライトをON";}).catch(e=>{S.torchEnabled=!S.torchEnabled;toast(e.message);});});
@@ -636,6 +678,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("micGain").addEventListener("change",e=>command("mic_gain",{percent:Number(e.target.value)}).catch(x=>toast(x.message)));
   $("nightMode").addEventListener("change",e=>command("night_mode",{enabled:e.target.checked}).catch(x=>toast(x.message)));
   updateSliderLabels();
+  applyAspectRatio($("aspectRatio").value);
   $("volume").addEventListener("change", event => {
     command("volume", { percent: Number(event.target.value) }).catch(error => toast(error.message));
   });
