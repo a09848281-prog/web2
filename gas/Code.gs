@@ -374,6 +374,17 @@ function claimDevice_(r) {
     }
     const name = String(r.deviceName || hit.v[2] || "Android端末").trim().slice(0, 40) || "Android端末";
     deviceId = String(hit.v[0]);
+    // Migrate the original single-controller hash before admitting a new viewer,
+    // so an already-paired browser keeps working after the schema upgrade.
+    const legacyHash = String(hit.v[10] || "");
+    if (legacyHash) {
+      const existingControllers = rows_("Controllers");
+      const alreadyMigrated = existingControllers.some(function(row) {
+        return String(row[1]) === deviceId && String(row[2]) === legacyHash && String(row[5]) === "active";
+      });
+      if (!alreadyMigrated) append_("Controllers", [Utilities.getUuid(), deviceId, legacyHash, hit.v[7] || now_(), now_(), "active"]);
+      sheet_("Devices").getRange(hit.row, 11).clearContent();
+    }
     if (activeControllerCount_(deviceId) >= 3) throw Error("このAndroid端末はWeb操作端末を最大3台まで登録できます。使っていないブラウザーのペアリングを解除してください。");
     const controllerToken = randomToken_();
     const sh = sheet_("Devices");
@@ -382,8 +393,6 @@ function claimDevice_(r) {
     sh.getRange(hit.row, 5, 1, 2).setValues([["", ""]]); // one-time code is consumed
     sh.getRange(hit.row, 8, 1, 3).setValues([[now_(), hit.v[8], "active"]]);
     append_("Controllers", [Utilities.getUuid(), deviceId, hash_(controllerToken), now_(), now_(), "active"]);
-    // A newly created controller table replaces the legacy single-token field.
-    sh.getRange(hit.row, 11).clearContent();
     clearPairRate_();
     log_(deviceId, "pair_claim", true, "viewer paired; active viewers=" + activeControllerCount_(deviceId));
     return { ok: true, deviceId: deviceId, deviceName: name, controllerToken: controllerToken, activeControllers: activeControllerCount_(deviceId) };
