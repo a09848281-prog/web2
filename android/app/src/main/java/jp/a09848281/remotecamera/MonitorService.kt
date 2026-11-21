@@ -371,6 +371,7 @@ class MonitorService : Service() {
 
     private fun onRtcConnectionState(sessionId:String,state:String) {
         when(state) {
+            "CONNECTED","COMPLETED" -> updateStreamWakeLock(true)
             "DATA_CHANNEL_OPEN" -> {
                 updateStreamWakeLock(true)
                 if (trafficBaselineTx < 0L || trafficBaselineRx < 0L) {
@@ -943,7 +944,6 @@ class MonitorService : Service() {
     }
 
     override fun onDestroy() {
-        prefs.edit().putBoolean("monitoringEnabled",false).apply()
         pollJob?.cancel()
         locationJob?.cancel()
         rtc?.dispose()
