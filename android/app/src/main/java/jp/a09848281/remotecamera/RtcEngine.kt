@@ -239,7 +239,7 @@ class RtcEngine(
         enumerator: Camera2Enumerator,
         cameraId: String,
         surfaceHelper: SurfaceTextureHelper,
-        observer: VideoCapturer.CapturerObserver,
+        source: VideoSource,
         requested: VideoProfile
     ): StartedCapture {
         val requestedSize = requested.width to requested.height
@@ -258,7 +258,7 @@ class RtcEngine(
                 try {
                     candidate = enumerator.createCapturer(cameraId, null)
                         ?: throw IllegalStateException("カメラを開けません。")
-                    candidate.initialize(surfaceHelper, context.applicationContext, observer)
+                    candidate.initialize(surfaceHelper, context.applicationContext, source.capturerObserver)
                     candidate.startCapture(width, height, fps)
                     Log.i("RemoteCameraRTC", "Camera capture started: ${width}x${height}@${fps}")
                     return StartedCapture(candidate, width, height, fps)
@@ -314,7 +314,7 @@ class RtcEngine(
             helper = SurfaceTextureHelper.create("RemoteCameraCapture", egl!!.eglBaseContext)
             val profile = profileFor(currentQuality, currentDataMode, currentFps)
             val started = startCaptureWithFallback(
-                enumerator, selected, helper!!, videoSource!!.capturerObserver, profile
+                enumerator, selected, helper!!, videoSource!!, profile
             )
             capturer = started.capturer
             captureWidth = started.width
@@ -555,7 +555,7 @@ class RtcEngine(
             // every failed capturer and disposes it before trying the next format.
             val profile = profileFor(currentQuality, currentDataMode, currentFps)
             val started = startCaptureWithFallback(
-                enumerator, cameraId, currentHelper, currentSource.capturerObserver, profile
+                enumerator, cameraId, currentHelper, currentSource, profile
             )
             replacement = started.capturer
             capturer = replacement
