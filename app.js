@@ -215,6 +215,7 @@ async function loadMotionHistory(showDialog = true, limit = 500) {
     controllerToken: device.controllerToken, deviceId: device.deviceId,
     limit: Math.max(1, Math.min(2000, Number(limit) || 500))
   });
+  if (!S.device || S.device.deviceId !== device.deviceId) throw Error("端末が切り替わりました。履歴を再読み込みしてください。");
   const all = [...(result.events || []), ...readPendingMotionEvents(device.deviceId).map(item => ({
     eventId: item.eventId, detectedAt: new Date(item.detectedAt).toISOString(),
     motionScore: item.motionScore, sensitivity: item.sensitivity, source: item.source, pending: true
@@ -252,6 +253,7 @@ async function clearMotionHistory() {
   if (!device || !confirm("このAndroid端末の動体検知履歴を削除しますか？")) return;
   const result=await api("delete_motion_events",{controllerToken:device.controllerToken,deviceId:device.deviceId});
   localStorage.removeItem(motionPendingKey(device.deviceId));
+  if (!S.device || S.device.deviceId !== device.deviceId) return;
   $("motionRows").replaceChildren();
   $("motionRows").textContent="検知履歴を "+(result.deleted||0)+" 件削除しました。";
   toast("動体検知履歴を削除しました。");
@@ -692,11 +694,13 @@ function ptt(enabled) {
   $("ptt").textContent = enabled ? "送話中…" : "押している間だけ話す";
 }
 async function loadSettings() {
-  if (!S.device) return;
+  const device = S.device;
+  if (!device) return;
   const result = await api("get_settings", {
-    controllerToken: S.device.controllerToken,
-    deviceId: S.device.deviceId
+    controllerToken: device.controllerToken,
+    deviceId: device.deviceId
   });
+  if (!S.device || S.device.deviceId !== device.deviceId) return;
   const settings = result.settings || {};
   $("quality").value = settings.quality || "720";
   $("dataMode").value = settings.dataMode || "standard";
@@ -716,7 +720,8 @@ async function loadSettings() {
   updateSliderLabels();
 }
 async function saveSettings() {
-  if (!S.device) return toast("Android端末をペアリングしてください。");
+  const device = S.device;
+  if (!device) return toast("Android端末をペアリングしてください。");
   const settings = {
     quality: $("quality").value,
     dataMode: $("dataMode").value,
@@ -731,15 +736,17 @@ async function saveSettings() {
   };
   if(S.control?.readyState==="open") {
     if (!sendControl("settings_update",settings)) throw Error("DataChannelへの設定送信に失敗しました。");
-    localStorage.setItem("rc_live_settings_"+S.device.deviceId,JSON.stringify(settings));
+    localStorage.setItem("rc_live_settings_"+device.deviceId,JSON.stringify(settings));
     // Live application stays on DataChannel. GAS/Sheets is used only to persist
     // the device's defaults for future sessions and other paired controllers.
-    api("save_settings",{controllerToken:S.device.controllerToken,deviceId:S.device.deviceId,settings})
+    api("save_settings",{controllerToken:device.controllerToken,deviceId:device.deviceId,settings})
       .then(()=>toast("DataChannelで即時反映し、GASに設定を保存しました。"))
       .catch(error=>toast("設定は反映済みですが、保存に失敗しました: "+error.message));
   } else {
-    await api("save_settings",{controllerToken:S.device.controllerToken,deviceId:S.device.deviceId,settings});
-    await api("send_command",{controllerToken:S.device.controllerToken,deviceId:S.device.deviceId,command:"quality",payload:{quality:settings.quality,dataMode:settings.dataMode}});
+    await api("save_settings",{controllerToken:device.controllerToken,deviceId:device.deviceId,settings});
+    if (S.device && S.device.deviceId === device.deviceId) {
+      await api("send_command",{controllerToken:device.controllerToken,deviceId:device.deviceId,command:"quality",payload:{quality:settings.quality,dataMode:settings.dataMode}});
+    }
     toast("設定を保存しました。次回接続時に反映します。");
   }
 }
@@ -875,12 +882,14 @@ async function unpairSelectedDevice() {
 }
 
 async function loadHistory() {
-  if (!S.device) return toast("Android端末をペアリングしてください。");
+  const device = S.device;
+  if (!device) return toast("Android端末をペアリングしてください。");
   const result = await api("get_locations", {
-    controllerToken: S.device.controllerToken,
-    deviceId: S.device.deviceId,
+    controllerToken: device.controllerToken,
+    deviceId: device.deviceId,
     limit: 500
   });
+  if (!S.device || S.device.deviceId !== device.deviceId) return;
   S.history = result.locations || [];
   $("historyRows").replaceChildren();
   for (const point of [...S.history].reverse()) {
@@ -981,12 +990,14 @@ function drawMap(points) {
   else S.map.setView([last.lat, last.lng], 15);
 }
 async function deleteHistory() {
-  if (!S.device || !confirm("この端末の位置情報履歴をすべて削除します。よろしいですか？")) return;
+  const device = S.device;
+  if (!device || !confirm("この端末の位置情報履歴をすべて削除します。よろしいですか？")) return;
   const result = await api("delete_locations", {
-    controllerToken: S.device.controllerToken,
-    deviceId: S.device.deviceId,
+    controllerToken: device.controllerToken,
+    deviceId: device.deviceId,
     all: true
   });
+  if (!S.device || S.device.deviceId !== device.deviceId) return;
   S.history = [];
   drawMap([]);
   toast("履歴を " + (result.deleted || 0) + " 件削除しました。");
