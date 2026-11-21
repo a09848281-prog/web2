@@ -387,6 +387,7 @@ class MonitorService : Service() {
     private fun onRtcConnectionState(sessionId:String,state:String) {
         when(state) {
             "CONNECTED","COMPLETED" -> updateStreamWakeLock(true)
+            "SESSION_CLOSED" -> updateStreamWakeLock(rtc?.hasPeers()==true)
             "DATA_CHANNEL_OPEN" -> {
                 updateStreamWakeLock(true)
                 if (trafficBaselineTx < 0L || trafficBaselineRx < 0L) {
