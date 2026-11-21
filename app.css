@@ -74,3 +74,12 @@ dialog{border:1px solid #e2e8f0;box-shadow:0 24px 90px #13243d30}
 @media(max-width:1050px){.app{grid-template-columns:290px minmax(0,1fr);gap:12px;padding:12px}.view{padding:14px}.side{padding:13px}.videoPane{height:min(58vh,740px);min-height:360px}}
 @media(max-width:850px){.app{grid-template-columns:1fr;padding:9px}.side{max-height:none;overflow:visible;order:2}.view{order:1;min-height:55vh}.videoPane{min-height:340px;height:56vh}.top{padding:0 13px}}
 @media(max-width:560px){.top{height:58px}.app{gap:10px}.viewhead{flex-direction:row;align-items:center}.viewhead h2{font-size:17px}.viewActions{justify-content:flex-end}.viewActions button{padding:7px 8px;font-size:11px}.liveMeta span{font-size:10px;padding:5px 8px}.videoPane{min-height:270px;height:43vh}.telemetry{grid-template-columns:1fr}.side{padding:13px}.sessionDuration{display:none}}
+
+/* v1.2 map following and device detail panels */
+.mapActions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.mapActions button,.smallAction{border:1px solid #dce5ef;background:#fff;color:#344a67;border-radius:9px;padding:8px 11px;font-size:12px}
+.mapActions button.active{background:#e9f2ff;border-color:#c8daf7;color:#174d9e}
+.mapActions button:disabled,.smallAction:disabled{opacity:.45;cursor:not-allowed}
+.smallAction{display:inline-block;margin-top:6px;min-height:30px;padding:5px 9px}
+#map{min-height:350px}
+.deviceInfoOutput{max-height:55vh;overflow:auto;background:#f6f8fb;border:1px solid #e0e7ef;padding:13px;border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.55}
