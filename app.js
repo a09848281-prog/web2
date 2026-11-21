@@ -656,19 +656,27 @@ async function disconnect(sendCommand = true) {
   if (sendCommand && S.pc && S.device) {
     const device = S.device;
     const sessionId = S.session;
-    if (S.control && S.control.readyState === "open") {
-      sendControl("disconnect", {});
-    } else {
-      // Include the session ID so disconnecting one browser never tears down
-      // the other paired viewers on the same Android camera.
-      api("send_signal", {
+    const channelOpen = S.control && S.control.readyState === "open";
+    if (channelOpen) sendControl("disconnect", {});
+    // Send a session-scoped GAS bye even when DataChannel is open. Await it so
+    // an immediate unpair cannot revoke the token before Android sees the bye.
+    try {
+      await api("send_signal", {
         controllerToken:device.controllerToken, deviceId:device.deviceId,
         sessionId:sessionId, recipient:"device", kind:"bye"
-      }).catch(error => console.warn("Session bye signal failed", error));
-      api("send_command", {
-        controllerToken:device.controllerToken, deviceId:device.deviceId,
-        command:"disconnect", payload:{sessionId:sessionId}
-      }).catch(error => console.warn("Session disconnect command failed", error));
+      });
+    } catch (error) {
+      console.warn("Session bye signal failed", error);
+      if (!channelOpen) {
+        try {
+          await api("send_command", {
+            controllerToken:device.controllerToken, deviceId:device.deviceId,
+            command:"disconnect", payload:{sessionId:sessionId}
+          });
+        } catch (commandError) {
+          console.warn("Session disconnect command failed", commandError);
+        }
+      }
     }
   }
   stopRtcStats();
