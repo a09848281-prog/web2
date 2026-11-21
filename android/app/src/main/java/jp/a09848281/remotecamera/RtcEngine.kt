@@ -239,7 +239,7 @@ class RtcEngine(
         enumerator: Camera2Enumerator,
         cameraId: String,
         surfaceHelper: SurfaceTextureHelper,
-        observer: VideoSource.CapturerObserver,
+        observer: VideoCapturer.CapturerObserver,
         requested: VideoProfile
     ): StartedCapture {
         val requestedSize = requested.width to requested.height
