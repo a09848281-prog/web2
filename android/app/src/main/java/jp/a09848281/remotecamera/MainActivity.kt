@@ -110,7 +110,9 @@ class MainActivity : Activity() {
                         JSONObject(c.inputStream.bufferedReader().use { it.readText() }).optString("gasUrl", "")
                     } finally { c.disconnect() }
                 }
-                if (gasUrl.isBlank() || gasUrl.contains("PASTE_YOUR_DEPLOYMENT_ID")) {
+                if (!gasUrl.startsWith("https://script.google.com/macros/s/") ||
+                    !gasUrl.endsWith("/exec") || gasUrl.contains("GAS_EXEC_URL_HERE") ||
+                    gasUrl.contains("PASTE_YOUR_DEPLOYMENT_ID")) {
                     status.text = "GitHubの config.json にGAS URLを設定してください。"
                 } else {
                     status.text = "設定を取得しました。必要な権限を許可して待機を開始できます。"
