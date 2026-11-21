@@ -646,6 +646,7 @@ async function loadConfig() {
  */
 function api(action, data = {}) {
   return new Promise((resolve, reject) => {
+    const startedAt = performance.now();
     const id = rid();
     const frame = document.createElement("iframe");
     const form = document.createElement("form");
@@ -679,6 +680,10 @@ function api(action, data = {}) {
       window.removeEventListener("message", listener);
       frame.remove();
       form.remove();
+      const elapsed = Math.round(performance.now() - startedAt);
+      const timing = $("gasTiming");
+      if (timing) timing.textContent = "GAS " + elapsed + "ms";
+      S.lastGasTimingMs = elapsed;
       if (error) reject(error);
       else resolve(value);
     }
