@@ -471,6 +471,25 @@ function bytesText(value){const b=Math.max(0,Number(value)||0);if(b<1024)return 
 function updateSliderLabels(){$("volumeValue").value=$("volume").value+"%";$("micNoiseValue").value=$("micNoise").value+"%";$("micSensitivityValue").value=$("micSensitivity").value+"%";$("micGainValue").value=$("micGain").value+"%";}
 function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;}
  if(d.type==="ack"){$("networkSummary").textContent=d.message||(d.ok?"Android受信済み":"適用失敗");if(!d.ok)toast(d.message||"Android側で適用失敗");}
+ else if(d.type==="camera_capabilities"){
+  const select=$("camera");
+  const cameras=Array.isArray(d.cameras)?d.cameras:[];
+  if(cameras.length){
+   const previous=select.value;
+   select.replaceChildren();
+   cameras.forEach(camera=>{
+    if(!camera||typeof camera.id!=="string")return;
+    const option=document.createElement("option");
+    option.value=camera.id;
+    option.textContent=String(camera.label||"カメラ");
+    option.dataset.facing=String(camera.facing||"back");
+    select.appendChild(option);
+   });
+   const target=String(d.selectedCameraId||previous||"");
+   if([...select.options].some(option=>option.value===target))select.value=target;
+   toast("端末が対応するカメラ・画角を読み込みました。");
+  }
+ }
  else if(d.type==="telemetry"){const tx=Number(d.txBytesSinceConnect),rx=Number(d.rxBytesSinceConnect);$("deviceTx").textContent="送信 "+(tx<0?"取得不可":bytesText(tx));$("deviceRx").textContent="受信 "+(rx<0?"取得不可":bytesText(rx));$("deviceTxSpeed").textContent="送信速度 "+(Number(d.txBytesPerSecond)<0?"取得不可":bytesText(d.txBytesPerSecond)+"/s");$("deviceRxSpeed").textContent="受信速度 "+(Number(d.rxBytesPerSecond)<0?"取得不可":bytesText(d.rxBytesPerSecond)+"/s");$("deviceTotal").textContent="合計 "+(tx<0||rx<0?"取得不可":bytesText(tx+rx));$("deviceHealth").textContent="バッテリー "+(d.batteryPercent>=0?d.batteryPercent+"%":"--")+" / 温度 "+(d.batteryTempC>=0?d.batteryTempC+"℃":"--");if(d.network)$("networkSummary").textContent=(d.network.transport||"不明")+(d.network.validated?" / Internet OK":" / Internet未確認");}
  else if(d.type==="network_diagnostic"){$("diagnosticOutput").textContent=JSON.stringify(d.data||d,null,2);}
  else if(d.type==="error"){toast(d.message||"Androidエラー");$("diagnosticOutput").textContent=d.message||"Androidエラー";}
@@ -687,7 +706,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     command("volume", { percent: Number(event.target.value) }).catch(error => toast(error.message));
   });
   $("camera").addEventListener("change", event => {
-    command("camera", { facing: event.target.value }).catch(error => toast(error.message));
+    const option=event.target.selectedOptions && event.target.selectedOptions[0];
+    command("camera", { cameraId: event.target.value, facing: option?.dataset.facing || event.target.value }).catch(error => toast(error.message));
   });
   $("quality").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
   $("dataMode").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
