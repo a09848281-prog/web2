@@ -62,6 +62,9 @@ assert.ok(service.includes("START_STICKY"), "Foreground service process recovery
 assert.ok(service.includes("updateStreamWakeLock("), "Live stream wake lock management missing");
 assert.ok(service.includes("powerSaveActive"), "Battery/thermal quality override missing");
 assert.ok(main.includes("1～50秒"), "1-50 second polling interval UI missing");
+assert.ok(main.includes("MonitorService.ACTION_STOP"), "Android stop button must call the service cleanup action");
+assert.ok(service.includes("override fun onDestroy()") && service.includes("rtc?.dispose()"), "Service destruction must dispose RTC resources");
+assert.ok(service.includes("updateStreamWakeLock(false)"), "Service shutdown must release its wake lock");
 assert.ok(config.includes("POLL_SECONDS = 10L"), "Default polling interval must be 10 seconds");
 assert.ok(config.includes("MIN_POLL_SECONDS = 1"), "Minimum polling interval must be 1 second");
 assert.ok(config.includes("MAX_POLL_SECONDS = 50"), "Maximum polling interval must be 50 seconds");
