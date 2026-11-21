@@ -12,6 +12,7 @@ This repository is a clean successor project. The existing `a09848281-prog/web` 
 - Live media: WebRTC
 - Live controls and telemetry after connection: WebRTC DataChannel
 - Up to 3 separately paired Web controllers per Android device
+- Bookmarklet quick launch that contains no authentication token and does not auto-start the camera
 - GAS + Google Sheets only for signaling and device settings; no WebSocket server, Firebase, FCM, VPS, or paid signaling backend
 - No paid AI API, recording, screenshots, or media storage
 
