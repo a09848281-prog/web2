@@ -581,11 +581,12 @@ function saveSettings_(r) {
   const d = authController_(r);
   const s = r.settings || {};
   const clean = {
-    quality: ["auto", "360", "480", "720", "1080"].includes(String(s.quality)) ? String(s.quality) : "720",
-    dataMode: ["auto", "ultra", "save", "standard", "high"].includes(String(s.dataMode)) ? String(s.dataMode) : "standard",
+    quality: ["360", "480", "720", "1080"].includes(String(s.quality)) ? String(s.quality) : "720",
+    dataMode: "standard",
     fps: clamp_(s.fps, 10, 60, 24),
-    aspectRatio: ["16:9", "4:3", "1:1", "9:16", "original"].includes(String(s.aspectRatio)) ? String(s.aspectRatio) : "16:9",
-    micNoise: clamp_(s.micNoise, 0, 100, 0),
+    maxBitrateKbps: clamp_(s.maxBitrateKbps, 150, 8000, 2500),
+    aspectRatio: ["16:9", "4:3", "1:1", "9:16", "original"].includes(String(s.aspectRatio)) ? String(s.aspectRatio) : "4:3",
+    micNoise: clamp_(s.micNoise, 0, 100, 70),
     micSensitivity: clamp_(s.micSensitivity, 0, 100, 0),
     micGain: clamp_(s.micGain, 0, 100, 100),
     micMode: ["ambient", "balanced", "voice"].includes(String(s.micMode)) ? String(s.micMode) : "ambient",
