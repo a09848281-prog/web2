@@ -323,7 +323,7 @@ class RtcEngine(
             captureWidth = started.width
             captureHeight = started.height
             captureFps = started.fps
-            videoTrack = factory!!.createVideoTrack("remote-camera-video", videoSource).apply { setEnabled(true) }
+            videoTrack = factory!!.createVideoTrack("remote-camera-video", videoSource).apply { setEnabled(cameraEnabled) }
             val constraints = MediaConstraints()
             val ambientMode = microphoneMode == "ambient"
             constraints.mandatory.add(MediaConstraints.KeyValuePair(
@@ -337,7 +337,7 @@ class RtcEngine(
             ))
             audioSource = factory!!.createAudioSource(constraints)
             audioTrack = factory!!.createAudioTrack("remote-camera-audio", audioSource)
-                .apply { setEnabled(true); setVolume(micGain / 100.0) }
+                .apply { setEnabled(microphoneEnabled); setVolume(micGain / 100.0) }
             onState("カメラ・マイクを起動しました")
         } catch (error: Exception) {
             Log.e("RemoteCameraRTC", "Media startup failed; releasing partial resources", error)
@@ -375,10 +375,10 @@ class RtcEngine(
                     onConnectionState(sessionId,state.name)
                     if (state == PeerConnection.IceConnectionState.DISCONNECTED) {
                         scope.launch {
-                            delay(8000L)
+                            delay(30000L)
                             if (peers[sessionId] === peer &&
                                 peer.iceConnectionState() == PeerConnection.IceConnectionState.DISCONNECTED) {
-                                failSession(sessionId, peer, "ICE disconnected for 8 seconds")
+                                failSession(sessionId, peer, "ICE disconnected for 30 seconds")
                             }
                         }
                     } else if (state == PeerConnection.IceConnectionState.FAILED ||
