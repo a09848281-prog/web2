@@ -57,7 +57,7 @@ async function loadConfig() {
   S.cfg = await response.json();
   if (!S.cfg.gasUrl || !S.cfg.gasUrl.endsWith("/exec") ||
       S.cfg.gasUrl.includes("PASTE_YOUR_DEPLOYMENT_ID")) {
-    throw Error("web/config.json の gasUrl にGASの /exec URLを設定してください。");
+    throw Error("config.json の gasUrl にGASの /exec URLを設定してください。");
   }
 }
 
