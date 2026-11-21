@@ -9,7 +9,12 @@ import java.net.URLEncoder
 
 class ApiClient(private val gasUrl: String) {
     fun call(action: String, values: JSONObject = JSONObject()): JSONObject {
-        require(gasUrl.startsWith("https://script.google.com/")) { "GAS URLが正しくありません。" }
+        require(
+            gasUrl.startsWith("https://script.google.com/macros/s/") &&
+                gasUrl.endsWith("/exec") &&
+                !gasUrl.contains("GAS_EXEC_URL_HERE") &&
+                !gasUrl.contains("PASTE_YOUR_DEPLOYMENT_ID")
+        ) { "GASのウェブアプリ /exec URLが正しくありません。" }
         val payload = JSONObject(values.toString()).put("action", action)
         val body = "payload=" + URLEncoder.encode(payload.toString(), "UTF-8") + "&mode=json"
         val connection = URL(gasUrl).openConnection() as HttpURLConnection
