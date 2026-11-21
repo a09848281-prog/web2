@@ -21,6 +21,7 @@ const S = {
   route: null,
   history: [],
   lastLocation: null,
+  locationLiveAt: 0,
   followMap: true,
   locationRefreshTimer: null,
   deviceTelemetry: null,
@@ -1317,8 +1318,29 @@ function renderDeviceInfo() {
 }
 
 function updateSliderLabels(){$("androidSpeakerVolumeValue").value=$("androidSpeakerVolume").value+"%";$("micNoiseValue").value=$("micNoise").value+"%";$("micSensitivityValue").value=$("micSensitivity").value+"%";$("micGainValue").value=$("micGain").value+"%";$("receiveVolumeValue").value=S.receiveVolume+"%";}
+function applyLiveLocationUpdate(raw) {
+  const point = LocationUtils && LocationUtils.normalizeLiveLocation(raw);
+  if (!point) { console.warn("Rejected invalid RTC location update"); return; }
+  S.history = LocationUtils.mergeHistory(S.history, point, 500);
+  S.lastLocation = S.history[S.history.length - 1] || point;
+  S.locationLiveAt = Date.now();
+  updateLocationActions();
+  if (S.map && !$("mapPane").classList.contains("hidden")) {
+    drawMap(S.history);
+  } else {
+    const ageSeconds = Math.max(0, Math.round((Date.now() - new Date(S.lastLocation.timestamp).getTime()) / 1000));
+    $("locationInfo").textContent = "最終取得: " + new Date(S.lastLocation.timestamp).toLocaleString() +
+      " / 精度 ±" + (S.lastLocation.accuracy || "?") + "m / " + ageSeconds +
+      "秒前 / " + (S.lastLocation.mode || "取得") + " / RTCライブ更新";
+  }
+  $("networkSummary").textContent = "位置情報をRTC DataChannelで受信しました。";
+}
+
 function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;}
  if(d.type==="ack"){$("networkSummary").textContent=d.message||(d.ok?"Android受信済み":"適用失敗");if(!d.ok)toast(d.message||"Android側で適用失敗");}
+ else if(d.type==="location_update"){
+   applyLiveLocationUpdate(d.location || d);
+ }
  else if(d.type==="camera_capabilities"){
   const select=$("camera");
   const cameras=Array.isArray(d.cameras)?d.cameras:[];
@@ -1497,6 +1519,9 @@ async function loadHistory() {
   });
   if (!S.device || S.device.deviceId !== device.deviceId) return;
   S.history = result.locations || [];
+  if (S.lastLocation && S.lastLocation.transport === "RTC") {
+    S.history = LocationUtils.mergeHistory(S.history, S.lastLocation, 500);
+  }
   $("historyRows").replaceChildren();
   for (const point of [...S.history].reverse()) {
     const row = document.createElement("div");
@@ -1566,12 +1591,16 @@ async function toggleFullscreen() {
 async function refreshLatestLocation() {
   const device = S.device;
   if (!device) return;
+  const requestStartedAt = Date.now();
   try {
     const result = await api("get_locations", {
       controllerToken: device.controllerToken, deviceId: device.deviceId, limit: 500
     });
     if (!S.device || S.device.deviceId !== device.deviceId) return;
-    S.history = result.locations || [];
+    // Keep a newer direct RTC fix if it arrived while the GAS request was in flight.
+    const livePoint = S.lastLocation && S.lastLocation.transport === "RTC" &&
+      S.locationLiveAt >= requestStartedAt ? S.lastLocation : null;
+    S.history = LocationUtils.mergeHistory(result.locations || [], livePoint, 500);
     drawMap(S.history);
   } catch (error) {
     console.warn("Latest location refresh failed", error);
@@ -1586,7 +1615,9 @@ function startLocationRefresh() {
   if (!S.device) return;
   refreshLatestLocation();
   S.locationRefreshTimer = setInterval(() => {
-    if (!document.hidden && !$("mapPane").classList.contains("hidden") && S.device) {
+    // RTC pushes fresh coordinates; GAS polling is only a fallback.
+    if (!document.hidden && !$("mapPane").classList.contains("hidden") &&
+        S.device && S.control?.readyState !== "open") {
       refreshLatestLocation();
     }
   }, 30000);
@@ -1598,6 +1629,7 @@ function showMap() {
   $("videoTab").classList.remove("active");
   initMap();
   setTimeout(() => { if (S.map) S.map.invalidateSize(); }, 100);
+  if (S.history.length) drawMap(S.history);
   startLocationRefresh();
 }
 function showVideo() {
@@ -1636,8 +1668,10 @@ function drawMap(points) {
     S.route = L.polyline(valid.map(point => [Number(point.lat), Number(point.lng)]), { color: "#2865d6" }).addTo(S.map);
   }
   const ageSeconds = Math.max(0, Math.round((Date.now() - new Date(last.timestamp).getTime()) / 1000));
+  const sourceText = last.transport === "RTC" ? "RTCライブ更新" : "GAS履歴";
   $("locationInfo").textContent = "最終取得: " + new Date(last.timestamp).toLocaleString() +
-    " / 精度 ±" + (last.accuracy || "?") + "m / " + ageSeconds + "秒前 / " + (last.mode || "取得");
+    " / 精度 ±" + (last.accuracy || "?") + "m / " + ageSeconds + "秒前 / " +
+    (last.mode || "取得") + " / " + sourceText;
   if (S.followMap) S.map.setView([Number(last.lat), Number(last.lng)], Math.max(S.map.getZoom(), 15));
   updateLocationActions();
 }
@@ -1771,9 +1805,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
     $("saveSettings").addEventListener("click", () => saveSettings().catch(error => toast(error.message)));
-  $("locate").addEventListener("click", () => command("location_once")
-    .then(() => setTimeout(() => refreshLatestLocation(), 4000))
-    .catch(error => toast(error.message)));
+  $("locate").addEventListener("click", () => {
+    const rtcReady = S.control?.readyState === "open";
+    command("location_once")
+      .then(() => {
+        if (rtcReady) {
+          toast("位置情報の取得を要求しました。取得結果はRTCで直接届きます。");
+        } else {
+          setTimeout(() => refreshLatestLocation(), 4000);
+        }
+      })
+      .catch(error => toast(error.message));
+  });
   $("history").addEventListener("click", () => loadHistory().catch(error => toast(error.message)));
   $("followLocation").addEventListener("click", toggleLocationFollow);
   $("copyCoordinates").addEventListener("click", () => copyCoordinates().catch(error => toast(error.message)));
