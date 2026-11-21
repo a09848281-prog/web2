@@ -149,8 +149,10 @@ function readPendingMotionEvents(deviceId) {
   try {
     const value = JSON.parse(localStorage.getItem(motionPendingKey(deviceId || (S.device && S.device.deviceId))) || "[]");
     return Array.isArray(value) ? value.filter(item =>
-      item && typeof item.eventId === "string" &&
+      item && typeof item.eventId === "string" && /^[A-Za-z0-9._:-]{8,100}$/.test(item.eventId) &&
       Number.isFinite(Number(item.detectedAt)) &&
+      Number(item.detectedAt) >= Date.now() - 30 * 86400000 &&
+      Number(item.detectedAt) <= Date.now() + 60000 &&
       Number.isFinite(Number(item.motionScore)) &&
       Number(item.motionScore) >= 0 && Number(item.motionScore) <= 100
     ) : [];
