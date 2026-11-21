@@ -5,6 +5,8 @@ const STORAGE_KEY = "rc_paired_devices_v1";
 const SELECTED_KEY = "rc_selected_device_v1";
 const S = {
   cfg: null,
+  apiVersion: "",
+  lastGasTimingMs: null,
   devices: [],
   device: null,
   pc: null,
@@ -1713,6 +1715,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderDevices();
     try {
       const health = await api("health");
+      S.apiVersion = String(health.version || "unknown");
+      if (S.cfg.appVersion && S.apiVersion !== String(S.cfg.appVersion)) {
+        toast("Web v" + S.cfg.appVersion + " と GAS API v" + S.apiVersion +
+          " が一致していません。最新版の gas/Code.gs を貼り付けて再デプロイしてください。");
+      }
       if (!health.databaseReady) {
         $("pair").disabled = true;
         setControlsEnabled(false);
