@@ -1033,20 +1033,22 @@ async function pollAnswers(peer, sessionId, device) {
     await new Promise(resolve => setTimeout(resolve, Number(S.cfg.pollIntervalMs) || 2500));
   }
 }
-async function disconnect(sendCommand = true) {
+async function disconnect(sendCommand = true, preserveMic = false) {
   if (sendCommand) {
+    S.manualDisconnect = true;
     S.everConnected = false;
     S.reconnectAttempts = 0;
     if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
     S.reconnectTimer = null;
+    if (S.reconnectResetTimer) clearTimeout(S.reconnectResetTimer);
+    S.reconnectResetTimer = null;
   }
-  if (sendCommand && S.pc && S.device) {
-    const device = S.device;
-    const sessionId = S.session;
+  const device = S.device;
+  const sessionId = S.session;
+  const old = S.pc;
+  if (sendCommand && old && device && sessionId) {
     const channelOpen = S.control && S.control.readyState === "open";
     if (channelOpen) sendControl("disconnect", {});
-    // Send a session-scoped GAS bye even when DataChannel is open. Await it so
-    // an immediate unpair cannot revoke the token before Android sees the bye.
     try {
       await api("send_signal", {
         controllerToken:device.controllerToken, deviceId:device.deviceId,
@@ -1066,41 +1068,69 @@ async function disconnect(sendCommand = true) {
       }
     }
   }
+
   stopRtcStats();
+  stopVideoWatchdog();
+  stopSessionClock();
   stopMotionDetection("動体検知：映像未接続");
-  const old = S.pc;
+  stopPttSafetyTimer();
+  S.pttLocked = false;
+  S.pttActive = false;
+  $("pttLock").textContent = "送話ロック OFF";
+  $("pttLock").classList.remove("active");
+  try {
+    const track = S.mic && S.mic.getAudioTracks()[0];
+    if (track) track.enabled = false;
+  } catch (_) {}
+  stopAudioMeter();
+  try { S.remoteAudioSource?.disconnect(); } catch (_) {}
+  S.remoteAudioSource = null;
+  S.remoteAnalyser = null;
+
+  if (sendCommand && S.wakeLock) {
+    try { await S.wakeLock.release(); } catch (_) {}
+    S.wakeLock = null;
+    S.keepAwakeWanted = false;
+    $("keepAwake").classList.remove("active");
+    $("keepAwake").textContent = "画面スリープ防止 OFF";
+  }
+
   S.pc = null;
   try { S.control?.close(); } catch (_) {}
   S.control = null;
   S.session = "";
-  try { if (old) old.close(); } catch (_) {}
-  if (S.mic) S.mic.getTracks().forEach(track => track.stop());
-  S.mic = null;
-  S.pttActive = false;
+  try { old?.close(); } catch (_) {}
+
+  if (!preserveMic && S.mic) {
+    S.mic.getTracks().forEach(track => track.stop());
+    S.mic = null;
+  }
   S.remoteAudioTracks = [];
+  S.remoteVideoStream = null;
   $("remoteVideo").srcObject = null;
+  $("remoteVideo").muted = false;
   $("placeholder").classList.remove("hidden");
-  $("connect").disabled = !S.device;
+  $("connect").disabled = !S.device || S.connecting;
   $("disconnect").disabled = true;
   $("camera").disabled = true;
   $("torch").disabled = true;
+  $("diagnostics").disabled = true;
+  $("remoteMute").disabled = true;
   $("ptt").disabled = true;
   $("ptt").classList.remove("active");
-  $("ptt").textContent = "押している間だけ話す";
+  $("ptt").textContent = "🎙 押している間だけ話す";
+  $("audioState").textContent = "Androidマイク待機中";
+  $("videoState").textContent = "映像待機中";
+  $("audioLevel").value = "0";
+  $("audioLevelText").textContent = "待機中";
   $("streamState").textContent = "切断済み";
   $("iceState").textContent = "ICE: --";
+  $("remoteMute").textContent = "🔊 Android音声 ON";
+  $("remoteMute").classList.remove("active");
+  S.remoteAudioMuted = false;
+
   if (S.device) status("ペアリング済み");
   else status("未ペアリング");
-}
-function ptt(enabled) {
-  const track = S.mic && S.mic.getAudioTracks()[0];
-  if (!track) return;
-  S.pttActive = enabled;
-  track.enabled = enabled;
-  // Half-duplex: mute the Android return audio while sending PTT audio.
-  S.remoteAudioTracks.forEach(remoteTrack => { remoteTrack.enabled = !enabled; });
-  $("ptt").classList.toggle("active", enabled);
-  $("ptt").textContent = enabled ? "送話中…" : "押している間だけ話す";
 }
 async function loadSettings() {
   const device = S.device;
