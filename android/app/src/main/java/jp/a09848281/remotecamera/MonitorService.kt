@@ -341,7 +341,9 @@ class MonitorService : Service() {
                     }
                     notifyState("通信または接続処理に失敗しました。待機を継続して再試行します")
                 }
-                delay(if (rtc?.hasOpenControlChannel()==true) 2000L else pollIntervalSeconds*1000L)
+                // Connected mode uses a short scheduler tick, then the
+                // elapsed-time gate above enforces the configured 1–50s interval.
+                delay(if (rtc?.hasOpenControlChannel()==true) 250L else pollIntervalSeconds*1000L)
             }
         } catch (e: Exception) {
             Log.e("RemoteCameraService", "Initial GAS registration failed; retry will continue", e)
