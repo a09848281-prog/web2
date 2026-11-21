@@ -5,6 +5,7 @@ const html = fs.readFileSync("index.html", "utf8");
 const js = fs.readFileSync("app.js", "utf8");
 const rtc = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/RtcEngine.kt", "utf8");
 const service = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MonitorService.kt", "utf8");
+const schedule = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MonitorSchedule.kt", "utf8");
 const manifest = fs.readFileSync("android/app/src/main/AndroidManifest.xml", "utf8");
 const main = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MainActivity.kt", "utf8");
 const apiClient = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/ApiClient.kt", "utf8");
@@ -29,12 +30,13 @@ for (const id of referencedIds) {
   assert.ok(htmlIds.has(id), "JavaScript references missing HTML id: " + id);
 }
 
-for (const id of ["micNoise", "micSensitivity", "micGain", "androidSpeakerVolume", "androidSpeakerVolumeValue", "receiveVolume", "receiveVolumeValue", "micMode", "audioLevel", "audioLevelText", "remoteMute", "pttLock", "keepAwake", "fitMode", "videoState", "audioState", "cameraFacing", "flashState", "connectionMetrics", "gasTiming", "sessionDuration", "deviceInfo", "deviceInfoDialog", "deviceInfoOutput", "followLocation", "copyCoordinates", "diagnostics", "deviceTotal", "networkSummary", "deviceHealth", "deviceTxSpeed", "deviceRxSpeed", "torch", "reserveConnection", "cancelReservation", "reservationStatus", "fps", "aspectRatio", "fullscreen", "bookmarkletOpen", "bookmarkletCode", "bookmarkDialog", "copyBookmarklet", "zoom", "zoomValue", "zoomReset", "motionEnabled", "motionSensitivity", "motionNotify", "motionHistory", "motionExport", "motionClear", "motionDialog", "motionRows", "motionStatus"]) {
+for (const id of ["micNoise", "androidSpeakerVolume", "androidSpeakerVolumeValue", "receiveVolume", "receiveVolumeValue", "maxBitrate", "maxBitrateValue", "cameraTransmit", "micTransmit", "captureApplied", "usage7d", "usage30d", "audioLevel", "audioLevelText", "remoteMute", "pttLock", "keepAwake", "fitMode", "videoState", "audioState", "cameraFacing", "flashState", "connectionMetrics", "gasTiming", "sessionDuration", "deviceInfo", "deviceInfoDialog", "deviceInfoOutput", "followLocation", "copyCoordinates", "diagnostics", "deviceTotal", "networkSummary", "deviceHealth", "deviceTxSpeed", "deviceRxSpeed", "torch", "reserveConnection", "cancelReservation", "reservationStatus", "fps", "aspectRatio", "fullscreen", "bookmarkletOpen", "bookmarkletCode", "bookmarkDialog", "copyBookmarklet", "zoom", "zoomValue", "zoomReset", "motionEnabled", "motionSensitivity", "motionNotify", "motionHistory", "motionExport", "motionClear", "motionDialog", "motionRows", "motionStatus"]) {
   assert.ok(html.includes('id="' + id + '"'), "Missing HTML element: " + id);
   assert.ok(js.includes('$("' + id + '")'), "Missing JavaScript reference: " + id);
 }
 assert.ok(js.includes('createDataChannel("remote-control"'), "Web must create control DataChannel");
 assert.ok(js.includes("function sendControl("), "Web DataChannel sender missing");
+assert.ok(js.includes("function sendControlAwait("), "DataChannel setting acknowledgement handler missing");
 assert.ok(js.includes("function checkConnectionReservation("), "Connection reservation scheduler missing");
 assert.ok(js.includes("function toggleFullscreen("), "Fullscreen handler missing");
 assert.ok(js.includes("function openBookmarkletDialog("), "Bookmarklet generator missing");
@@ -130,6 +132,21 @@ assert.ok(service.includes('putLong("idleInterval", idleInterval)'), "Idle track
 assert.ok(service.includes("cached.time < 5000L"), "Location tracking must not reuse two-minute-old cached coordinates");
 assert.ok(service.includes("networkInfo()"), "Network diagnostics missing");
 assert.ok(service.includes("setTorch("), "Android flashlight control missing");
+assert.ok(service.includes("applyAndroidSpeakerVolume("), "Android speaker volume must be applied and read back");
+assert.ok(service.includes("usageTotal(7)") && service.includes("usageTotal(30)"), "7-day and 30-day usage totals missing");
+assert.ok(service.includes("localBitrateOverride"), "Android waiting bitrate override must persist");
+assert.ok(service.includes("ACTION_UPDATE_SETTINGS"), "Android waiting settings update action missing");
+assert.ok(rtc.includes("fun setCameraEnabled(") && rtc.includes("camera.stopCapture()"), "Remote camera OFF must stop capture");
+assert.ok(rtc.includes("fun setMicrophoneEnabled("), "Remote microphone toggle missing");
+assert.ok(rtc.includes("maxBitrateKbps"), "Android video bitrate cap missing");
+assert.ok(main.includes('putInt("pollIntervalSeconds", it)'), "GAS polling interval must persist while typing");
+assert.ok(main.includes("saveDailySchedule()"), "Android daily start/end schedule UI missing");
+assert.ok(schedule.includes("setAndAllowWhileIdle") && schedule.includes("ACTION_DAILY_START") && schedule.includes("ACTION_DAILY_END"), "Android daily schedule alarms missing");
+assert.ok(manifest.includes("MonitorScheduleReceiver") && manifest.includes("BOOT_COMPLETED"), "Schedule receiver and reboot recovery missing");
+assert.ok(!html.includes('id="micSensitivity"') && !html.includes('id="micGain"') && !html.includes('id="micMode"'), "Removed detailed microphone controls must stay removed");
+assert.ok(!html.includes('id="dataMode"'), "Legacy communication mode selector must stay removed");
+assert.ok(html.includes('id="cameraTransmit"') && html.includes('id="micTransmit"'), "Web remote camera/microphone toggles missing");
+assert.ok(js.includes('sendControlAwait("settings_update"'), "Settings must await Android DataChannel acknowledgement");
 assert.ok(service.includes("lastNetworkError"), "Automatic network error diagnostics missing");
 assert.ok(service.includes("lastDevicePollAt"), "Additional viewer signaling poll scheduler missing");
 assert.ok(service.includes('"adaptive_quality"'), "Android adaptive quality command missing");
@@ -137,7 +154,7 @@ assert.ok(service.includes("private fun applyVideoSettings("), "Android persiste
 assert.ok(service.includes("START_STICKY"), "Foreground service process recovery policy missing");
 assert.ok(service.includes("updateStreamWakeLock("), "Live stream wake lock management missing");
 assert.ok(service.includes("powerSaveActive"), "Battery/thermal quality override missing");
-assert.ok(service.includes("microphoneMode = prefs.getString"), "Android microphone preset must be loaded for each fresh RTC engine");
+assert.ok(service.includes('microphoneMode = "ambient"'), "Android microphone must use the simplified ambient input path");
 assert.ok(service.includes("captureAspectRatio = prefs.getString"), "Android capture ratio must be loaded for each fresh RTC engine");
 assert.ok(service.includes("private fun closeRtcViewerSession("), "Empty RTC engines must be released after the last viewer");
 assert.ok(service.includes("STREAM_MUSIC"), "PTT return audio must use the media speaker stream");
@@ -162,8 +179,8 @@ assert.ok(gas.includes("Controllers:"), "Multi-controller storage sheet missing"
 assert.ok(gas.includes("activeControllerCount_(deviceId) >= 3"), "Three-controller pairing limit missing");
 assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi permission missing");
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
-assert.ok(androidBuild.includes('versionName = "2.0.1-preview"'), "Android app version must be 1.2.0");
-assert.ok(webConfig.includes('"appVersion": "2.0.1-preview"'), "Web config version must be 1.2.0");
+assert.ok(androidBuild.includes('versionName = "2.1.0-preview"'), "Android app version must be v2.1");
+assert.ok(webConfig.includes('"appVersion": "2.1.0-preview"'), "Web config version must be v2.1");
 assert.ok(gas.includes("MotionEvents:"), "Motion event metadata sheet missing");
 assert.ok(gas.includes("function addMotionEvent_("), "Motion event write endpoint missing");
 assert.ok(gas.includes("function getMotionEvents_("), "Motion event history endpoint missing");
@@ -174,8 +191,8 @@ assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from S
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.2.0"'), "GAS API version must be 1.2.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 421"), "Android version code must be incremented for v1.2");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.0.1 Preview", "PWA display name must match v1.2");
+assert.ok(androidBuild.includes("versionCode = 422"), "Android version code must be incremented for v2.1");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.1 Preview", "PWA display name must match v2.1");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 console.log("Web2 source checks passed.");
 
