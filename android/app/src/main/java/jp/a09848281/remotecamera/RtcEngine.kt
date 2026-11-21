@@ -70,10 +70,13 @@ class RtcEngine(
     private var currentQuality = "720"
     private var currentDataMode = "standard"
     private var currentFps = 24
-    private var currentAspectRatio = captureAspectRatio.takeIf { it in setOf("16:9", "4:3", "1:1", "9:16") } ?: "16:9"
+    private var currentAspectRatio = captureAspectRatio.takeIf { it in setOf("16:9", "4:3", "1:1", "9:16", "original") } ?: "4:3"
     private var captureWidth = 1280
     private var captureHeight = 720
     private var captureFps = 24
+    @Volatile private var maxBitrateKbps = 2500
+    @Volatile private var cameraEnabled = true
+    @Volatile private var microphoneEnabled = true
     @Volatile private var iceServerConfig = JSONArray()
 
     fun setIceServers(servers: JSONArray?) {
@@ -178,7 +181,7 @@ class RtcEngine(
         // Aspect ratio is fixed for the life of this RTC engine. A ratio change is
         // applied on the next connection so we never restart a live camera abruptly.
         val tier = when (quality) { "360" -> 360; "480" -> 480; "1080" -> 1080; else -> 720 }
-        val dimensions = when (currentAspectRatio) {
+        val dimensions = when (if (currentAspectRatio == "original") "4:3" else currentAspectRatio) {
             "4:3" -> when (tier) {
                 360 -> 640 to 480
                 480 -> 854 to 640
@@ -210,7 +213,7 @@ class RtcEngine(
             1080 -> 3200000
             else -> 1700000
         }
-        val base = VideoProfile(dimensions.first, dimensions.second, requestedFps.coerceIn(10, 60), baseBitrate)
+        val base = VideoProfile(dimensions.first, dimensions.second, requestedFps.coerceIn(10, 60), minOf(baseBitrate, maxBitrateKbps.coerceIn(150, 8000) * 1000))
         val modeProfile = when (dataMode) {
             "ultra" -> base.copy(fps = minOf(base.fps, 10), bitrate = 350000)
             "save" -> base.copy(fps = minOf(base.fps, 15), bitrate = 650000)
@@ -291,7 +294,7 @@ class RtcEngine(
                     else -> MediaRecorder.AudioSource.MIC
                 }
                 val hardwareAec = microphoneMode == "voice"
-                val hardwareNoiseSuppression = microphoneMode == "balanced" || microphoneMode == "voice"
+                val hardwareNoiseSuppression = noiseSuppressionLevel > 0
                 audioDeviceModule = JavaAudioDeviceModule.builder(context.applicationContext)
                     .setAudioSource(audioSourceType)
                     .setUseHardwareAcousticEchoCanceler(hardwareAec)
@@ -324,13 +327,13 @@ class RtcEngine(
             val constraints = MediaConstraints()
             val ambientMode = microphoneMode == "ambient"
             constraints.mandatory.add(MediaConstraints.KeyValuePair(
-                "googNoiseSuppression", (microphoneMode != "ambient" && noiseSuppressionLevel > 0).toString()
+                "googNoiseSuppression", (noiseSuppressionLevel > 0).toString()
             ))
             constraints.mandatory.add(MediaConstraints.KeyValuePair(
-                "googAutoGainControl", (microphoneMode != "ambient" && micSensitivity > 0).toString()
+                "googAutoGainControl", "false"
             ))
             constraints.mandatory.add(MediaConstraints.KeyValuePair(
-                "googEchoCancellation", (!ambientMode).toString()
+                "googEchoCancellation", "false"
             ))
             audioSource = factory!!.createAudioSource(constraints)
             audioTrack = factory!!.createAudioTrack("remote-camera-audio", audioSource)
@@ -518,7 +521,10 @@ class RtcEngine(
         }catch(e:Exception){Log.w("RemoteCameraRTC","DataChannel send failed",e);false}
     }
     fun sendControlToOpenDataChannels(message:JSONObject){controlChannels.keys.toList().forEach{id->sendControl(id,message)}}
-    fun setNoiseSuppressionLevel(level:Int){noiseSuppressionLevel=level.coerceIn(0,100);onState("ノイズ抑制要求 "+noiseSuppressionLevel+"%（実効値は端末依存・次回音声初期化時に反映）")}
+    fun setNoiseSuppressionLevel(level:Int){noiseSuppressionLevel=level.coerceIn(0,100);onState("ノイズ抑制 "+noiseSuppressionLevel+"%（次回音声初期化から適用）")}
+    fun setCameraEnabled(enabled:Boolean){cameraEnabled=enabled;videoTrack?.setEnabled(enabled);onState(if(enabled)"Androidカメラ送信 ON" else "Androidカメラ送信 OFF")}
+    fun setMicrophoneEnabled(enabled:Boolean){microphoneEnabled=enabled;audioTrack?.setEnabled(enabled);onState(if(enabled)"Androidマイク送信 ON" else "Androidマイク送信 OFF")}
+    fun captureInfo():JSONObject = JSONObject().put("width",captureWidth).put("height",captureHeight).put("fps",captureFps).put("maxBitrateKbps",maxBitrateKbps).put("cameraEnabled",cameraEnabled).put("microphoneEnabled",microphoneEnabled)
     fun setMicSensitivity(level:Int){micSensitivity=level.coerceIn(0,100);onState("マイク感度要求 "+micSensitivity+"%（自動ゲインは対応範囲・次回音声初期化時に反映）")}
     fun setMicGain(level:Int){micGain=level.coerceIn(0,100);try{audioTrack?.setVolume(micGain/100.0)}catch(e:Exception){Log.w("RemoteCameraRTC","Mic gain update failed",e)}}
     fun setNightMode(enabled:Boolean){nightModeEnabled=enabled;onState(if(enabled)"夜間モード要求ON（露出制御は端末依存）" else "夜間モードOFF")}
@@ -576,7 +582,8 @@ class RtcEngine(
         }
     }
 
-    fun setQuality(quality: String, dataMode: String, fps: Int = currentFps) {
+    fun setQuality(quality: String, dataMode: String, fps: Int = currentFps, bitrateLimitKbps: Int = maxBitrateKbps) {
+        maxBitrateKbps = bitrateLimitKbps.coerceIn(150, 8000)
         currentQuality = quality
         currentDataMode = dataMode
         currentFps = fps.coerceIn(10, 60)
