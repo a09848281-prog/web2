@@ -37,7 +37,6 @@
       <summary>📷 映像・通信設定</summary>
       <div class="settingsBody">
         <label>画質<select id="quality">
-          <option value="auto">自動（720p基準）</option>
           <option value="360">360p</option><option value="480">480p</option>
           <option value="720" selected>720p</option><option value="1080">1080p</option>
         </select></label>
@@ -162,7 +161,7 @@
     </div>
 
     <section class="telemetry">
-      <div><b>Android通信量（本アプリ）</b><span id="deviceTx">送信 --</span><span id="deviceRx">受信 --</span><span id="deviceTxSpeed">送信速度 --</span><span id="deviceRxSpeed">受信速度 --</span><strong id="deviceTotal">接続中合計 --</strong><span id="usage7d">過去7日 --</span><span id="usage30d">過去30日 --</span></div>
+      <div><b>Android通信量（本アプリ）</b><span id="deviceTx">送信 --</span><span id="deviceRx">受信 --</span><span id="deviceTxSpeed">送信速度 --</span><span id="deviceRxSpeed">受信速度 --</span><strong id="deviceTotal">接続中合計 --</strong><span id="usage7d">過去7日 --</span><span id="usage30d">過去30日 --</span><small>本アプリの通信量推定です。端末全体や他アプリの通信量ではありません。サンプリングできなかった期間は日別集計に欠測が生じます。</small></div>
       <div><b>WebRTC通信</b><span id="rtcStats">RTT -- / 損失 --</span><span id="networkSummary">ネットワーク情報待ち</span></div>
       <div><b>Android端末</b><span id="deviceHealth">バッテリー -- / 温度 --</span><span class="hint">詳細は上部ツールバーの「端末情報」から確認できます。</span></div>
       <div><b>ネットワーク診断</b><pre id="diagnosticOutput">接続後に診断情報を表示します。</pre></div>
