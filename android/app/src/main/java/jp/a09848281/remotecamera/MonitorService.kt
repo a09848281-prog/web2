@@ -386,7 +386,12 @@ class MonitorService : Service() {
                 lastNetworkError="WebRTC ICE状態: "+state
                 notifyState("RTC "+state+"：再接続を待機します")
                 scope.launch {
-                    delay(8500L)
+                    delay(9000L)
+                    val engine = rtc
+                    if (engine != null && !engine.hasPeers()) {
+                        engine.dispose()
+                        if (rtc === engine) rtc = null
+                    }
                     updateStreamWakeLock(rtc?.hasPeers() == true)
                 }
             }
@@ -743,7 +748,8 @@ class MonitorService : Service() {
                 "volume" -> {
                     val percent = payload.optInt("percent", 70).coerceIn(0, 100)
                     val audio = getSystemService(AUDIO_SERVICE) as AudioManager
-                    val stream = AudioManager.STREAM_VOICE_CALL
+                    val stream = AudioManager.STREAM_MUSIC
+                    audio.mode = AudioManager.MODE_NORMAL
                     val max = audio.getStreamMaxVolume(stream)
                     audio.setStreamVolume(stream, (max * percent / 100.0).toInt(), 0)
                 }
@@ -753,11 +759,12 @@ class MonitorService : Service() {
                     val sessionId = payload.optString("sessionId", "")
                     if (sessionId.isNotBlank()) {
                         // A Web viewer may only close its own PeerConnection.
-                        rtc?.closeSession(sessionId)
+                        closeRtcViewerSession(sessionId)
                     } else {
                         // Legacy unscoped disconnect is retained only for older clients.
                         rtc?.dispose()
                         rtc = null
+                        updateStreamWakeLock(false)
                     }
                     updateStreamWakeLock(rtc?.hasPeers() == true)
                     notifyState(if (rtc?.hasPeers() == true) "ほかのWeb端末は監視を継続中" else "監視待機中")
