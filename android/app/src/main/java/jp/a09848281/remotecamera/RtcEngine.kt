@@ -56,12 +56,15 @@ class RtcEngine(
 
     private fun buildIceServers(): List<PeerConnection.IceServer> {
         val result = mutableListOf<PeerConnection.IceServer>()
+        var hasStun = false
         for (index in 0 until iceServerConfig.length()) {
             val item = iceServerConfig.optJSONObject(index) ?: continue
             val rawUrls = item.opt("urls")
             val urls = when (rawUrls) {
-                is JSONArray -> (0 until rawUrls.length()).mapNotNull { rawUrls.optString(it).takeIf(String::isNotBlank) }
-                is String -> listOf(rawUrls).filter(String::isNotBlank)
+                is JSONArray -> (0 until rawUrls.length()).mapNotNull { index ->
+                    rawUrls.optString(index).takeIf { it.isNotBlank() }
+                }
+                is String -> listOf(rawUrls).filter { it.isNotBlank() }
                 else -> emptyList()
             }
             val username = item.optString("username", "")
@@ -73,17 +76,17 @@ class RtcEngine(
                         if (username.isNotBlank()) builder.setUsername(username)
                         if (credential.isNotBlank()) builder.setPassword(credential)
                         result.add(builder.createIceServer())
+                        if (url.startsWith("stun:", true)) hasStun = true
                     } catch (error: Exception) {
                         Log.w("RemoteCameraRTC", "Ignoring invalid ICE server entry", error)
                     }
                 }
         }
-        if (result.none { it.uri.startsWith("stun:", true) }) {
+        if (!hasStun) {
             result.add(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
         }
         return result
     }
-
     private data class VideoProfile(
         val width: Int, val height: Int, val fps: Int, val bitrate: Int
     )
