@@ -3,6 +3,7 @@ package jp.a09848281.remotecamera
 import android.content.Context
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.media.AudioManager
 import android.media.MediaRecorder
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
@@ -27,7 +28,8 @@ class RtcEngine(
     private val onState: (String) -> Unit,
     private val onDataChannelMessage: (String, String) -> Unit,
     private val onConnectionState: (String, String) -> Unit,
-    private val microphoneMode: String = "ambient"
+    private val microphoneMode: String = "ambient",
+    private val captureAspectRatio: String = "16:9"
 ) {
     private val peers = ConcurrentHashMap<String, PeerConnection>()
     private val videoSenders = ConcurrentHashMap<String, RtpSender>()
@@ -51,6 +53,7 @@ class RtcEngine(
     private var currentQuality = "720"
     private var currentDataMode = "standard"
     private var currentFps = 24
+    private var currentAspectRatio = captureAspectRatio.takeIf { it in setOf("16:9", "4:3", "1:1", "9:16") } ?: "16:9"
     private var captureWidth = 1280
     private var captureHeight = 720
     private var captureFps = 24
@@ -155,20 +158,50 @@ class RtcEngine(
     }
 
     private fun profileFor(quality: String, dataMode: String, requestedFps: Int = currentFps): VideoProfile {
-        // Profiles are requests; Camera2 may reject unsupported modes and trigger the safe fallback.
-        val base = when (quality) {
-            "360" -> VideoProfile(640, 360, 15, 350000)
-            "480" -> VideoProfile(640, 480, 15, 550000)
-            "1080" -> VideoProfile(1920, 1080, 24, 1800000)
-            else -> VideoProfile(1280, 720, 24, 950000)
+        // Aspect ratio is fixed for the life of this RTC engine. A ratio change is
+        // applied on the next connection so we never restart a live camera abruptly.
+        val tier = when (quality) { "360" -> 360; "480" -> 480; "1080" -> 1080; else -> 720 }
+        val dimensions = when (currentAspectRatio) {
+            "4:3" -> when (tier) {
+                360 -> 640 to 480
+                480 -> 854 to 640
+                1080 -> 1440 to 1080
+                else -> 1280 to 960
+            }
+            "1:1" -> when (tier) {
+                360 -> 360 to 360
+                480 -> 480 to 480
+                1080 -> 1080 to 1080
+                else -> 720 to 720
+            }
+            "9:16" -> when (tier) {
+                360 -> 360 to 640
+                480 -> 480 to 854
+                1080 -> 1080 to 1920
+                else -> 720 to 1280
+            }
+            else -> when (tier) {
+                360 -> 640 to 360
+                480 -> 854 to 480
+                1080 -> 1920 to 1080
+                else -> 1280 to 720
+            }
         }
+        val baseBitrate = when (tier) {
+            360 -> 650000
+            480 -> 1000000
+            1080 -> 3200000
+            else -> 1700000
+        }
+        val base = VideoProfile(dimensions.first, dimensions.second, requestedFps.coerceIn(10, 60), baseBitrate)
         val modeProfile = when (dataMode) {
-            "ultra" -> VideoProfile(640, 360, 10, 280000)
-            "save" -> VideoProfile(640, 360, 15, 550000)
-            "high" -> base.copy(bitrate = 2400000)
+            "ultra" -> base.copy(fps = minOf(base.fps, 10), bitrate = 350000)
+            "save" -> base.copy(fps = minOf(base.fps, 15), bitrate = 650000)
+            "high" -> base.copy(bitrate = minOf(3500000, (base.bitrate * 1.25).toInt()))
+            "auto" -> base.copy(fps = minOf(base.fps, 20), bitrate = minOf(base.bitrate, 1200000))
             else -> base
         }
-        return modeProfile.copy(fps = requestedFps.coerceIn(10, 60))
+        return modeProfile
     }
 
     @Synchronized
@@ -180,6 +213,11 @@ class RtcEngine(
                 PeerConnectionFactory.InitializationOptions.builder(context.applicationContext).createInitializationOptions()
             )
             egl = EglBase.create()
+            try {
+                (context.getSystemService(Context.AUDIO_SERVICE) as AudioManager).mode = AudioManager.MODE_NORMAL
+            } catch (error: Exception) {
+                Log.w("RemoteCameraRTC", "Could not set normal audio mode", error)
+            }
             val audioSourceType = when (microphoneMode) {
                 "voice" -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
                 else -> MediaRecorder.AudioSource.MIC
