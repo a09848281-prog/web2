@@ -21,6 +21,7 @@ This repository is a clean successor project. The existing `a09848281-prog/web` 
 - Viewer-only digital zoom and dark-scene brightness correction; Android optical lens switching where exposed by Camera2
 - Ambient/balanced/voice Android microphone capture presets, separate browser receive gain (0–200%), RMS audio meter, half-duplex PTT lock and 3-minute safety cutoff
 - Video freeze/initial-frame watchdog, fullscreen playback restore, connection uptime and live RTC stats
+- Map latest-location follow toggle, coordinate copy and detailed Android status dialog
 - Portrait 9:16 camera capture ratio (applied on next RTC session)
 - No paid AI API, recording, screenshots, or media storage
 
