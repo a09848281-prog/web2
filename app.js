@@ -1598,8 +1598,8 @@ async function refreshLatestLocation() {
     });
     if (!S.device || S.device.deviceId !== device.deviceId) return;
     // Keep a newer direct RTC fix if it arrived while the GAS request was in flight.
-    const livePoint = S.lastLocation && S.lastLocation.transport === "RTC" &&
-      S.locationLiveAt >= requestStartedAt ? S.lastLocation : null;
+    const livePoint = S.lastLocation && S.lastLocation.transport === "RTC"
+      ? S.lastLocation : null;
     S.history = LocationUtils.mergeHistory(result.locations || [], livePoint, 500);
     drawMap(S.history);
   } catch (error) {
