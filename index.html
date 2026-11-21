@@ -8,13 +8,14 @@
 <link rel="icon" href="./icon.svg" type="image/svg+xml">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Remote Camera Web2 v2.0 Preview</title>
-<link rel="stylesheet" href="./app.css?v=2.0-preview">
+<title>Remote Camera Web2 v2.0.1 Preview</title>
+<link rel="stylesheet" href="./app.css?v=2.0.1-preview">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous">
 <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
-<script defer src="./motion-core.js?v=2.0-preview"></script>
-<script defer src="./audio-utils.js?v=2.0-preview"></script>
-<script defer src="./app.js?v=2.0-preview"></script>
+<script defer src="./motion-core.js?v=2.0.1-preview"></script>
+<script defer src="./audio-utils.js?v=2.0.1-preview"></script>
+<script defer src="./location-utils.js?v=2.0.1-preview"></script>
+<script defer src="./app.js?v=2.0.1-preview"></script>
 </head>
 <body>
 <header class="top">
@@ -91,6 +92,7 @@
         <button id="saveSettings" type="button" class="wide" disabled>設定を保存</button>
         <button id="history" type="button" class="link wide" disabled>位置情報履歴</button>
         <button id="deleteHistory" type="button" class="link danger wide" disabled>履歴を全削除</button>
+        <p class="hint">RTC接続中はAndroidの現在地をDataChannelで直接受信し、地図へすぐ反映します。取得した位置情報の履歴はGASへ保存します。待機中はAndroidの待機サービスが設定間隔で取得します。</p>
       </div>
     </details>
 
