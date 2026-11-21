@@ -19,7 +19,7 @@ const S = {
   route: null,
   history: [], control: null, statsTimer: null, statsLast: null, reconnectTimer: null, reconnectAttempts: 0, everConnected: false, torchEnabled: false, reservationTimer: null,
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-  motion: { enabled: false, sensitivity: 3, timer: null, previous: null, streak: 0, lastEventAt: 0, sending: false },
+  motion: { enabled: false, sensitivity: 3, timer: null, previous: null, streak: 0, lastEventAt: 0, sendingDevices: new Set() },
   adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 }
 };
 
@@ -148,25 +148,32 @@ function startMotionDetection() {
 function readPendingMotionEvents(deviceId) {
   try {
     const value = JSON.parse(localStorage.getItem(motionPendingKey(deviceId || (S.device && S.device.deviceId))) || "[]");
-    return Array.isArray(value) ? value.filter(item => item && typeof item.eventId === "string") : [];
+    return Array.isArray(value) ? value.filter(item =>
+      item && typeof item.eventId === "string" &&
+      Number.isFinite(Number(item.detectedAt)) &&
+      Number.isFinite(Number(item.motionScore)) &&
+      Number(item.motionScore) >= 0 && Number(item.motionScore) <= 100
+    ) : [];
   } catch (_) { return []; }
 }
-async function syncMotionEvent(event) {
-  if (!S.device) throw Error("Android端末が選択されていません。");
+async function syncMotionEvent(event, device = S.device) {
+  if (!device) throw Error("Android端末が選択されていません。");
   return api("add_motion_event", {
-    controllerToken: S.device.controllerToken, deviceId: S.device.deviceId,
+    controllerToken: device.controllerToken, deviceId: device.deviceId,
     eventId: event.eventId, detectedAt: event.detectedAt, motionScore: event.motionScore,
     sensitivity: event.sensitivity, source: "browser-motion-v1"
   });
 }
 async function recordMotionEvent(score) {
+  const targetDevice = S.device;
+  if (!targetDevice) return;
   const event = {
     eventId: rid(), detectedAt: Date.now(),
     motionScore: Math.min(100, Math.max(0, Math.round(score * 10) / 10)),
     sensitivity: S.motion.sensitivity, source: "browser-motion-v1"
   };
-  const pending = readPendingMotionEvents(S.device && S.device.deviceId); pending.push(event);
-  localStorage.setItem(motionPendingKey(S.device && S.device.deviceId), JSON.stringify(pending.slice(-100)));
+  const pending = readPendingMotionEvents(targetDevice.deviceId); pending.push(event);
+  localStorage.setItem(motionPendingKey(targetDevice.deviceId), JSON.stringify(pending.slice(-100)));
   $("motionStatus").textContent = "動きを検知しました：" + event.motionScore.toFixed(1) + "%";
   toast("動体を検知しました。");
   if ("Notification" in window && Notification.permission === "granted") {
@@ -175,32 +182,39 @@ async function recordMotionEvent(score) {
       tag: "remote-camera-motion"
     }); } catch (error) { console.warn("Browser notification unavailable", error); }
   }
-  await flushMotionEvents();
+  await flushMotionEvents(targetDevice);
 }
-async function flushMotionEvents() {
-  if (S.motion.sending || !S.device) return;
-  S.motion.sending = true;
+async function flushMotionEvents(targetDevice = S.device) {
+  if (!targetDevice || S.motion.sendingDevices.has(targetDevice.deviceId)) return;
+  const targetDeviceId = targetDevice.deviceId;
+  S.motion.sendingDevices.add(targetDeviceId);
   try {
-    const targetDeviceId = S.device.deviceId;
     let pending = readPendingMotionEvents(targetDeviceId);
-    while (pending.length && S.device && S.device.deviceId === targetDeviceId) {
-      await syncMotionEvent(pending[0]);
-      const id = pending[0].eventId;
-      pending = pending.filter(item => item.eventId !== id);
+    while (pending.length) {
+      const event = pending[0];
+      await syncMotionEvent(event, targetDevice);
+      pending = pending.filter(item => item.eventId !== event.eventId);
       localStorage.setItem(motionPendingKey(targetDeviceId), JSON.stringify(pending));
     }
   } catch (error) {
-    $("motionStatus").textContent = "検知イベントを一時保存中。接続回復後に再送します。";
+    if (S.device && S.device.deviceId === targetDeviceId) {
+      $("motionStatus").textContent = "検知イベントを一時保存中。接続回復後に再送します。";
+    }
     console.warn("Motion event retry queued", error);
-  } finally { S.motion.sending = false; }
+  } finally { S.motion.sendingDevices.delete(targetDeviceId); }
 }
-function csvCell(value) { return '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"'; }
+function csvCell(value) {
+  let text = String(value == null ? "" : value);
+  if (/^[=+@\-\t\r]/.test(text)) text = "'" + text;
+  return '"' + text.replace(/"/g, '""') + '"';
+}
 async function loadMotionHistory(showDialog = true) {
-  if (!S.device) throw Error("Android端末をペアリングしてください。");
+  const device = S.device;
+  if (!device) throw Error("Android端末をペアリングしてください。");
   const result = await api("get_motion_events", {
-    controllerToken: S.device.controllerToken, deviceId: S.device.deviceId, limit: 500
+    controllerToken: device.controllerToken, deviceId: device.deviceId, limit: 500
   });
-  const all = [...(result.events || []), ...readPendingMotionEvents(S.device.deviceId).map(item => ({
+  const all = [...(result.events || []), ...readPendingMotionEvents(device.deviceId).map(item => ({
     eventId: item.eventId, detectedAt: new Date(item.detectedAt).toISOString(),
     motionScore: item.motionScore, sensitivity: item.sensitivity, source: item.source, pending: true
   }))];
@@ -233,9 +247,10 @@ async function exportMotionCsv() {
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 async function clearMotionHistory() {
-  if (!S.device || !confirm("このAndroid端末の動体検知履歴を削除しますか？")) return;
-  const result=await api("delete_motion_events",{controllerToken:S.device.controllerToken,deviceId:S.device.deviceId});
-  localStorage.removeItem(motionPendingKey(S.device.deviceId));
+  const device = S.device;
+  if (!device || !confirm("このAndroid端末の動体検知履歴を削除しますか？")) return;
+  const result=await api("delete_motion_events",{controllerToken:device.controllerToken,deviceId:device.deviceId});
+  localStorage.removeItem(motionPendingKey(device.deviceId));
   $("motionRows").replaceChildren();
   $("motionRows").textContent="検知履歴を "+(result.deleted||0)+" 件削除しました。";
   toast("動体検知履歴を削除しました。");
