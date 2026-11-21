@@ -75,6 +75,7 @@ class MonitorService : Service() {
     private var lastNetworkError = ""
     private val apiReady = CompletableDeferred<Unit>()
     private var streamWakeLock: PowerManager.WakeLock? = null
+    private var powerSaveActive = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -530,9 +531,15 @@ class MonitorService : Service() {
         val rawTemp=intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE,-1)?:-1
         val temp=if(rawTemp>=0)rawTemp/10.0 else -1.0
         val thermal=if(Build.VERSION.SDK_INT>=29)(getSystemService(POWER_SERVICE) as PowerManager).currentThermalStatus else -1
-        if((percent in 0..15||thermal>=PowerManager.THERMAL_STATUS_SEVERE)&&rtc!=null){
-            currentQuality="360";currentDataMode="ultra";rtc?.setQuality(currentQuality,currentDataMode)
-            notifyState("バッテリー・温度保護：通信負荷を低減しました")
+        val shouldReduceLoad = (percent in 0..15) || (thermal >= PowerManager.THERMAL_STATUS_SEVERE)
+        if (shouldReduceLoad && rtc != null && !powerSaveActive) {
+            powerSaveActive = true
+            applyVideoSettings(JSONObject())
+            notifyState("バッテリー・温度保護：映像を低負荷設定にしました")
+        } else if (!shouldReduceLoad && powerSaveActive) {
+            powerSaveActive = false
+            applyVideoSettings(JSONObject())
+            notifyState("端末温度・バッテリーが回復したため映像設定を戻しました")
         }
         val data=JSONObject().put("type","telemetry").put("txBytesSinceConnect",tx).put("rxBytesSinceConnect",rx)
             .put("txBytesPerSecond",txSpeed).put("rxBytesPerSecond",rxSpeed).put("batteryPercent",percent)
@@ -613,6 +620,11 @@ class MonitorService : Service() {
         currentFps = if (automatic) {
             prefs.getInt("adaptiveFps", requestedFps).coerceIn(10, 60)
         } else requestedFps
+        if (powerSaveActive) {
+            currentQuality = "360"
+            currentDataMode = "ultra"
+            currentFps = 10
+        }
         rtc?.setQuality(currentQuality, currentDataMode, currentFps)
     }
 
@@ -654,6 +666,7 @@ class MonitorService : Service() {
         prefs.edit().putInt("micNoise", micNoise)
             .putInt("micSensitivity", micSensitivity).putInt("micGain", micGain)
             .putInt("speakerVolume", speakerVolume).putBoolean("nightMode", nightMode).apply()
+        rtc?.setNoiseSuppressionLevel(micNoise)
         rtc?.setMicSensitivity(micSensitivity)
         rtc?.setMicGain(micGain)
         rtc?.setNightMode(nightMode)
