@@ -270,8 +270,12 @@ class MonitorService : Service() {
                                                 onDataChannelMessage=::handleDataChannelMessage,
                                                 onConnectionState=::onRtcConnectionState)
                                         }
+                                        rtc?.setNoiseSuppressionLevel(prefs.getInt("micNoise", 70))
+                                        rtc?.setMicSensitivity(prefs.getInt("micSensitivity", 70))
+                                        rtc?.setMicGain(prefs.getInt("micGain", 100))
+                                        rtc?.setNightMode(prefs.getBoolean("nightMode", false))
                                         rtc?.handleOffer(session, signal.optString("sdp"))
-                                        rtc?.setQuality(currentQuality, currentDataMode)
+                                        rtc?.setQuality(currentQuality, currentDataMode, currentFps)
                                         notifyState("接続要求を処理しています")
                                     } catch (e: Exception) {
                                         Log.e("RemoteCameraService", "Offer handling failed; keep foreground service alive", e)
@@ -501,7 +505,24 @@ class MonitorService : Service() {
         currentQuality = settings.optString("quality", "720")
         currentDataMode = settings.optString("dataMode", "standard")
         currentFps = settings.optInt("fps", prefs.getInt("fps", 24)).coerceIn(10, 60)
+        val micNoise = settings.optInt("micNoise", prefs.getInt("micNoise", 70)).coerceIn(0, 100)
+        val micSensitivity = settings.optInt("micSensitivity", prefs.getInt("micSensitivity", 70)).coerceIn(0, 100)
+        val micGain = settings.optInt("micGain", prefs.getInt("micGain", 100)).coerceIn(0, 100)
+        val speakerVolume = settings.optInt("speakerVolume", prefs.getInt("speakerVolume", 70)).coerceIn(0, 100)
+        val nightMode = settings.optBoolean("nightMode", prefs.getBoolean("nightMode", false))
+        prefs.edit().putInt("fps", currentFps).putInt("micNoise", micNoise)
+            .putInt("micSensitivity", micSensitivity).putInt("micGain", micGain)
+            .putInt("speakerVolume", speakerVolume).putBoolean("nightMode", nightMode).apply()
         rtc?.setQuality(currentQuality, currentDataMode, currentFps)
+        rtc?.setNoiseSuppressionLevel(micNoise)
+        rtc?.setMicSensitivity(micSensitivity)
+        rtc?.setMicGain(micGain)
+        rtc?.setNightMode(nightMode)
+        try {
+            val audio = getSystemService(AUDIO_SERVICE) as AudioManager
+            val max = audio.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+            audio.setStreamVolume(AudioManager.STREAM_VOICE_CALL, (max * speakerVolume / 100.0).toInt(), 0)
+        } catch (_: Exception) {}
     }
 
     private suspend fun processCommand(command: JSONObject) {
