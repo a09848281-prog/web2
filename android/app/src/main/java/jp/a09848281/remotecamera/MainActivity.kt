@@ -15,6 +15,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import android.util.Log
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import org.json.JSONObject
