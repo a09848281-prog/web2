@@ -77,6 +77,11 @@ class MonitorScheduleReceiver : BroadcastReceiver() {
         val action = intent?.action ?: return
         val prefs = context.getSharedPreferences("remote_camera_web2_prefs", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("dailyScheduleEnabled", false)) return
+        if(action==Intent.ACTION_BOOT_COMPLETED){
+            MonitorSchedule.scheduleNext(context,MonitorSchedule.ACTION_DAILY_START)
+            MonitorSchedule.scheduleNext(context,MonitorSchedule.ACTION_DAILY_END)
+            return
+        }
         when (action) {
             MonitorSchedule.ACTION_DAILY_START -> {
                 val gasUrl = prefs.getString("gasUrl", "") ?: ""
