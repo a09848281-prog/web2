@@ -75,6 +75,9 @@ assert.ok(main.includes("MonitorService.ACTION_STOP"), "Android stop button must
 assert.ok(service.includes("override fun onDestroy()") && service.includes("rtc?.dispose()"), "Service destruction must dispose RTC resources");
 assert.ok(service.includes("updateStreamWakeLock(false)"), "Service shutdown must release its wake lock");
 assert.ok(service.includes("if (needsPairing)") && service.includes("rtc?.dispose()"), "No-controller state must close orphan camera sessions");
+assert.ok(service.includes('val signals = if (needsPairing) JSONArray()'), "No-controller state must ignore stale offers");
+assert.ok(service.includes('val sessionId = payload.optString("sessionId", "")'), "Disconnect commands must be viewer-session scoped");
+assert.ok(js.includes("payload:{sessionId:sessionId}"), "Web disconnect fallback must include its session ID");
 assert.ok(js.includes('window.addEventListener("online"'), "Motion metadata must retry after network recovery");
 assert.ok(js.includes("S.motion.retryTimer = setInterval"), "Motion metadata must have a periodic retry fallback");
 assert.ok(config.includes("POLL_SECONDS = 10L"), "Default polling interval must be 10 seconds");
