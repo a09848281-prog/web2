@@ -367,8 +367,11 @@ class MonitorService : Service() {
             "camera" -> {
                 val engine = rtc ?: error("WebRTCが終了しています。")
                 val cameraId = payload.optString("cameraId", "")
-                if (cameraId.isNotBlank()) engine.selectCamera(cameraId)
-                else engine.switchCamera(payload.optString("facing", "back"))
+                if (cameraId.isNotBlank() && cameraId != "back" && cameraId != "front") {
+                    engine.selectCamera(cameraId)
+                } else {
+                    engine.switchCamera(payload.optString("facing", cameraId.ifBlank { "back" }))
+                }
             }
             "torch" -> setTorch(payload.optBoolean("enabled",false))
             "volume","speaker_volume" -> {
