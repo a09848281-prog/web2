@@ -497,12 +497,15 @@ async function connect() {
     return toast("このブラウザではマイクを利用できません。SafariのHTTPS接続を確認してください。");
   }
   if (S.connecting) return false;
-  if (S.pc) await disconnect(false);
   const device = S.device;
   if (!device) return false;
   S.connecting = true;
   $("connect").disabled = true;
   try {
+    if (S.pc) await disconnect(false);
+    if (!S.device || S.device.deviceId !== device.deviceId) {
+      throw Error("接続先端末が変更されました。もう一度選択してください。");
+    }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     if (!S.device || S.device.deviceId !== device.deviceId) throw Error("接続先端末が変更されました。もう一度選択してください。");
     S.mic = stream;
