@@ -16,7 +16,7 @@ for (const id of referencedIds) {
   assert.ok(htmlIds.has(id), "JavaScript references missing HTML id: " + id);
 }
 
-for (const id of ["micNoise", "micSensitivity", "micGain", "volume", "diagnostics", "deviceTotal", "networkSummary", "deviceHealth", "deviceTxSpeed", "deviceRxSpeed", "torch", "reserveConnection", "cancelReservation", "reservationStatus", "fps", "aspectRatio", "fullscreen"]) {
+for (const id of ["micNoise", "micSensitivity", "micGain", "volume", "diagnostics", "deviceTotal", "networkSummary", "deviceHealth", "deviceTxSpeed", "deviceRxSpeed", "torch", "reserveConnection", "cancelReservation", "reservationStatus", "fps", "aspectRatio", "fullscreen", "bookmarkletOpen", "bookmarkletCode", "bookmarkDialog", "copyBookmarklet"]) {
   assert.ok(html.includes('id="' + id + '"'), "Missing HTML element: " + id);
   assert.ok(js.includes('$("' + id + '")'), "Missing JavaScript reference: " + id);
 }
@@ -24,6 +24,8 @@ assert.ok(js.includes('createDataChannel("remote-control"'), "Web must create co
 assert.ok(js.includes("function sendControl("), "Web DataChannel sender missing");
 assert.ok(js.includes("function checkConnectionReservation("), "Connection reservation scheduler missing");
 assert.ok(js.includes("function toggleFullscreen("), "Fullscreen handler missing");
+assert.ok(js.includes("function openBookmarkletDialog("), "Bookmarklet generator missing");
+assert.ok(js.includes("function handleQuickLaunch("), "Bookmarklet quick launch handler missing");
 assert.ok(js.includes("applyAspectRatio("), "Aspect ratio selector handler missing");
 assert.ok(js.includes("function scheduleReconnect("), "Automatic reconnect handler missing");
 assert.ok(rtc.includes("override fun onDataChannel(channel: DataChannel)"), "Android DataChannel observer missing");
