@@ -8,6 +8,7 @@ const S = {
   devices: [],
   device: null,
   pc: null,
+  connecting: false,
   mic: null,
   remoteAudioTracks: [],
   pttActive: false,
@@ -384,15 +385,15 @@ function setControlsEnabled(enabled) {
   ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair", "reserveConnection", "motionHistory", "motionExport", "motionClear"].forEach(id => {
     $(id).disabled = !enabled;
   });
-  $("connect").disabled = !enabled || !!S.pc;
+  $("connect").disabled = !enabled || !!S.pc || S.connecting;
   $("disconnect").disabled = !S.pc;
   $("torch").disabled = !S.pc || !S.control || S.control.readyState !== "open";
   $("camera").disabled = !enabled || !S.pc;
   $("ptt").disabled = !S.pc;
 }
 function selectDevice(device) {
-  if (S.pc && S.device && S.device.deviceId !== device.deviceId) {
-    toast("接続中は端末を切り替えられません。先に切断してください。");
+  if ((S.pc || S.connecting) && S.device && S.device.deviceId !== device.deviceId) {
+    toast("接続処理中または接続中は端末を切り替えられません。先に切断してください。");
     return;
   }
   S.device = device;
@@ -479,15 +480,22 @@ async function connect() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     return toast("このブラウザではマイクを利用できません。SafariのHTTPS接続を確認してください。");
   }
+  if (S.connecting) return false;
   if (S.pc) await disconnect(false);
+  const device = S.device;
+  if (!device) return false;
+  S.connecting = true;
+  $("connect").disabled = true;
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    if (!S.device || S.device.deviceId !== device.deviceId) throw Error("接続先端末が変更されました。もう一度選択してください。");
     S.mic = stream;
     stream.getAudioTracks().forEach(track => { track.enabled = false; });
     S.session = rid();
     S.seq = 0;
     try {
-      const iceConfig = await api("get_ice_config", { controllerToken:S.device.controllerToken, deviceId:S.device.deviceId });
+      const iceConfig = await api("get_ice_config", { controllerToken:device.controllerToken, deviceId:device.deviceId });
+      if (!S.device || S.device.deviceId !== device.deviceId) throw Error("接続先端末が変更されました。");
       if (Array.isArray(iceConfig.iceServers) && iceConfig.iceServers.length) S.iceServers = iceConfig.iceServers;
     } catch (iceError) {
       console.warn("TURN configuration unavailable; continue with public STUN", iceError);
@@ -505,7 +513,13 @@ async function connect() {
       startRtcStats();
       sendControl("settings_update", readLiveSettings());
     };
-    control.onclose = () => { $("diagnostics").disabled = true; $("torch").disabled = true; stopRtcStats(); status("制御チャネル切断"); };
+    control.onclose = () => {
+      $("diagnostics").disabled = true;
+      $("torch").disabled = true;
+      stopRtcStats();
+      status("制御チャネル切断");
+      if (S.pc === pc && S.everConnected) scheduleReconnect(pc);
+    };
     control.onmessage = event => handleControlMessage(event.data);
     control.onerror = () => toast("DataChannel通信エラー");
     $("camera").disabled = false;
@@ -547,8 +561,8 @@ async function connect() {
     await pc.setLocalDescription(offer);
     await waitIce(pc, 12000);
     await api("send_signal", {
-      controllerToken: S.device.controllerToken,
-      deviceId: S.device.deviceId,
+      controllerToken: device.controllerToken,
+      deviceId: device.deviceId,
       sessionId: S.session,
       recipient: "device",
       kind: "offer",
@@ -559,13 +573,16 @@ async function connect() {
     $("ptt").disabled = false;
     $("streamState").textContent = "Android応答待ち";
     status("接続要求中");
-    pollAnswers(pc, S.session, S.device);
+    pollAnswers(pc, S.session, device);
     return true;
   } catch (error) {
     await disconnect(false);
     toast("接続開始失敗: " + error.message);
     if (S.everConnected) scheduleReconnect(null);
     return false;
+  } finally {
+    S.connecting = false;
+    $("connect").disabled = !S.device || !!S.pc;
   }
 }
 function scheduleReconnect(expectedPc) {
