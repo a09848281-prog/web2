@@ -144,8 +144,8 @@ assert.ok(gas.includes("Controllers:"), "Multi-controller storage sheet missing"
 assert.ok(gas.includes("activeControllerCount_(deviceId) >= 3"), "Three-controller pairing limit missing");
 assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi permission missing");
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
-assert.ok(androidBuild.includes('versionName = "1.2.0"'), "Android app version must be 1.2.0");
-assert.ok(webConfig.includes('"appVersion": "1.2.0"'), "Web config version must be 1.2.0");
+assert.ok(androidBuild.includes('versionName = "2.0.0-preview"'), "Android app version must be 1.2.0");
+assert.ok(webConfig.includes('"appVersion": "2.0.0-preview"'), "Web config version must be 1.2.0");
 assert.ok(gas.includes("MotionEvents:"), "Motion event metadata sheet missing");
 assert.ok(gas.includes("function addMotionEvent_("), "Motion event write endpoint missing");
 assert.ok(gas.includes("function getMotionEvents_("), "Motion event history endpoint missing");
@@ -156,7 +156,15 @@ assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from S
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.2.0"'), "GAS API version must be 1.2.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 403"), "Android version code must be incremented for v1.2");
-assert.equal(manifestJson.name, "Remote Camera Web2 v1.2", "PWA display name must match v1.2");
+assert.ok(androidBuild.includes("versionCode = 420"), "Android version code must be incremented for v1.2");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.0 Preview", "PWA display name must match v1.2");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 console.log("Web2 source checks passed.");
+
+assert.ok(html.includes('class="settingsGroup"'), "Legacy v4.1 collapsible settings groups must be restored");
+assert.ok(html.includes('class="viewerControls"'), "Legacy v4.1 viewer toolbar must be restored");
+assert.ok(html.includes('class="ptt pttProminent"'), "Prominent v4.1 PTT button missing");
+assert.ok(!html.includes('id="snapshot"'), "Static image capture must remain excluded");
+assert.equal([...js.matchAll(/\$\("fitMode"\)\.addEventListener\("click"/g)].length, 1, "Fit/fill action must be registered once");
+assert.ok(!js.includes('"pointerup", "pointerleave"'), "Pointer capture must not stop PTT on pointer leave");
+console.log("Web2 v2.0 Preview UI and stability checks passed.");
