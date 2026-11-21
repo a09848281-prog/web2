@@ -97,6 +97,7 @@ class MainActivity : Activity() {
             override fun afterTextChanged(s: Editable?) {
                 s?.toString()?.toIntOrNull()?.takeIf { it in AppConfig.MIN_POLL_SECONDS..AppConfig.MAX_POLL_SECONDS }?.let {
                     prefs.edit().putInt("pollIntervalSeconds", it).apply()
+                    pushSettingsToService()
                 }
             }
         })
@@ -112,7 +113,7 @@ class MainActivity : Activity() {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
-                s?.toString()?.toIntOrNull()?.takeIf { it in 150..8000 }?.let { prefs.edit().putInt("maxBitrateKbps",it).apply() }
+                s?.toString()?.toIntOrNull()?.takeIf { it in 150..8000 }?.let { prefs.edit().putInt("maxBitrateKbps",it).apply(); pushSettingsToService() }
             }
         })
         root.addView(TextView(this).apply { text = "毎日の監視待機予約（24時間制）"; textSize = 15f; setTextColor(0xFF17243A.toInt()); setPadding(0,20,0,4) })
@@ -164,6 +165,16 @@ class MainActivity : Activity() {
                 status.text = "設定取得エラー：" + (e.message ?: "通信エラー")
             }
         }
+    }
+
+    private fun pushSettingsToService() {
+        if(!prefs.getBoolean("monitoringEnabled",false))return
+        val update=Intent(this,MonitorService::class.java).apply {
+            action=MonitorService.ACTION_UPDATE_SETTINGS
+            putExtra(MonitorService.EXTRA_MAX_BITRATE_KBPS,prefs.getInt("maxBitrateKbps",2500))
+        }
+        try { ContextCompat.startForegroundService(this,update) }
+        catch(error:Exception){Log.w("RemoteCameraMain","Could not send live settings update",error)}
     }
 
     private fun saveDailySchedule() {
