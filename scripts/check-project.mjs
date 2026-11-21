@@ -163,6 +163,7 @@ console.log("Web2 source checks passed.");
 
 assert.ok(html.includes('class="settingsGroup"'), "Legacy v4.1 collapsible settings groups must be restored");
 assert.ok(html.includes('class="viewerControls"'), "Legacy v4.1 viewer toolbar must be restored");
+assert.ok(html.includes('<button id="followLocation"'), "Map follow control must be a button matching its handler");
 assert.ok(html.includes('class="ptt pttProminent"'), "Prominent v4.1 PTT button missing");
 assert.ok(!html.includes('id="snapshot"'), "Static image capture must remain excluded");
 assert.equal([...js.matchAll(/\$\("fitMode"\)\.addEventListener\("click"/g)].length, 1, "Fit/fill action must be registered once");
