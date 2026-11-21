@@ -1307,30 +1307,49 @@ function maybeAdaptQuality(rttMs, lossPercent) {
 }
 function startRtcStats() {
   stopRtcStats();
+  S.statsLast = null;
   const update = async () => {
     const peer = S.pc;
     if (!peer) return;
     try {
       const stats = await peer.getStats();
       if (peer !== S.pc) return;
-      let sent = 0, received = 0, rtt = null, lost = 0, packets = 0;
+      let sent = 0, received = 0, rtt = null, lost = 0, packets = 0, fps = null;
       stats.forEach(item => {
-        if (item.type === "outbound-rtp" && !item.isRemote) sent += Number(item.bytesSent || 0);
+        if (item.type === "outbound-rtp" && !item.isRemote && item.kind === "video") sent += Number(item.bytesSent || 0);
         if (item.type === "inbound-rtp" && !item.isRemote) {
           received += Number(item.bytesReceived || 0);
-          lost += Math.max(0, Number(item.packetsLost || 0));
-          packets += Math.max(0, Number(item.packetsReceived || 0));
+          if (item.kind === "video") {
+            lost += Math.max(0, Number(item.packetsLost || 0));
+            packets += Math.max(0, Number(item.packetsReceived || 0));
+            if (Number.isFinite(Number(item.framesPerSecond))) fps = Number(item.framesPerSecond);
+          }
         }
         if (item.type === "candidate-pair" && item.state === "succeeded" && item.nominated &&
             Number.isFinite(item.currentRoundTripTime)) rtt = item.currentRoundTripTime;
       });
+      const now = performance.now();
+      let bitrateKbps = null;
+      if (S.statsLast && now > S.statsLast.at) {
+        const seconds = (now - S.statsLast.at) / 1000;
+        const delta = Math.max(0, sent + received - S.statsLast.totalBytes);
+        bitrateKbps = Math.round(delta * 8 / seconds / 1000);
+      }
+      S.statsLast = { at: now, totalBytes: sent + received };
       const lossPercent = packets + lost ? lost / (packets + lost) * 100 : null;
       $("rtcStats").textContent = "RTP " + bytesText(sent + received) +
         " / RTT " + (rtt === null ? "--" : Math.round(rtt * 1000) + "ms") +
         " / 損失 " + (lossPercent === null ? "--" : lossPercent.toFixed(1) + "%");
+      const metricParts = [];
+      metricParts.push("FPS " + (fps === null ? "--" : fps.toFixed(0)));
+      metricParts.push("速度 " + (bitrateKbps === null ? "--" : bitrateKbps + "kbps"));
+      metricParts.push("RTT " + (rtt === null ? "--" : Math.round(rtt * 1000) + "ms"));
+      metricParts.push("損失 " + (lossPercent === null ? "--" : lossPercent.toFixed(1) + "%"));
+      $("connectionMetrics").textContent = metricParts.join(" / ");
       maybeAdaptQuality(rtt === null ? null : rtt * 1000, lossPercent);
     } catch (_) {
       $("rtcStats").textContent = "統計取得不可";
+      $("connectionMetrics").textContent = "通信統計取得不可";
     }
   };
   update();
