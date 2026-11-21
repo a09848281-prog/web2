@@ -1502,6 +1502,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("connect").addEventListener("click", () => connect(false));
   $("disconnect").addEventListener("click", () => disconnect(true));
   $("ptt").addEventListener("pointerdown", event => {
+    if (!S.pc || !S.mic) return;
     event.preventDefault();
     try { $("ptt").setPointerCapture(event.pointerId); } catch (_) {}
     if (S.pttLocked) {
@@ -1569,10 +1570,25 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("zoom").addEventListener("input", applyViewerZoom);
   $("zoomReset").addEventListener("click", () => { $("zoom").value = "100"; applyViewerZoom(); });
   $("remoteVideo").addEventListener("playing", startMotionDetection);
-  $("remoteVideo").addEventListener("pause", () => stopMotionDetection("映像一時停止中"));
+  $("remoteVideo").addEventListener("pause", () => {
+    if (S.pc && S.remoteVideoStream && $("remoteVideo").readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      // Full-screen transitions can briefly pause the element without ending RTP.
+      setTimeout(() => restoreRemotePlayback(), 180);
+    } else {
+      stopMotionDetection("映像一時停止中");
+    }
+  });
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) stopMotionDetection("画面がバックグラウンドです。復帰後に再開します。");
-    else if (S.motion.enabled) startMotionDetection();
+    if (document.hidden) {
+      stopMotionDetection("画面がバックグラウンドです。復帰後に再開します。");
+      // Never leave the local microphone sending while the controller is hidden.
+      if (S.pttActive) {
+        S.pttLocked = false;
+        $("pttLock").textContent = "送話ロック OFF";
+        $("pttLock").classList.remove("active");
+        ptt(false);
+      }
+    } else if (S.motion.enabled) startMotionDetection();
   });
   $("bookmarkletOpen").addEventListener("click", openBookmarkletDialog);
   $("copyBookmarklet").addEventListener("click", copyBookmarkletCode);
@@ -1607,9 +1623,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   $("fps").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
   $("aspectRatio").addEventListener("change", () => { applyAspectRatio($("aspectRatio").value); saveSettings().catch(error => toast(error.message)); });
+  $("androidSpeakerVolume").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
   ["androidSpeakerVolume","micNoise","micSensitivity","micGain"].forEach(id=>$(id).addEventListener("input",updateSliderLabels));
   $("receiveVolume").addEventListener("input", event => setReceiveVolume(event.target.value, true));
-  $("androidSpeakerVolume").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
   $("micMode").addEventListener("change", () => {
     saveSettings().then(() => toast("マイク集音モードは次回接続から反映します。"))
       .catch(error => toast(error.message));
@@ -1634,6 +1650,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("sessionDuration").textContent = "未接続";
   const storedVolume = localStorage.getItem("rc_receive_volume_v1");
   setReceiveVolume(storedVolume === null ? 70 : Number(storedVolume), false);
+  $("fitMode").addEventListener("click", () => {
+    const video = $("remoteVideo");
+    video.style.objectFit = video.style.objectFit === "cover" ? "contain" : "cover";
+    $("fitMode").textContent = video.style.objectFit === "cover" ? "画面に合わせる" : "全体表示";
+  });
   $("camera").addEventListener("change", event => {
     const option=event.target.selectedOptions && event.target.selectedOptions[0];
     command("camera", { cameraId: event.target.value, facing: option?.dataset.facing || event.target.value }).catch(error => toast(error.message));
