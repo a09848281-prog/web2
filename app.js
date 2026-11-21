@@ -19,7 +19,7 @@ const S = {
   route: null,
   history: [], control: null, statsTimer: null, statsLast: null, reconnectTimer: null, reconnectAttempts: 0, everConnected: false, torchEnabled: false, reservationTimer: null,
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-  motion: { enabled: false, sensitivity: 3, timer: null, previous: null, streak: 0, lastEventAt: 0, sendingDevices: new Set() },
+  motion: { enabled: false, sensitivity: 3, timer: null, previous: null, streak: 0, lastEventAt: 0, sendingDevices: new Set(), retryTimer: null },
   adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 }
 };
 
@@ -1052,6 +1052,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("fullscreen").addEventListener("click", toggleFullscreen);
   $("motionEnabled").addEventListener("change", saveMotionSettings);
   $("motionSensitivity").addEventListener("change", saveMotionSettings);
+  window.addEventListener("online", () => {
+    if (S.device) flushMotionEvents(S.device).catch(error => console.warn("Motion retry after network recovery failed", error));
+  });
+  if (!S.motion.retryTimer) {
+    S.motion.retryTimer = setInterval(() => {
+      if (navigator.onLine && S.device) {
+        flushMotionEvents(S.device).catch(error => console.warn("Scheduled motion retry failed", error));
+      }
+    }, 30000);
+  }
   $("motionNotify").addEventListener("click", enableMotionNotifications);
   $("motionHistory").addEventListener("click", () => loadMotionHistory().catch(error => toast(error.message)));
   $("motionExport").addEventListener("click", () => exportMotionCsv().catch(error => toast(error.message)));
