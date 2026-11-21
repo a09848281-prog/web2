@@ -3,6 +3,7 @@ package jp.a09848281.remotecamera
 import android.content.Context
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.media.MediaRecorder
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -11,6 +12,8 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import org.webrtc.*
+import org.webrtc.audio.AudioDeviceModule
+import org.webrtc.audio.JavaAudioDeviceModule
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.nio.ByteBuffer
@@ -23,7 +26,8 @@ class RtcEngine(
     private val scope: CoroutineScope,
     private val onState: (String) -> Unit,
     private val onDataChannelMessage: (String, String) -> Unit,
-    private val onConnectionState: (String, String) -> Unit
+    private val onConnectionState: (String, String) -> Unit,
+    private val microphoneMode: String = "ambient"
 ) {
     private val peers = ConcurrentHashMap<String, PeerConnection>()
     private val videoSenders = ConcurrentHashMap<String, RtpSender>()
@@ -34,6 +38,7 @@ class RtcEngine(
     @Volatile private var micGain=100
     @Volatile private var nightModeEnabled=false
     private var factory: PeerConnectionFactory? = null
+    private var audioDeviceModule: AudioDeviceModule? = null
     private var egl: EglBase? = null
     private var capturer: CameraVideoCapturer? = null
     private var helper: SurfaceTextureHelper? = null
@@ -175,7 +180,19 @@ class RtcEngine(
                 PeerConnectionFactory.InitializationOptions.builder(context.applicationContext).createInitializationOptions()
             )
             egl = EglBase.create()
+            val audioSourceType = when (microphoneMode) {
+                "voice" -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
+                else -> MediaRecorder.AudioSource.MIC
+            }
+            val hardwareAec = microphoneMode == "voice"
+            val hardwareNoiseSuppression = microphoneMode == "balanced" || microphoneMode == "voice"
+            audioDeviceModule = JavaAudioDeviceModule.builder(context.applicationContext)
+                .setAudioSource(audioSourceType)
+                .setUseHardwareAcousticEchoCanceler(hardwareAec)
+                .setUseHardwareNoiseSuppressor(hardwareNoiseSuppression)
+                .createAudioDeviceModule()
             factory = PeerConnectionFactory.builder()
+                .setAudioDeviceModule(audioDeviceModule!!)
                 .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl!!.eglBaseContext, true, true))
                 .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl!!.eglBaseContext))
                 .createPeerConnectionFactory()
@@ -208,11 +225,18 @@ class RtcEngine(
             captureFps = 15
         }
         videoTrack = factory!!.createVideoTrack("remote-camera-video", videoSource).apply { setEnabled(true) }
-        val constraints=MediaConstraints()
-        constraints.mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression",(noiseSuppressionLevel>0).toString()))
-        constraints.mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl",(micSensitivity>0).toString()))
-        constraints.mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation","true"))
-        audioSource=factory!!.createAudioSource(constraints)
+        val constraints = MediaConstraints()
+        val ambientMode = microphoneMode == "ambient"
+        constraints.mandatory.add(MediaConstraints.KeyValuePair(
+            "googNoiseSuppression", (microphoneMode != "ambient" && noiseSuppressionLevel > 0).toString()
+        ))
+        constraints.mandatory.add(MediaConstraints.KeyValuePair(
+            "googAutoGainControl", (microphoneMode != "ambient" && micSensitivity > 0).toString()
+        ))
+        constraints.mandatory.add(MediaConstraints.KeyValuePair(
+            "googEchoCancellation", (!ambientMode).toString()
+        ))
+        audioSource = factory!!.createAudioSource(constraints)
         audioTrack = factory!!.createAudioTrack("remote-camera-audio", audioSource).apply { setEnabled(true); setVolume(micGain / 100.0) }
         onState("カメラ・マイクを起動しました")
     }
@@ -518,6 +542,10 @@ class RtcEngine(
         stopMedia()
         try { factory?.dispose() } catch (_: Exception) {}
         factory = null
+        try { audioDeviceModule?.release() } catch (error: Exception) {
+            Log.w("RemoteCameraRTC", "AudioDeviceModule release failed", error)
+        }
+        audioDeviceModule = null
         try { egl?.release() } catch (_: Exception) {}
         egl = null
     }
