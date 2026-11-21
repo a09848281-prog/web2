@@ -509,8 +509,9 @@ async function connect() {
       throw Error("接続先端末が変更されました。もう一度選択してください。");
     }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    if (!S.device || S.device.deviceId !== device.deviceId) throw Error("接続先端末が変更されました。もう一度選択してください。");
+    // Register the stream immediately so every later error path can stop its tracks.
     S.mic = stream;
+    if (!S.device || S.device.deviceId !== device.deviceId) throw Error("接続先端末が変更されました。もう一度選択してください。");
     stream.getAudioTracks().forEach(track => { track.enabled = false; });
     S.session = rid();
     S.seq = 0;
