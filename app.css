@@ -13,3 +13,10 @@
 #reservationStatus{overflow-wrap:anywhere}
 #torch{border:1px solid #b8c8dc}
 .telemetry span{font-variant-numeric:tabular-nums}
+
+/* v1.1 motion controls and viewer-only zoom */
+.videoPane video{transform-origin:center center;will-change:transform;transition:transform .12s ease-out}
+.motionRows{max-height:55vh;overflow:auto}
+#motionStatus{min-height:2.8em;overflow-wrap:anywhere}
+#motionNotify:disabled{opacity:.55}
+#zoom{accent-color:#2865d6}
