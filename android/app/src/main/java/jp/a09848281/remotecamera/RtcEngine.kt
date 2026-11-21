@@ -48,6 +48,41 @@ class RtcEngine(
     private var captureWidth = 1280
     private var captureHeight = 720
     private var captureFps = 24
+    @Volatile private var iceServerConfig = JSONArray()
+
+    fun setIceServers(servers: JSONArray?) {
+        iceServerConfig = servers ?: JSONArray()
+    }
+
+    private fun buildIceServers(): List<PeerConnection.IceServer> {
+        val result = mutableListOf<PeerConnection.IceServer>()
+        for (index in 0 until iceServerConfig.length()) {
+            val item = iceServerConfig.optJSONObject(index) ?: continue
+            val rawUrls = item.opt("urls")
+            val urls = when (rawUrls) {
+                is JSONArray -> (0 until rawUrls.length()).mapNotNull { rawUrls.optString(it).takeIf(String::isNotBlank) }
+                is String -> listOf(rawUrls).filter(String::isNotBlank)
+                else -> emptyList()
+            }
+            val username = item.optString("username", "")
+            val credential = item.optString("credential", "")
+            urls.filter { it.startsWith("stun:", true) || it.startsWith("turn:", true) || it.startsWith("turns:", true) }
+                .forEach { url ->
+                    try {
+                        val builder = PeerConnection.IceServer.builder(url)
+                        if (username.isNotBlank()) builder.setUsername(username)
+                        if (credential.isNotBlank()) builder.setPassword(credential)
+                        result.add(builder.createIceServer())
+                    } catch (error: Exception) {
+                        Log.w("RemoteCameraRTC", "Ignoring invalid ICE server entry", error)
+                    }
+                }
+        }
+        if (result.none { it.uri.startsWith("stun:", true) }) {
+            result.add(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
+        }
+        return result
+    }
 
     private data class VideoProfile(
         val width: Int, val height: Int, val fps: Int, val bitrate: Int
@@ -187,7 +222,7 @@ class RtcEngine(
             }
             check(peers.size < 3) { "同時に監視できるWeb端末は最大3台です。先に別の接続を切断してください。" }
             ensureMedia()
-            val iceServers = listOf(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
+            val iceServers = buildIceServers()
             val config = PeerConnection.RTCConfiguration(iceServers).apply {
                 sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
                 bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
@@ -199,12 +234,17 @@ class RtcEngine(
                 override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
                     onState("WebRTC: " + state.name)
                     onConnectionState(sessionId,state.name)
-                    if (state == PeerConnection.IceConnectionState.FAILED ||
+                    if (state == PeerConnection.IceConnectionState.DISCONNECTED) {
+                        scope.launch {
+                            delay(8000L)
+                            if (peers[sessionId] === peer &&
+                                peer.iceConnectionState() == PeerConnection.IceConnectionState.DISCONNECTED) {
+                                failSession(sessionId, peer, "ICE disconnected for 8 seconds")
+                            }
+                        }
+                    } else if (state == PeerConnection.IceConnectionState.FAILED ||
                         state == PeerConnection.IceConnectionState.CLOSED) {
-                        peers.remove(sessionId)
-                        videoSenders.remove(sessionId)
-                        try { controlChannels.remove(sessionId)?.dispose() } catch (_: Exception) {}
-                        if (peers.isEmpty()) stopMedia()
+                        if (peers[sessionId] === peer) failSession(sessionId, peer, "ICE " + state.name)
                     }
                 }
                 override fun onIceConnectionReceivingChange(receiving: Boolean) {}
@@ -260,23 +300,29 @@ class RtcEngine(
                         override fun onCreateSuccess(answer: SessionDescription) {
                             peer.setLocalDescription(object : SdpObserver {
                                 override fun onSetSuccess() { onState("接続応答を作成中…") }
-                                override fun onSetFailure(error: String) { onState("SDP設定失敗: $error") }
+                                override fun onSetFailure(error: String) { failSession(sessionId, peer, "SDP local description failed: " + error) }
                                 override fun onCreateSuccess(desc: SessionDescription) {}
-                                override fun onCreateFailure(error: String) {}
+                                override fun onCreateFailure(error: String) { failSession(sessionId, peer, "SDP local description creation failed: " + error) }
                             }, answer)
                         }
-                        override fun onCreateFailure(error: String) { onState("SDP応答作成失敗: $error") }
+                        override fun onCreateFailure(error: String) { failSession(sessionId, peer, "SDP answer creation failed: " + error) }
                         override fun onSetSuccess() {}
-                        override fun onSetFailure(error: String) {}
+                        override fun onSetFailure(error: String) { failSession(sessionId, peer, "SDP remote description callback failed: " + error) }
                     }, MediaConstraints())
                 }
-                override fun onSetFailure(error: String) { onState("SDP受信失敗: $error") }
+                override fun onSetFailure(error: String) { failSession(sessionId, peer, "SDP offer apply failed: " + error) }
                 override fun onCreateSuccess(desc: SessionDescription) {}
-                override fun onCreateFailure(error: String) {}
+                override fun onCreateFailure(error: String) { failSession(sessionId, peer, "SDP callback failed: " + error) }
             }, SessionDescription(SessionDescription.Type.OFFER, sdp))
         } catch (e: Exception) {
             Log.e("RemoteCameraRTC", "Offer processing failed; cleaning partial RTC state", e)
-            try { peers.remove(sessionId)?.close() } catch (_: Exception) {}
+            try {
+                peers.remove(sessionId)?.let { failedPeer ->
+                    try { failedPeer.close() } catch (_: Exception) {}
+                    try { failedPeer.dispose() } catch (_: Exception) {}
+                }
+            } catch (_: Exception) {}
+            try { controlChannels.remove(sessionId)?.dispose() } catch (_: Exception) {}
             try { videoSenders.remove(sessionId) } catch (_: Exception) {}
             if (peers.isEmpty()) {
                 try { stopMedia() } catch (_: Exception) {}
@@ -291,6 +337,27 @@ class RtcEngine(
                 } catch (_: Exception) {}
             }
         }
+    }
+
+    private fun failSession(sessionId: String, peer: PeerConnection, reason: String) {
+        if (peers[sessionId] !== peer) return
+        peers.remove(sessionId, peer)
+        videoSenders.remove(sessionId)
+        try { controlChannels.remove(sessionId)?.dispose() } catch (_: Exception) {}
+        try { peer.close() } catch (_: Exception) {}
+        try { peer.dispose() } catch (_: Exception) {}
+        onState("接続セッションを終了しました：" + reason)
+        scope.launch(Dispatchers.IO) {
+            try {
+                api.call("send_signal", JSONObject()
+                    .put("deviceId", deviceId).put("deviceSecret", secret)
+                    .put("sessionId", sessionId).put("recipient", "viewer")
+                    .put("kind", "error").put("sdp", reason.take(500)))
+            } catch (error: Exception) {
+                Log.w("RemoteCameraRTC", "Could not report failed session", error)
+            }
+        }
+        if (peers.isEmpty()) stopMedia()
     }
 
     @Synchronized
