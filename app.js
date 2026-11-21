@@ -481,11 +481,11 @@ async function unpairSelectedDevice() {
   const selected = S.device;
   $("unpair").disabled = true;
   try {
+    await disconnect(true);
     await api("unpair_device", {
       controllerToken: selected.controllerToken,
       deviceId: selected.deviceId
     });
-    await disconnect(false);
     S.devices = S.devices.filter(device => device.deviceId !== selected.deviceId);
     saveDevices();
     localStorage.removeItem(SELECTED_KEY);
@@ -673,10 +673,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("torch").addEventListener("click",()=>{S.torchEnabled=!S.torchEnabled;command("torch",{enabled:S.torchEnabled}).then(()=>{$("torch").textContent=S.torchEnabled?"ライトをOFF":"ライトをON";}).catch(e=>{S.torchEnabled=!S.torchEnabled;toast(e.message);});});
   $("reserveConnection").addEventListener("click",()=>reserveConnection().catch(e=>toast(e.message)));
   $("cancelReservation").addEventListener("click",cancelConnectionReservation);
-  $("micNoise").addEventListener("change",e=>command("mic_noise",{strength:Number(e.target.value)}).catch(x=>toast(x.message)));
-  $("micSensitivity").addEventListener("change",e=>command("mic_sensitivity",{percent:Number(e.target.value)}).catch(x=>toast(x.message)));
-  $("micGain").addEventListener("change",e=>command("mic_gain",{percent:Number(e.target.value)}).catch(x=>toast(x.message)));
-  $("nightMode").addEventListener("change",e=>command("night_mode",{enabled:e.target.checked}).catch(x=>toast(x.message)));
+  $("micNoise").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
+  $("micSensitivity").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
+  $("micGain").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
+  $("nightMode").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
   updateSliderLabels();
   applyAspectRatio($("aspectRatio").value);
   $("volume").addEventListener("change", event => {
