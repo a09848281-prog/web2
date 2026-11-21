@@ -1,10 +1,13 @@
 package jp.a09848281.remotecamera
 
 import android.content.Context
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 import org.webrtc.*
 import java.util.concurrent.ConcurrentHashMap
@@ -38,6 +41,7 @@ class RtcEngine(
     private var videoTrack: VideoTrack? = null
     private var audioTrack: AudioTrack? = null
     private var frontCamera = false
+    private var selectedCameraId = ""
     private var currentQuality = "720"
     private var currentDataMode = "standard"
     private var currentFps = 24
@@ -48,6 +52,63 @@ class RtcEngine(
     private data class VideoProfile(
         val width: Int, val height: Int, val fps: Int, val bitrate: Int
     )
+
+    private data class CameraOption(
+        val id: String, val facing: String, val focalLength: Float?
+    )
+
+    private fun cameraOptions(): List<CameraOption> {
+        val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        val enumerator = Camera2Enumerator(context)
+        return enumerator.deviceNames.mapNotNull { id ->
+            try {
+                val chars = manager.getCameraCharacteristics(id)
+                val facing = when (chars.get(CameraCharacteristics.LENS_FACING)) {
+                    CameraCharacteristics.LENS_FACING_BACK -> "back"
+                    CameraCharacteristics.LENS_FACING_FRONT -> "front"
+                    else -> return@mapNotNull null
+                }
+                val focal = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+                    ?.minOrNull()
+                CameraOption(id, facing, focal)
+            } catch (e: Exception) {
+                Log.w("RemoteCameraRTC", "Could not inspect camera $id", e)
+                null
+            }
+        }.sortedWith(
+            compareBy<CameraOption> { if (it.facing == "back") 0 else 1 }
+                .thenBy { it.focalLength ?: Float.MAX_VALUE }
+        )
+    }
+
+    private fun cameraLabel(option: CameraOption, all: List<CameraOption>): String {
+        if (option.facing == "front") return "前面カメラ"
+        val rear = all.filter { it.facing == "back" }.sortedBy { it.focalLength ?: Float.MAX_VALUE }
+        if (rear.size <= 1) return "背面カメラ"
+        val focal = option.focalLength ?: return "背面カメラ"
+        val shortest = rear.firstNotNullOfOrNull { it.focalLength } ?: focal
+        val ratio = focal / shortest.coerceAtLeast(0.01f)
+        return when {
+            ratio <= 1.15f -> "背面・広角"
+            ratio >= 1.65f -> "背面・望遠"
+            else -> "背面・標準"
+        }
+    }
+
+    fun sendCameraCapabilities(sessionId: String) {
+        val all = cameraOptions()
+        val json = JSONArray()
+        all.forEach { option ->
+            json.put(JSONObject()
+                .put("id", option.id)
+                .put("facing", option.facing)
+                .put("label", cameraLabel(option, all)))
+        }
+        sendControl(sessionId, JSONObject()
+            .put("type", "camera_capabilities")
+            .put("cameras", json)
+            .put("selectedCameraId", selectedCameraId))
+    }
 
     private fun profileFor(quality: String, dataMode: String, requestedFps: Int = currentFps): VideoProfile {
         // Profiles are requests; Camera2 may reject unsupported modes and trigger the safe fallback.
@@ -82,11 +143,11 @@ class RtcEngine(
         }
         videoSource = factory!!.createVideoSource(false)
         val enumerator = Camera2Enumerator(context)
-        val names = enumerator.deviceNames
-        val selected = names.firstOrNull { enumerator.isBackFacing(it) }
-            ?: names.firstOrNull { enumerator.isFrontFacing(it) }
-            ?: names.firstOrNull()
+        val options = cameraOptions()
+        val selected = options.firstOrNull { it.facing == "back" }?.id
+            ?: options.firstOrNull()?.id
             ?: error("利用できるカメラがありません。")
+        selectedCameraId = selected
         frontCamera = enumerator.isFrontFacing(selected)
         capturer = enumerator.createCapturer(selected, null) ?: error("カメラを開けません。")
         helper = SurfaceTextureHelper.create("RemoteCameraCapture", egl!!.eglBaseContext)
@@ -264,10 +325,64 @@ class RtcEngine(
         camera.switchCamera(object : CameraVideoCapturer.CameraSwitchHandler {
             override fun onCameraSwitchDone(isFrontCamera: Boolean) {
                 frontCamera = isFrontCamera
+                selectedCameraId = cameraOptions().firstOrNull { it.facing == facing }?.id ?: selectedCameraId
                 onState(if (isFrontCamera) "前面カメラ" else "背面カメラ")
             }
             override fun onCameraSwitchError(error: String) { onState("カメラ切替失敗: $error") }
         })
+    }
+
+    @Synchronized
+    fun selectCamera(cameraId: String) {
+        require(cameraId.isNotBlank()) { "カメラIDが空です。" }
+        val all = cameraOptions()
+        val option = all.firstOrNull { it.id == cameraId }
+            ?: error("この端末では選択したカメラを利用できません。")
+        if (cameraId == selectedCameraId) return
+        val oldCapturer = capturer ?: error("カメラが起動していません。")
+        val currentHelper = helper ?: error("カメラ初期化情報がありません。")
+        val currentSource = videoSource ?: error("映像ソースがありません。")
+        val enumerator = Camera2Enumerator(context)
+        oldCapturer.stopCapture()
+        var replacement: CameraVideoCapturer? = null
+        try {
+            replacement = enumerator.createCapturer(cameraId, null)
+                ?: error("選択したカメラを開けません。")
+            replacement.initialize(currentHelper, context.applicationContext, currentSource.capturerObserver)
+            val profile = profileFor(currentQuality, currentDataMode, currentFps)
+            var actualWidth = profile.width
+            var actualHeight = profile.height
+            var actualFps = profile.fps
+            try {
+                replacement.startCapture(profile.width, profile.height, profile.fps)
+            } catch (first: Exception) {
+                Log.w("RemoteCameraRTC", "Selected camera rejected preferred format; using VGA fallback", first)
+                try { replacement.stopCapture() } catch (_: Exception) {}
+                try { replacement.dispose() } catch (_: Exception) {}
+                replacement = enumerator.createCapturer(cameraId, null)
+                    ?: throw first
+                replacement.initialize(currentHelper, context.applicationContext, currentSource.capturerObserver)
+                replacement.startCapture(640, 480, 15)
+                actualWidth = 640
+                actualHeight = 480
+                actualFps = 15
+            }
+            capturer = replacement
+            selectedCameraId = cameraId
+            frontCamera = option.facing == "front"
+            captureWidth = actualWidth
+            captureHeight = actualHeight
+            captureFps = actualFps
+            try { oldCapturer.dispose() } catch (_: Exception) {}
+            onState(cameraLabel(option, all) + "へ切り替えました")
+        } catch (e: Exception) {
+            try { replacement?.stopCapture() } catch (_: Exception) {}
+            try { replacement?.dispose() } catch (_: Exception) {}
+            try { oldCapturer.startCapture(captureWidth, captureHeight, captureFps) } catch (restart: Exception) {
+                Log.e("RemoteCameraRTC", "Could not restore previous camera after switch failure", restart)
+            }
+            throw e
+        }
     }
 
     fun setQuality(quality: String, dataMode: String, fps: Int = currentFps) {
