@@ -29,6 +29,39 @@ function toast(text) {
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => $("toast").classList.remove("show"), 3200);
 }
+
+function openBookmarkletDialog() {
+  const target = new URL("./", window.location.href);
+  target.searchParams.set("quick", "1");
+  const code = "javascript:(()=>{window.open(" + JSON.stringify(target.href) + ",\"RemoteCameraWeb2\",\"noopener\");})();";
+  $("bookmarkletCode").value = code;
+  $("bookmarkDialog").showModal();
+}
+
+async function copyBookmarkletCode() {
+  const field = $("bookmarkletCode");
+  const code = field.value;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(code);
+    } else {
+      field.focus();
+      field.select();
+      if (!document.execCommand("copy")) throw Error("自動コピーできませんでした。コード欄を長押ししてコピーしてください。");
+    }
+    $("bookmarkMessage").textContent = "コピーしました。ブックマークのURL欄へ貼り付けてください。";
+  } catch (error) {
+    field.focus();
+    field.select();
+    $("bookmarkMessage").textContent = error.message || "コード欄を選択したので、長押ししてコピーしてください。";
+  }
+}
+
+function handleQuickLaunch() {
+  if (new URLSearchParams(window.location.search).get("quick") !== "1") return;
+  if (S.device) toast("ブックマークレットから起動しました。接続ボタンを押すと監視を開始します。");
+  else toast("Web2を開きました。先にAndroidをペアリングしてください。");
+}
 function status(text, online = false) {
   $("status").textContent = text;
   $("status").className = "pill" + (online ? " online" : "");
@@ -687,6 +720,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("videoTab").addEventListener("click", showVideo);
   $("mapTab").addEventListener("click", showMap);
   $("fullscreen").addEventListener("click", toggleFullscreen);
+  $("bookmarkletOpen").addEventListener("click", openBookmarkletDialog);
+  $("copyBookmarklet").addEventListener("click", copyBookmarkletCode);
   document.addEventListener("fullscreenchange", () => setTimeout(() => window.dispatchEvent(new Event("resize")), 100));
   document.addEventListener("webkitfullscreenchange", () => setTimeout(() => window.dispatchEvent(new Event("resize")), 100));
   $("fps").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
@@ -726,6 +761,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         $("pair").disabled = false;
         refreshDeviceList();
         status(S.device ? "ペアリング済み" : "GAS接続済み・端末未登録", true);
+        handleQuickLaunch();
       }
     } catch (healthError) {
       $("pair").disabled = true;
