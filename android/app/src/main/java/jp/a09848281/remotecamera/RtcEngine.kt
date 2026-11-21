@@ -204,79 +204,130 @@ class RtcEngine(
         return modeProfile
     }
 
+    private data class StartedCapture(
+        val capturer: CameraVideoCapturer,
+        val width: Int,
+        val height: Int,
+        val fps: Int
+    )
+
+    private fun fallbackCaptureSizes(): List<Pair<Int, Int>> = when (currentAspectRatio) {
+        "4:3" -> listOf(960 to 720, 640 to 480)
+        "1:1" -> listOf(720 to 720, 480 to 480, 360 to 360)
+        "9:16" -> listOf(720 to 1280, 480 to 854, 360 to 640)
+        else -> listOf(960 to 540, 640 to 360)
+    }
+
+    private fun startCaptureWithFallback(
+        enumerator: Camera2Enumerator,
+        cameraId: String,
+        surfaceHelper: SurfaceTextureHelper,
+        observer: VideoSource.CapturerObserver,
+        requested: VideoProfile
+    ): StartedCapture {
+        val sizes = (listOf(requested.width to requested.height) + fallbackCaptureSizes()).distinct()
+        val fpsOptions = listOf(requested.fps, 30, 24, 20, 15, 10)
+            .distinct()
+            .filter { it in 10..requested.fps }
+            .sortedDescending()
+        var lastError: Exception? = null
+        for ((width, height) in sizes) {
+            for (fps in fpsOptions) {
+                var candidate: CameraVideoCapturer? = null
+                try {
+                    candidate = enumerator.createCapturer(cameraId, null)
+                        ?: throw IllegalStateException("カメラを開けません。")
+                    candidate.initialize(surfaceHelper, context.applicationContext, observer)
+                    candidate.startCapture(width, height, fps)
+                    Log.i("RemoteCameraRTC", "Camera capture started: ${width}x${height}@${fps}")
+                    return StartedCapture(candidate, width, height, fps)
+                } catch (error: Exception) {
+                    lastError = error
+                    Log.w("RemoteCameraRTC", "Camera format failed: ${width}x${height}@${fps}", error)
+                    try { candidate?.stopCapture() } catch (_: Exception) {}
+                    try { candidate?.dispose() } catch (_: Exception) {}
+                }
+            }
+        }
+        throw lastError ?: IllegalStateException("対応する撮影形式がありません。")
+    }
+
     @Synchronized
     private fun ensureMedia() {
         check(!disposed.get()) { "RTC engine is already disposed." }
         if (factory != null && videoTrack != null && audioTrack != null && capturer != null) return
-        if (factory == null) {
-            PeerConnectionFactory.initialize(
-                PeerConnectionFactory.InitializationOptions.builder(context.applicationContext).createInitializationOptions()
-            )
-            egl = EglBase.create()
-            try {
-                (context.getSystemService(Context.AUDIO_SERVICE) as AudioManager).mode = AudioManager.MODE_NORMAL
-            } catch (error: Exception) {
-                Log.w("RemoteCameraRTC", "Could not set normal audio mode", error)
-            }
-            val audioSourceType = when (microphoneMode) {
-                "voice" -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
-                else -> MediaRecorder.AudioSource.MIC
-            }
-            val hardwareAec = microphoneMode == "voice"
-            val hardwareNoiseSuppression = microphoneMode == "balanced" || microphoneMode == "voice"
-            audioDeviceModule = JavaAudioDeviceModule.builder(context.applicationContext)
-                .setAudioSource(audioSourceType)
-                .setUseHardwareAcousticEchoCanceler(hardwareAec)
-                .setUseHardwareNoiseSuppressor(hardwareNoiseSuppression)
-                .createAudioDeviceModule()
-            factory = PeerConnectionFactory.builder()
-                .setAudioDeviceModule(audioDeviceModule!!)
-                .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl!!.eglBaseContext, true, true))
-                .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl!!.eglBaseContext))
-                .createPeerConnectionFactory()
-        }
-        videoSource = factory!!.createVideoSource(false)
-        val enumerator = Camera2Enumerator(context)
-        val options = cameraOptions()
-        val selected = options.firstOrNull { it.facing == "back" }?.id
-            ?: options.firstOrNull()?.id
-            ?: error("利用できるカメラがありません。")
-        selectedCameraId = selected
-        frontCamera = enumerator.isFrontFacing(selected)
-        capturer = enumerator.createCapturer(selected, null) ?: error("カメラを開けません。")
-        helper = SurfaceTextureHelper.create("RemoteCameraCapture", egl!!.eglBaseContext)
-        capturer!!.initialize(helper, context.applicationContext, videoSource!!.capturerObserver)
-        val profile = profileFor(currentQuality, currentDataMode, currentFps)
-        captureWidth = profile.width
-        captureHeight = profile.height
-        captureFps = profile.fps
         try {
-            capturer!!.startCapture(profile.width, profile.height, profile.fps)
-        } catch (first: Exception) {
-            Log.w("RemoteCameraRTC", "Preferred camera format failed; retrying conservative VGA mode", first)
-            try { capturer?.dispose() } catch (_: Exception) {}
-            capturer = enumerator.createCapturer(selected, null) ?: throw first
-            capturer!!.initialize(helper, context.applicationContext, videoSource!!.capturerObserver)
-            capturer!!.startCapture(640, 480, 15)
-            captureWidth = 640
-            captureHeight = 480
-            captureFps = 15
+            if (factory == null) {
+                PeerConnectionFactory.initialize(
+                    PeerConnectionFactory.InitializationOptions.builder(context.applicationContext).createInitializationOptions()
+                )
+                egl = EglBase.create()
+                try {
+                    (context.getSystemService(Context.AUDIO_SERVICE) as AudioManager).mode = AudioManager.MODE_NORMAL
+                } catch (error: Exception) {
+                    Log.w("RemoteCameraRTC", "Could not set normal audio mode", error)
+                }
+                val audioSourceType = when (microphoneMode) {
+                    "voice" -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
+                    else -> MediaRecorder.AudioSource.MIC
+                }
+                val hardwareAec = microphoneMode == "voice"
+                val hardwareNoiseSuppression = microphoneMode == "balanced" || microphoneMode == "voice"
+                audioDeviceModule = JavaAudioDeviceModule.builder(context.applicationContext)
+                    .setAudioSource(audioSourceType)
+                    .setUseHardwareAcousticEchoCanceler(hardwareAec)
+                    .setUseHardwareNoiseSuppressor(hardwareNoiseSuppression)
+                    .createAudioDeviceModule()
+                factory = PeerConnectionFactory.builder()
+                    .setAudioDeviceModule(audioDeviceModule!!)
+                    .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl!!.eglBaseContext, true, true))
+                    .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl!!.eglBaseContext))
+                    .createPeerConnectionFactory()
+            }
+            videoSource = factory!!.createVideoSource(false)
+            val enumerator = Camera2Enumerator(context)
+            val options = cameraOptions()
+            val selected = options.firstOrNull { it.facing == "back" }?.id
+                ?: options.firstOrNull()?.id
+                ?: error("利用できるカメラがありません。")
+            selectedCameraId = selected
+            frontCamera = enumerator.isFrontFacing(selected)
+            helper = SurfaceTextureHelper.create("RemoteCameraCapture", egl!!.eglBaseContext)
+            val profile = profileFor(currentQuality, currentDataMode, currentFps)
+            val started = startCaptureWithFallback(
+                enumerator, selected, helper!!, videoSource!!.capturerObserver, profile
+            )
+            capturer = started.capturer
+            captureWidth = started.width
+            captureHeight = started.height
+            captureFps = started.fps
+            videoTrack = factory!!.createVideoTrack("remote-camera-video", videoSource).apply { setEnabled(true) }
+            val constraints = MediaConstraints()
+            val ambientMode = microphoneMode == "ambient"
+            constraints.mandatory.add(MediaConstraints.KeyValuePair(
+                "googNoiseSuppression", (microphoneMode != "ambient" && noiseSuppressionLevel > 0).toString()
+            ))
+            constraints.mandatory.add(MediaConstraints.KeyValuePair(
+                "googAutoGainControl", (microphoneMode != "ambient" && micSensitivity > 0).toString()
+            ))
+            constraints.mandatory.add(MediaConstraints.KeyValuePair(
+                "googEchoCancellation", (!ambientMode).toString()
+            ))
+            audioSource = factory!!.createAudioSource(constraints)
+            audioTrack = factory!!.createAudioTrack("remote-camera-audio", audioSource)
+                .apply { setEnabled(true); setVolume(micGain / 100.0) }
+            onState("カメラ・マイクを起動しました")
+        } catch (error: Exception) {
+            Log.e("RemoteCameraRTC", "Media startup failed; releasing partial resources", error)
+            stopMedia()
+            try { factory?.dispose() } catch (_: Exception) {}
+            factory = null
+            try { audioDeviceModule?.release() } catch (_: Exception) {}
+            audioDeviceModule = null
+            try { egl?.release() } catch (_: Exception) {}
+            egl = null
+            throw error
         }
-        videoTrack = factory!!.createVideoTrack("remote-camera-video", videoSource).apply { setEnabled(true) }
-        val constraints = MediaConstraints()
-        val ambientMode = microphoneMode == "ambient"
-        constraints.mandatory.add(MediaConstraints.KeyValuePair(
-            "googNoiseSuppression", (microphoneMode != "ambient" && noiseSuppressionLevel > 0).toString()
-        ))
-        constraints.mandatory.add(MediaConstraints.KeyValuePair(
-            "googAutoGainControl", (microphoneMode != "ambient" && micSensitivity > 0).toString()
-        ))
-        constraints.mandatory.add(MediaConstraints.KeyValuePair(
-            "googEchoCancellation", (!ambientMode).toString()
-        ))
-        audioSource = factory!!.createAudioSource(constraints)
-        audioTrack = factory!!.createAudioTrack("remote-camera-audio", audioSource).apply { setEnabled(true); setVolume(micGain / 100.0) }
-        onState("カメラ・マイクを起動しました")
     }
 
     fun handleOffer(sessionId: String, sdp: String) {
@@ -485,29 +536,16 @@ class RtcEngine(
                 ?: error("選択したカメラを開けません。")
             replacement.initialize(currentHelper, context.applicationContext, currentSource.capturerObserver)
             val profile = profileFor(currentQuality, currentDataMode, currentFps)
-            var actualWidth = profile.width
-            var actualHeight = profile.height
-            var actualFps = profile.fps
-            try {
-                replacement.startCapture(profile.width, profile.height, profile.fps)
-            } catch (first: Exception) {
-                Log.w("RemoteCameraRTC", "Selected camera rejected preferred format; using VGA fallback", first)
-                try { replacement.stopCapture() } catch (_: Exception) {}
-                try { replacement.dispose() } catch (_: Exception) {}
-                replacement = enumerator.createCapturer(cameraId, null)
-                    ?: throw first
-                replacement.initialize(currentHelper, context.applicationContext, currentSource.capturerObserver)
-                replacement.startCapture(640, 480, 15)
-                actualWidth = 640
-                actualHeight = 480
-                actualFps = 15
-            }
+            val started = startCaptureWithFallback(
+                enumerator, cameraId, currentHelper, currentSource.capturerObserver, profile
+            )
+            replacement = started.capturer
             capturer = replacement
             selectedCameraId = cameraId
             frontCamera = option.facing == "front"
-            captureWidth = actualWidth
-            captureHeight = actualHeight
-            captureFps = actualFps
+            captureWidth = started.width
+            captureHeight = started.height
+            captureFps = started.fps
             try { oldCapturer.dispose() } catch (_: Exception) {}
             onState(cameraLabel(option, all) + "へ切り替えました")
         } catch (e: Exception) {
