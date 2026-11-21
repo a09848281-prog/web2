@@ -9,8 +9,8 @@ android {
         applicationId = "jp.a09848281.remotecamera"
         minSdk = 26
         targetSdk = 35
-        versionCode = 401
-        versionName = "4.1.0"
+        versionCode = 402
+        versionName = "1.1.0"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
