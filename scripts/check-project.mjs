@@ -7,6 +7,7 @@ const rtc = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera
 const service = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MonitorService.kt", "utf8");
 const manifest = fs.readFileSync("android/app/src/main/AndroidManifest.xml", "utf8");
 const main = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MainActivity.kt", "utf8");
+const apiClient = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/ApiClient.kt", "utf8");
 const gas = fs.readFileSync("gas/Code.gs", "utf8");
 const config = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/Config.kt", "utf8");
 const motionCore = fs.readFileSync("motion-core.js", "utf8");
@@ -37,6 +38,14 @@ assert.ok(js.includes("function exportMotionCsv("), "Motion CSV export missing")
 assert.ok(js.includes("function maybeAdaptQuality("), "Adaptive quality policy missing");
 assert.ok(js.includes('api("get_ice_config"'), "Web TURN configuration fetch missing");
 assert.ok(js.includes("function applyViewerZoom("), "Viewer zoom control missing");
+assert.ok(js.includes("S.connecting = true"), "WebRTC connection setup lock missing");
+assert.ok(js.includes("if (S.pc !== pc) return;"), "Stale PeerConnection callbacks must be ignored");
+assert.ok(js.includes("motionPendingKey(targetDeviceId)"), "Motion event retry queue must be device scoped");
+assert.ok(js.includes("text = \"'\" + text"), "CSV formula injection protection missing");
+assert.ok(main.includes("https://script.google.com/macros/s/"), "Android config must validate Apps Script deployment URL");
+assert.ok(service.includes("https://script.google.com/macros/s/"), "Foreground Service must validate Apps Script deployment URL");
+assert.ok(apiClient.includes("https://script.google.com/macros/s/") && apiClient.includes('endsWith("/exec")'), "Android API client must validate exact GAS /exec URL");
+assert.ok(js.includes("https://script.google.com/macros/s/") && js.includes('endsWith("/exec")'), "Web app must validate exact GAS /exec URL");
 assert.ok(motionCore.includes("function measure("), "Motion pixel comparison missing");
 assert.ok(motionCore.includes("averageDelta > 20"), "Exposure-change false-positive filter missing");
 assert.ok(motionTests.includes("ignores a near-uniform automatic exposure change"), "Motion exposure unit test missing");
