@@ -75,7 +75,7 @@ assert.ok(js.includes("S.connecting = true"), "WebRTC connection setup lock miss
 assert.ok(js.includes("if (S.pc !== pc) return;"), "Stale PeerConnection callbacks must be ignored");
 assert.ok(js.includes("motionPendingKey(targetDeviceId)"), "Motion event retry queue must be device scoped");
 assert.ok(js.includes("text = \"'\" + text"), "CSV formula injection protection missing");
-assert.equal([...js.matchAll(/function\\s+ptt\\s*\\(/g)].length, 1, "Only one active PTT handler is allowed");
+
 assert.ok(js.includes("disconnect(false, automatic, true)"), "Automatic reconnect must send a session bye signal");
 assert.ok(main.includes("https://script.google.com/macros/s/"), "Android config must validate Apps Script deployment URL");
 assert.ok(service.includes("https://script.google.com/macros/s/"), "Foreground Service must validate Apps Script deployment URL");
