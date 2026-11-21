@@ -1,4 +1,4 @@
-# Remote Camera Web2
+# Remote Camera Web2 v1.1
 
 Android 13 / iPad PWA / PC browser remote camera system.
 
@@ -14,18 +14,23 @@ This repository is a clean successor project. The existing `a09848281-prog/web` 
 - Up to 3 separately paired Web controllers per Android device
 - Bookmarklet quick launch that contains no authentication token and does not auto-start the camera
 - GAS + Google Sheets only for signaling and device settings; no WebSocket server, Firebase, FCM, VPS, or paid signaling backend
+- Browser-side motion detection only (no person recognition or area/intrusion analysis)
+- Motion event metadata history, CSV export, and optional browser notifications
+- Automatic bitrate/quality adaptation when quality or data mode is set to Auto
+- Optional TURN relay configuration through private GAS Script Properties
+- Viewer-only digital zoom and dark-scene brightness correction; Android optical lens switching where exposed by Camera2
 - No paid AI API, recording, screenshots, or media storage
 
 ## Important connection behavior
 
 GAS is used for pairing and SDP/ICE signaling. Once a WebRTC control DataChannel is open, live camera, audio, setting, status, and diagnostic messages use DataChannel directly. While fewer than 3 Web controllers are connected, Android retains only the selected low-frequency GAS check to admit additional paired viewers; when 3 sessions are active, that check pauses. No live control is sent through GAS after DataChannel opens.
 
-WebRTC uses a public Google STUN endpoint. Restrictive NATs may still require a TURN relay; TURN is not included in this initial version.
+WebRTC always has a public Google STUN fallback. For restrictive NATs, optional TURN can be configured in the Apps Script Project Settings → Script Properties. Add `TURN_URLS` (JSON array or comma-separated TURN/TURNS URLs), `TURN_USERNAME`, and `TURN_CREDENTIAL`. The values are never stored in this public repository. A TURN provider/relay and valid credentials are still required; GAS is only the configuration/signaling path and is not a TURN relay itself.
 
 ## First setup
 
 1. Create a Google Sheet and open Extensions → Apps Script.
-2. Paste `gas/Code.gs`, save, and run `setupDatabase()`. When upgrading to v4.1, run it again to create the new Controllers sheet; existing rows are preserved.
+2. Paste `gas/Code.gs`, save, and run `setupDatabase()`. On upgrade to v1.1, run it again to create the MotionEvents sheet; existing rows are preserved.
 3. Deploy as a Web App (execute as you, access according to your private-use needs) and copy the `/exec` URL.
 4. Replace `GAS_EXEC_URL_HERE` in `config.json` with that URL.
 5. Android reads the same URL from this repository's raw `config.json`; no separate APK URL edit is needed.
@@ -34,6 +39,14 @@ WebRTC uses a public Google STUN endpoint. Restrictive NATs may still require a 
 8. Open the PWA URL on iPad / PC. On Android, install the debug APK from the latest successful Android APK Build run.
 9. Open the Android app while it is visible, grant camera/microphone permissions (location is optional), choose the GAS polling interval (1–50 seconds, default 10), and tap **監視待機を開始**. The Android screen contains only pairing-code issue/refresh, polling interval, background start, and stop controls.
 10. Enter the displayed 8-digit, one-use, 10-minute pairing code on the Web page.
+
+## v1.1 motion detection
+
+- Motion is calculated from low-resolution temporary frames in the currently open Web viewer. It runs only while the live video is connected and the page is visible.
+- Only timestamp, movement score, sensitivity, and source metadata are saved to Google Sheets. No image, thumbnail, or video frame is saved or uploaded.
+- Motion events are rate-limited and de-duplicated. Failed metadata uploads are queued locally per Android device and retried.
+- Browser notifications require browser support and explicit user permission; an in-page alert remains available.
+- CSV contains only motion event metadata.
 
 ## APK build
 
@@ -48,5 +61,9 @@ GitHub Actions builds `android/app/build/outputs/apk/debug/app-debug.apk` and up
 - No guarantee of zero crashes can be made without device testing. Known failure paths are guarded and reported rather than silently crashing.
 - The app does not record or save audio/video.
 - Network diagnostics exclude credentials and never transmit Wi-Fi passwords.
+- Process-death restart uses Android Foreground Service sticky restart and retry; it cannot survive force-stop, device reboot in all cases, revoked permission, or OEM battery termination.
+- A partial wake lock is held only while at least one WebRTC viewer is connected.
+- Viewer zoom and night-scene brightness adjustment affect only that browser's displayed video, not the camera sensor or the other viewers.
+- Automatic quality adaptation requires the Web quality or data-mode selector to be set to Auto.
 
 See `docs/WEB2-SPECIFICATION.md` and `docs/CRASH-PREVENTION.md`.
