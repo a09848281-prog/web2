@@ -214,9 +214,19 @@ class MainActivity : Activity() {
     }
 
     private fun stopMonitoring() {
-        stopService(Intent(this, MonitorService::class.java))
-        prefs.edit().putBoolean("monitoringEnabled", false).apply()
-        status.text = "監視待機を停止しました。バックグラウンド通信も停止しました。"
+        val stopIntent = Intent(this, MonitorService::class.java).setAction(MonitorService.ACTION_STOP)
+        try {
+            // Ask the running foreground service to execute its full shutdown path.
+            startService(stopIntent)
+            prefs.edit().putBoolean("monitoringEnabled", false).apply()
+            status.text = "監視待機の停止を要求しました。カメラ・マイク・通信を終了しています。"
+        } catch (error: Exception) {
+            // A direct stop is a last-resort fallback if Android rejects the explicit action.
+            stopService(Intent(this, MonitorService::class.java))
+            prefs.edit().putBoolean("monitoringEnabled", false).apply()
+            status.text = "監視サービスを停止しました。"
+            Toast.makeText(this, "停止処理: " + (error.message ?: "サービス終了"), Toast.LENGTH_LONG).show()
+        }
         refreshMonitoringButtons()
     }
 
