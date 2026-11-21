@@ -1,5 +1,5 @@
-# Remote Camera Web2 仕様書 v4.0.0
-作成日：2026-11-20 / 対象：Galaxy A22 5G・Android 13、iPad PWA、PC Web / 個人利用
+# Remote Camera Web2 仕様書 v4.1.0
+作成日：2026-11-21 / 対象：Galaxy A22 5G・Android 13、iPad PWA、PC Web / 個人利用
 
 ## 1. 構成
 - Android：KotlinネイティブAPK、Foreground Service、WebRTC
@@ -18,12 +18,14 @@
 4. Web側でコードを入力し、操作端末をペアリング。
 5. WebがOfferとDataChannelを生成し、GASを使って初回SDP/ICEを交換。
 6. AndroidがAnswerを返す。
-7. DataChannelがOPENになった後は、通常操作・設定・ACK・テレメトリー・ネットワーク診断をDataChannelだけで送受信し、GASポーリングを停止。
-8. RTC/DataChannelが切断した場合は、再接続の新しいSDP/ICE交換のためGAS確認を再開。
+7. DataChannelがOPENになった後、接続中のカメラ・音声・設定・ACK・テレメトリー・診断はDataChannelで直接送受信する。
+8. 最大3台のWeb操作端末を同時監視できるよう、Android側に空き接続枠（3台未満）がある間だけ、Androidは指定間隔でGASへ追加の接続要求を確認する。追加接続要求がない場合も、ライブ操作自体はGASへ送らない。
+9. 3台が接続中なら追加要求のGAS確認を停止し、いずれかの接続が終了して空き枠ができたら再開する。RTCが切断して再シグナリングが必要な場合もGASを利用する。
 9. WebRTCのメディアはGASを通さない。ネットワーク条件によってはTURN中継が必要になる。初期設定は公開STUNを使う。STUNだけで接続できないNAT環境ではTURNが必要だが、現時点ではTURNを組み込んでいない。
 
 ## 3. Androidバックグラウンド待機
-- APKで接続要求確認間隔を秒単位で自由入力。範囲5～3600秒、初期値30秒。
+- APKの画面にはペアリングコード発行・再発行、GAS問い合わせ間隔、バックグラウンド開始・停止だけを配置する。
+- GAS問い合わせ間隔は1〜50秒、初期値10秒。1秒指定は可能だがGAS実行回数と電池消費が非常に増える。
 - Foreground Serviceと継続通知を使用。
 - 待機中はカメラ・マイクを停止。
 - DataChannel接続後はGASポーリングを停止し、チャネルからの直接操作を受ける。
@@ -76,6 +78,10 @@ DataChannelがない接続前の段階だけGASを使う。設定保存などの
 - 通信量・画質モード
 
 ## 8. 通信量・ネットワーク診断
+- Androidの登録済みWeb操作端末は最大3台。各ブラウザーは別々のcontrollerTokenで認証する。
+- 旧Webの濃紺ヘッダー・左サイドバー・右ライブビュー・地図表示を引き継ぐ。
+- 映像の全画面表示はPeerConnectionを作り直さず画面表示だけを切り替え、解除時の映像停止を防ぐ。
+- 映像解像度・FPS（10/15/24/30/60要求値）・表示比率（16:9/4:3/1:1/元比率）をWebから選択できる。FPSと解像度の実際の利用可否は端末カメラの対応範囲に依存する。
 - WebRTC DataChannelがOPENになった時点でAndroidアプリUID通信カウンターを基準化。
 - Androidから送信量、受信量、合計、速度を2秒ごとにDataChannel送信。
 - Android UID統計はアプリ全体の通信を含むことがあり、WebRTCだけの通信量と一致するとは限らない。
@@ -94,14 +100,15 @@ DataChannelがない接続前の段階だけGASを使う。設定保存などの
 - 実機Logcatテストなしにクラッシュゼロを保証しない。
 
 ## 10. 完成判定
-1. GitHub ActionsでAndroid debug APKをビルド。
-2. JS/GAS構文検査とHTML/JS要素検査。
-3. Galaxy A22 5G / Android 13で待機開始・画面消灯・設定間隔を検証。
-4. ペアリング、初期SDP/ICE、DataChannel確立を確認。
-5. DataChannel確立後にGASポーリングが停止することを確認。
-6. 映像、双方向音声、PTT、カメラ、音量、マイク設定を確認。
-7. 通信量・RTC統計・Androidネットワーク診断を照合。
-8. 権限拒否、通信断、連続接続/切断、熱・低バッテリーを実機試験。
-9. 録画・録音・静止画の保存機能が存在しないことを確認。
+1. `setupDatabase()`でControllersシートを含む新スキーマを確認し、既存データを消さずに更新。
+2. GitHub ActionsでAndroid debug APKをビルド。
+3. JS/GAS構文検査とHTML/JS要素検査。
+4. Galaxy A22 5G / Android 13で待機開始・画面消灯・1秒/10秒/50秒設定を検証。
+5. 8桁コードのペアリング、Web操作端末3台までの個別認証、初期SDP/ICE、DataChannel確立を確認。
+6. DataChannel接続中のライブ操作がDataChannelを使用し、追加Web端末が最大3台まで接続できることを確認。3台接続中は追加要求確認を停止する。
+7. 映像、双方向音声、PTT、カメラ、ライト、音量、FPS、マイク設定、全画面復帰を確認。
+8. 通信量・RTC統計・Androidネットワーク診断を照合。
+9. 権限拒否、通信断、連続接続/切断、熱・低バッテリーを実機試験。
+10. 録画・録音・静止画の保存機能が存在しないことを確認。
 
 ビルド成功だけで完成扱いにしない。実機試験結果を分けて記録する。
