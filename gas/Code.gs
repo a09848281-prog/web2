@@ -28,7 +28,7 @@ function doGet() {
 }
 
 function health_() {
-  const version = "4.0.0";
+  const version = "4.1.0";
   const spreadsheetId = PropertiesService.getScriptProperties().getProperty("DB_SPREADSHEET_ID");
   if (!spreadsheetId) {
     return {
@@ -382,6 +382,8 @@ function claimDevice_(r) {
     sh.getRange(hit.row, 5, 1, 2).setValues([["", ""]]); // one-time code is consumed
     sh.getRange(hit.row, 8, 1, 3).setValues([[now_(), hit.v[8], "active"]]);
     append_("Controllers", [Utilities.getUuid(), deviceId, hash_(controllerToken), now_(), now_(), "active"]);
+    // A newly created controller table replaces the legacy single-token field.
+    sh.getRange(hit.row, 11).clearContent();
     clearPairRate_();
     log_(deviceId, "pair_claim", true, "viewer paired; active viewers=" + activeControllerCount_(deviceId));
     return { ok: true, deviceId: deviceId, deviceName: name, controllerToken: controllerToken, activeControllers: activeControllerCount_(deviceId) };
