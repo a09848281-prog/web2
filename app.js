@@ -78,6 +78,10 @@ function attachRemoteAudio() {
       try { S.remoteAudioSource.disconnect(); } catch (_) {}
       S.remoteAudioSource = null;
     }
+    if (S.remoteAnalyser) {
+      try { S.remoteAnalyser.disconnect(); } catch (_) {}
+      S.remoteAnalyser = null;
+    }
     const audioStream = new MediaStream(tracks);
     S.remoteAudioSource = S.audioContext.createMediaStreamSource(audioStream);
     S.remoteAnalyser = S.audioContext.createAnalyser();
@@ -183,6 +187,7 @@ function ptt(enabled) {
     stopPttSafetyTimer();
     S.pttTimeout = setTimeout(() => {
       S.pttLocked = false;
+      S.pttKeyActive = false;
       $("pttLock").textContent = "送話ロック OFF";
       $("pttLock").classList.remove("active");
       ptt(false);
@@ -1144,6 +1149,7 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   } catch (_) {}
   stopAudioMeter();
   try { S.remoteAudioSource?.disconnect(); } catch (_) {}
+  try { S.remoteAnalyser?.disconnect(); } catch (_) {}
   S.remoteAudioSource = null;
   S.remoteAnalyser = null;
 
@@ -1187,9 +1193,9 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   $("audioLevelText").textContent = "待機中";
   $("streamState").textContent = "切断済み";
   $("iceState").textContent = "ICE: --";
-  $("remoteMute").textContent = "🔊 Android音声 ON";
-  $("remoteMute").classList.remove("active");
-  S.remoteAudioMuted = false;
+  if (!preserveMic) S.remoteAudioMuted = false;
+  $("remoteMute").textContent = S.remoteAudioMuted ? "🔇 Android音声 OFF" : "🔊 Android音声 ON";
+  $("remoteMute").classList.toggle("active", S.remoteAudioMuted);
 
   stopLocationRefresh();
   if (S.device) status("ペアリング済み");
@@ -1353,6 +1359,7 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
     const modes={ambient:"環境音重視",balanced:"バランス",voice:"声重視"};
     $("audioState").textContent="Androidマイク・"+(modes[d.microphoneMode]||d.microphoneMode);
   }
+  if ($("deviceInfoDialog").open) renderDeviceInfo();
   if(d.network)$("networkSummary").textContent=(d.network.transport||"不明")+(d.network.validated?" / Internet OK":" / Internet未確認");
 }
  else if(d.type==="network_diagnostic"){
