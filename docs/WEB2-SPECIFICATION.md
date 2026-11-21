@@ -1,4 +1,4 @@
-# Remote Camera Web2 仕様書 v1.1.0
+# Remote Camera Web2 仕様書 v1.2.0
 作成日：2026-11-21 / 対象：Galaxy A22 5G・Android 13、iPad PWA、PC Web / 個人利用
 
 ## 1. 構成
@@ -47,11 +47,18 @@
 ## 5. 音声
 - AndroidマイクからWebへのリアルタイム音声
 - Web PTTからAndroidへのリアルタイム音声
-- Androidスピーカー音量0～100
-- マイク送信ゲイン0～100
+- Androidスピーカー音量0～100（PTT受信音をAndroid端末で再生する音量）
+- Web受信音量0～200%（iPad/PCのローカルWeb Audio GainNode。100%超では音割れしやすく、端末の再生出力にも制限される）
+- Androidマイク送信ゲイン0～100
 - マイク感度/自動ゲイン要求0～100
 - ノイズ抑制要求0～100
-- ミュート・PTT
+- Android集音プリセット：環境音重視（MIC + HW AEC/NS OFF）、バランス（MIC + HW NS ON）、声重視（VOICE_COMMUNICATION + HW AEC/NS ON）
+- 集音プリセットの変更はSettingsに保存し、現在のRTCセッションを強制再起動せず、最後の閲覧端末が切断された後に新規RTC Engine/AudioDeviceModuleを作成した時点で適用
+- Web Audio RMS音声レベルメーター（受信音声の一時サンプルだけを計算。音声は記録しない）
+- Androidからの受信音声ミュート
+- PTT半二重方式：PTT送話中はAndroidからの受信音声をミュート
+- PTTロック（送話を維持）、3分間の自動停止安全タイマー、Space/Enterショートカット（フォーム入力欄以外）
+- Screen Wake Lock（Webブラウザー対応時のみ。OSが解放する場合あり）
 - 録音保存なし
 
 **重要な制限：** Android標準NoiseSuppressorや一般的なWebRTC音声制御は、全端末で連続的な0～100の実効強度を保証しない。現在の実装では値を要求値として保存し、対応するON/OFF型の処理は音声ソース初期化時に反映する。音声ゲインは接続中に調整できる。スライダー数値と実際の抑制量が比例するとは限らない。
@@ -97,8 +104,15 @@ DataChannelがない接続前の段階だけGASを使う。設定保存などの
 - 旧Webの濃紺ヘッダー・左サイドバー・右ライブビュー・地図表示を引き継ぐ。
 - 旧Webで実装したペアリング、複数端末選択、ライブ映像、双方向音声、PTT、前面・背面および端末対応レンズの切替、ライト、位置情報・履歴、履歴削除、音量、画質・FPS・表示比率、全画面復帰、通信量、接続予約、再接続、通信統計、診断機能を維持する。
 - 映像の全画面表示はPeerConnectionを作り直さず画面表示だけを切り替え、解除時の映像停止を防ぐ。
-- 映像解像度・FPS（10/15/24/30/60要求値）・表示比率（16:9/4:3/1:1/元比率）をWebから選択できる。FPSと解像度の実際の利用可否は端末カメラの対応範囲に依存する。
+- iOS Safariの全画面・画面回転・pageshow復帰時に、既存MediaStreamをvideoへ再接続しplay()を再要求する。
+- 映像フレーム監視は接続後15秒の初回映像未着信、または受信フレーム8秒停止を検出して、最大5回の段階的バックオフで再接続する。
+- 接続時間、受信FPS、送受信推定ビットレート、RTT、パケット損失、GAS API応答時間を表示する。
+- 撮影アスペクト比はRTC Engine生成時に固定し、ライブ中に選択変更した比率は次の新規RTCセッションから反映。FPS・ビットレートは対応範囲でライブ反映する。
+- 映像解像度・FPS（10/15/20/24/30/60要求値）・表示比率（16:9/4:3/1:1/9:16/元比率）をWebから選択できる。FPSと解像度の実際の利用可否は端末カメラの対応範囲に依存する。
 - WebRTC DataChannelがOPENになった時点でAndroidアプリUID通信カウンターを基準化。
+- Web側はブラウザーごとに独立したWeb Audio GainNodeで受信音量を調整し、Androidスピーカー音量とは別に扱う。
+- 受信音量メーターはRMSのみを表示し、音声バッファや録音ファイルは保存しない。
+- 音声プリセットはGAS/SharedPreferencesに保存。AudioDeviceModuleはPeerConnectionFactoryと同じRTC Engine寿命で管理し、最後のPeerConnectionを閉じた後にfactoryとADMをdispose/releaseする。
 - Androidから送信量、受信量、合計、速度を2秒ごとにDataChannel送信。
 - Android UID統計はアプリ全体の通信を含むことがあり、WebRTCだけの通信量と一致するとは限らない。
 - Web側はgetStats()でRTP送受信量、RTT、パケット損失を表示。Android側で捕捉した接続・命令エラーはネットワーク診断情報と一緒にDataChannelで返信する。
@@ -121,7 +135,7 @@ DataChannelがない接続前の段階だけGASを使う。設定保存などの
 - Android OSの強制停止や権限制約を回避しない。
 - 実機Logcatテストなしにクラッシュゼロを保証しない。
 
-## 10. 完成判定
+## ## 10. 完成判定
 1. `setupDatabase()`でControllersシートを含む新スキーマを確認し、既存データを消さずに更新。
 2. GitHub ActionsでAndroid debug APKをビルド。
 3. JS/GAS構文検査とHTML/JS要素検査。
