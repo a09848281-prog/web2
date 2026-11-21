@@ -244,6 +244,9 @@ function applyViewerZoom() {
   $("zoomValue").value=zoom+"%";
   $("remoteVideo").style.transform="scale("+(zoom/100)+")";
 }
+function nightViewStorageKey() {
+  return "rc_night_view_v1_" + String(S.device ? S.device.deviceId : "default");
+}
 function applyNightViewFilter() {
   $("remoteVideo").style.filter = $("nightMode").checked
     ? "brightness(1.35) contrast(1.08) saturate(0.92)"
@@ -662,7 +665,7 @@ async function loadSettings() {
   $("micSensitivity").value=String(settings.micSensitivity ?? 70);
   $("micGain").value=String(settings.micGain ?? 100);
   $("volume").value=String(settings.speakerVolume ?? 70);
-  $("nightMode").checked=!!settings.nightMode;
+  $("nightMode").checked=localStorage.getItem(nightViewStorageKey()) === "true";
   applyNightViewFilter();
   $("fps").value=String(settings.fps || 24);
   $("aspectRatio").value=settings.aspectRatio || "16:9";
@@ -681,7 +684,7 @@ async function saveSettings() {
     connectedInterval: Number($("connectedInterval").value),
     idleInterval: Number($("idleInterval").value),
     micNoise:Number($("micNoise").value), micSensitivity:Number($("micSensitivity").value),
-    micGain:Number($("micGain").value), speakerVolume:Number($("volume").value), nightMode:$("nightMode").checked
+    micGain:Number($("micGain").value), speakerVolume:Number($("volume").value)
   };
   if(S.control?.readyState==="open") {
     if (!sendControl("settings_update",settings)) throw Error("DataChannelへの設定送信に失敗しました。");
@@ -701,7 +704,7 @@ function sendControl(name,payload={}) {
   if(!S.control||S.control.readyState!=="open"){toast("DataChannelが未接続です。");return false;}
   S.control.send(JSON.stringify({type:"command",command:name,requestId:rid(),payload}));return true;
 }
-function readLiveSettings(){return {quality:$("quality").value,dataMode:$("dataMode").value,fps:Number($("fps").value),aspectRatio:$("aspectRatio").value,micNoise:Number($("micNoise").value),micSensitivity:Number($("micSensitivity").value),micGain:Number($("micGain").value),speakerVolume:Number($("volume").value),nightMode:$("nightMode").checked};}
+function readLiveSettings(){return {quality:$("quality").value,dataMode:$("dataMode").value,fps:Number($("fps").value),aspectRatio:$("aspectRatio").value,micNoise:Number($("micNoise").value),micSensitivity:Number($("micSensitivity").value),micGain:Number($("micGain").value),speakerVolume:Number($("volume").value)};}
 function bytesText(value){const b=Math.max(0,Number(value)||0);if(b<1024)return b.toFixed(0)+" B";if(b<1048576)return (b/1024).toFixed(1)+" KB";return (b/1048576).toFixed(2)+" MB";}
 function updateSliderLabels(){$("volumeValue").value=$("volume").value+"%";$("micNoiseValue").value=$("micNoise").value+"%";$("micSensitivityValue").value=$("micSensitivity").value+"%";$("micGainValue").value=$("micGain").value+"%";}
 function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;}
@@ -1021,7 +1024,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("micNoise").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
   $("micSensitivity").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
   $("micGain").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
-  $("nightMode").addEventListener("change",()=>{applyNightViewFilter();saveSettings().catch(x=>toast(x.message));});
+  $("nightMode").addEventListener("change",()=>{applyNightViewFilter();localStorage.setItem(nightViewStorageKey(),String($("nightMode").checked));});
   updateSliderLabels();
   applyAspectRatio($("aspectRatio").value);
   applyViewerZoom();
