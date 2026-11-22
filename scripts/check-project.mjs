@@ -251,7 +251,7 @@ assert.ok(service.includes('"FAILED", "CLOSED", "SESSION_REMOVED"') && service.i
 assert.ok(service.includes('engine.iceConnectionState(sessionId) == "DISCONNECTED"'), "Stale disconnected ICE session must be removed after recovery grace period");
 assert.ok(service.includes("if (!enabled && !torchEnabled)") && service.includes("activeTorchCameraId"), "Torch cleanup must not call CameraManager when flashlight was never enabled");
 assert.ok(service.includes("LENS_FACING_BACK") && service.includes("FLASH_INFO_AVAILABLE"), "Flash capability must match a rear camera flash");
-assert.ok(service.includes("remote-screen") && service.includes("screenRequesters"), "Screen capture recipients must remain isolated by Web session");
+assert.ok(rtc.includes('listOf("remote-screen")') && service.includes("screenRequesters"), "Screen capture recipients must remain isolated by Web session");
 
 assert.ok(html.includes('class="settingsGroup"'), "Legacy v4.1 collapsible settings groups must be restored");
 assert.ok(html.includes('class="viewerControls"'), "Legacy v4.1 viewer toolbar must be restored");
