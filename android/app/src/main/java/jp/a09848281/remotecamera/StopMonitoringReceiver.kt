@@ -35,6 +35,9 @@ class StopMonitoringReceiver : BroadcastReceiver() {
             } catch (_: Exception) {
                 // Service teardown also removes its foreground notification.
             }
+            context.sendBroadcast(
+                Intent(MainActivity.ACTION_MONITOR_STOPPED).setPackage(context.packageName)
+            )
         }
     }
 }
