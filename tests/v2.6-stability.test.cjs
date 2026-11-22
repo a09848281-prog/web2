@@ -158,7 +158,7 @@ test("Android camera, capture and viewer all expose independent real FPS measure
   assert.match(service, /\.put\("captureMeasuredFps", capture\.optInt\("measuredFps"/);
   assert.match(service, /\.put\("captureFrameAgeMs", capture\.optLong\("frameAgeMs"/);
   assert.match(cameraSession, /Selected target FPS range/);
-  assert.match(cameraSession, /range\.min == framerate && range\.max == framerate/);
+  assert.match(cameraSession, /range\\.min == targetMilliFps && range\\.max == targetMilliFps/);
   assert.match(cameraSession, /Electronic stabilization disabled to prioritize 30\+ FPS/);
   assert.match(web, /decodedVideoFrames/);
   assert.match(web, /S\.viewerReceiveFps/);
