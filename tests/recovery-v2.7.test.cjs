@@ -46,6 +46,11 @@ test("Android recovery polling stays armed until DataChannel returns or monitori
   assert.match(service, /recoveryPollIntervalMs = 3000L/);
   assert.match(service, /putBoolean\("rtcRecoveryArmed", true\)/);
   assert.match(service, /putBoolean\("rtcRecoveryArmed", false\)/);
+  const pairingStart = service.indexOf('val needsPairing = response.optBoolean("needsPairing", false)');
+  const pairingEnd = service.indexOf('val codeActive = response.optBoolean("pairingCodeActive", false)', pairingStart);
+  const pairingState = service.slice(pairingStart, pairingEnd);
+  assert.match(pairingState, /if \(needsPairing\) \{\s*prefs\.edit\(\)\.putBoolean\("rtcRecoveryArmed", false\)\.apply\(\)\s*\}/);
+  assert.doesNotMatch(pairingState, /putBoolean\("serverPaired", !needsPairing\)\s*\.putBoolean\("rtcRecoveryArmed", false\)/);
   assert.doesNotMatch(service, /currentTimeMillis\(\) \+ 45000L/);
 });
 
