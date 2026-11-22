@@ -22,6 +22,7 @@ import android.net.NetworkCapabilities
 import android.net.TrafficStats
 import android.net.wifi.WifiManager
 import android.os.BatteryManager
+import android.os.Handler
 import android.os.PowerManager
 import android.os.Process
 import java.net.NetworkInterface
@@ -93,8 +94,11 @@ class MonitorService : Service() {
     private var lastUsageSampleAt = 0L
     private var powerSaveActive = false
     private var torchEnabled = false
+    @Volatile private var torchRequested = false
     @Volatile private var flashAvailableCache: Boolean? = null
     @Volatile private var activeTorchCameraId: String? = null
+    private var torchCallback: CameraManager.TorchCallback? = null
+    private var torchCallbackRegistered = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -378,7 +382,6 @@ class MonitorService : Service() {
                                             )
                                         }
                                         rtc?.setIceServers(response.optJSONArray("iceServers"))
-                                        rtc?.setNoiseSuppressionLevel(prefs.getInt("micNoise", 70))
                                         rtc?.setMicSensitivity(prefs.getInt("micSensitivity", 70))
                                         rtc?.setMicGain(prefs.getInt("micGain", 100))
                                         rtc?.setNightMode(prefs.getBoolean("nightMode", false))
@@ -580,6 +583,26 @@ class MonitorService : Service() {
                 } else {
                     engine.switchCamera(payload.optString("facing", cameraId.ifBlank { "back" }))
                 }
+                if (torchRequested) {
+                    var restored = false
+                    var restoreError: Exception? = null
+                    for (attempt in 0..1) {
+                        if (!torchRequested) break
+                        delay(if (attempt == 0) 500L else 750L)
+                        try {
+                            setTorch(true)
+                            restored = torchEnabled
+                            if (restored) break
+                        } catch (error: Exception) {
+                            restoreError = error
+                            Log.w("RemoteCameraService", "Torch restore after camera switch attempt " + (attempt + 1) + " failed", error)
+                        }
+                    }
+                    if (!restored && torchRequested) {
+                        notifyState("カメラ切替は完了しましたが、Androidがライトの同時使用を拒否しました。" +
+                            (restoreError?.message?.let { " " + it } ?: ""))
+                    }
+                }
             }
             "torch" -> setTorch(payload.optBoolean("enabled",false))
             "media_toggle" -> {
@@ -590,10 +613,10 @@ class MonitorService : Service() {
             }
             "android_keep_awake" -> {
                 val enabled = payload.optBoolean("enabled", false)
+                if (!updateDisplayWakeLock(enabled)) {
+                    error("Androidの画面点灯制御を適用できませんでした。端末の省電力設定を確認してください。")
+                }
                 prefs.edit().putBoolean("androidKeepScreenAwake", enabled).apply()
-                updateDisplayWakeLock(enabled)
-                sendBroadcast(Intent(MainActivity.ACTION_KEEP_SCREEN_AWAKE_STATE)
-                    .setPackage(packageName).putExtra("enabled", enabled))
                 sendTelemetry()
             }
             "volume","speaker_volume" -> {
@@ -613,7 +636,6 @@ class MonitorService : Service() {
                 // channel; do not wait for the next GAS device_poll cycle.
                 applyLocationSettings(payload)
                 applyVideoSettings(payload)
-                rtc?.setNoiseSuppressionLevel(payload.optInt("micNoise",prefs.getInt("micNoise",70)))
                 rtc?.setMicSensitivity(payload.optInt("micSensitivity",prefs.getInt("micSensitivity",70)))
                 rtc?.setMicGain(payload.optInt("micGain",prefs.getInt("micGain",100)))
                 val pct=payload.optInt("speakerVolume",70).coerceIn(0,100)
@@ -633,18 +655,6 @@ class MonitorService : Service() {
                     .putBoolean("nightMode",payload.optBoolean("nightMode",false)).apply()
                 sendTelemetry()
                 if (payload.has("micMode")) return "$micModeMessage Android設定を保存しました。"
-            }
-            "mic_noise" -> {
-                val strength = payload.optInt("strength", prefs.getInt("micNoise", 70)).coerceIn(0, 100)
-                prefs.edit().putInt("micNoise", strength).apply()
-                val applied = rtc?.setNoiseSuppressionLevel(strength) == true
-                sendTelemetry()
-                return when {
-                    strength == 0 && applied -> "Androidノイズ抑制をリアルタイムでOFFにしました。"
-                    strength == 0 -> "Androidノイズ抑制OFFを保存しました。次回音声開始時に適用します。"
-                    applied -> "Androidノイズ抑制をリアルタイムでONにしました（端末標準の強度）。"
-                    else -> "Androidノイズ抑制設定を保存しました。次回音声開始時に適用します。"
-                }
             }
             "mic_sensitivity" -> rtc?.setMicSensitivity(payload.optInt("percent",70))
             "mic_gain" -> rtc?.setMicGain(payload.optInt("percent",100))
@@ -683,14 +693,14 @@ class MonitorService : Service() {
             .put("networkInterface",links?.interfaceName?:"")
     }
     @Suppress("DEPRECATION")
-    private fun updateDisplayWakeLock(enabled: Boolean) {
-        try {
+    private fun updateDisplayWakeLock(enabled: Boolean): Boolean {
+        return try {
             val power = getSystemService(POWER_SERVICE) as PowerManager
             if (enabled) {
                 var lock = displayWakeLock
                 if (lock == null) {
                     lock = power.newWakeLock(
-                        PowerManager.SCREEN_DIM_WAKE_LOCK,
+                        PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
                         packageName + ":remote-camera-display-awake"
                     )
                     lock.setReferenceCounted(false)
@@ -701,9 +711,11 @@ class MonitorService : Service() {
                 displayWakeLock?.let { if (it.isHeld) it.release() }
                 displayWakeLock = null
             }
+            true
         } catch (error: Exception) {
             Log.w("RemoteCameraService", "Could not update Android display wake lock", error)
             if (!enabled) displayWakeLock = null
+            false
         }
     }
 
@@ -735,22 +747,44 @@ class MonitorService : Service() {
         }
     }
 
-    private fun setTorch(enabled:Boolean) {
-        // Don't touch CameraManager when our flashlight is already off. This is
-        // especially important during RTC/service teardown, where the camera may
-        // have just been released and another app may now own its flash resource.
-        if (!enabled && !torchEnabled) {
-            activeTorchCameraId = null
+    private fun ensureTorchCallback(manager: CameraManager) {
+        if (torchCallbackRegistered) return
+        val callback = object : CameraManager.TorchCallback() {
+            override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
+                if (cameraId != activeTorchCameraId) return
+                torchEnabled = enabled
+                if (!enabled && !torchRequested) activeTorchCameraId = null
+                scope.launch { sendTelemetry() }
+            }
+            override fun onTorchModeUnavailable(cameraId: String) {
+                if (cameraId != activeTorchCameraId) return
+                torchEnabled = false
+                scope.launch { sendTelemetry() }
+            }
+        }
+        try {
+            manager.registerTorchCallback(callback, Handler(Looper.getMainLooper()))
+            torchCallback = callback
+            torchCallbackRegistered = true
+        } catch (error: Exception) {
+            Log.w("RemoteCameraService", "Torch status callback registration failed", error)
+        }
+    }
+
+    private fun setTorch(enabled: Boolean) {
+        torchRequested = enabled
+        if (!enabled && !torchEnabled && activeTorchCameraId == null) {
+            sendTelemetry()
             return
         }
         val manager = getSystemService(CAMERA_SERVICE) as CameraManager
+        ensureTorchCallback(manager)
         if (!enabled && !activeTorchCameraId.isNullOrBlank()) {
             val activeId = activeTorchCameraId!!
             try {
                 manager.setTorchMode(activeId, false)
             } catch (error: Exception) {
-                // The system also turns the torch off when the camera resource becomes unavailable.
-                Log.w("RemoteCameraService", "Torch already unavailable during cleanup", error)
+                Log.w("RemoteCameraService", "Torch OFF request returned an error; clearing cached state", error)
             }
             activeTorchCameraId = null
             torchEnabled = false
@@ -765,44 +799,52 @@ class MonitorService : Service() {
                 chars.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK &&
                     chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
             } catch (error: Exception) {
-                Log.w("RemoteCameraService", "Could not inspect rear flashlight camera $id", error)
+                Log.w("RemoteCameraService", "Could not inspect rear flashlight camera " + id, error)
                 false
             }
-        }.sortedBy { it == selectedId } // Prefer a rear flash that isn't bound to the active video capturer.
-        if (candidates.isEmpty()) error("この端末にライト対応の背面カメラがありません。")
+        }.sortedByDescending { it == selectedId }
+
+        if (candidates.isEmpty()) {
+            torchEnabled = false
+            activeTorchCameraId = null
+            sendTelemetry()
+            if (enabled) error("この端末にライト対応の背面カメラがありません。")
+            return
+        }
+
         var lastError: Exception? = null
         for (torchId in candidates) {
+            activeTorchCameraId = torchId
             try {
                 manager.setTorchMode(torchId, enabled)
                 torchEnabled = enabled
-                activeTorchCameraId = if (enabled) torchId else null
+                if (!enabled) activeTorchCameraId = null
                 sendTelemetry()
-                Log.i("RemoteCameraService", "Flashlight changed: camera=$torchId enabled=$enabled")
+                Log.i("RemoteCameraService", "Flashlight changed: camera=" + torchId + " enabled=" + enabled)
                 return
             } catch (error: Exception) {
+                if (activeTorchCameraId == torchId) activeTorchCameraId = null
                 lastError = error
-                Log.w("RemoteCameraService", "Flashlight camera $torchId is unavailable; trying another rear flash", error)
+                Log.w("RemoteCameraService", "Flashlight camera " + torchId + " unavailable; trying another rear flash", error)
             }
         }
+
+        torchEnabled = false
+        activeTorchCameraId = null
+        sendTelemetry()
         val cameraReason = when ((lastError as? CameraAccessException)?.reason) {
-            CameraAccessException.CAMERA_IN_USE ->
-                "背面カメラが映像撮影中のため、Androidがライトを拒否しました。"
-            CameraAccessException.MAX_CAMERAS_IN_USE ->
-                "Androidのカメラ資源が上限に達しているため、ライトを使えません。"
-            CameraAccessException.CAMERA_DISCONNECTED ->
-                "Androidカメラサービスが一時的に切断されています。"
+            CameraAccessException.CAMERA_IN_USE -> "背面カメラが撮影中のためAndroidがライトを拒否しました。"
+            CameraAccessException.MAX_CAMERAS_IN_USE -> "Androidのカメラ資源が上限に達しているためライトを使えません。"
+            CameraAccessException.CAMERA_DISCONNECTED -> "Androidカメラサービスが一時的に切断されています。"
             else -> "カメラまたはライト資源を取得できませんでした。"
         }
         val reason = if (enabled) {
-            "ライトを点灯できません。$cameraReason 端末によっては映像撮影とライトを同時に使えません。"
+            "ライトを点灯できません。$cameraReason 端末によっては映像撮影とライトの同時使用に制限があります。"
         } else {
             "ライトを消灯できませんでした。端末のライト状態を確認してください。"
         }
         flashAvailableCache = null
-        throw IllegalStateException(
-            reason + " Androidのカメラ使用状態が落ち着いてから再試行してください。",
-            lastError
-        )
+        throw IllegalStateException(reason + " カメラ状態が落ち着いてから再試行してください。", lastError)
     }
 
     private fun sampleTrafficUsage() {
@@ -955,6 +997,7 @@ class MonitorService : Service() {
             .put("microphoneEnabled", capture.optBoolean("microphoneEnabled", true))
             .put("speakerVolumePercent", speakerPercent)
             .put("micNoise", prefs.getInt("micNoise", 70))
+            .put("androidKeepAwake", prefs.getBoolean("androidKeepScreenAwake", false))
             .put("batteryPercent",percent)
             .put("batteryCharging",charging).put("batteryTempC",temp).put("thermalStatus",thermal)
             .put("androidVersion",Build.VERSION.RELEASE).put("deviceModel",Build.MODEL ?: "Android")
@@ -1124,7 +1167,6 @@ class MonitorService : Service() {
             .putInt("micSensitivity", micSensitivity).putInt("micGain", micGain)
             .putInt("speakerVolume", speakerVolume).putBoolean("nightMode", nightMode)
             .putString("micMode", micMode).apply()
-        rtc?.setNoiseSuppressionLevel(micNoise)
         rtc?.setMicSensitivity(micSensitivity)
         rtc?.setMicGain(micGain)
         rtc?.setNightMode(nightMode)
@@ -1296,6 +1338,13 @@ class MonitorService : Service() {
         try { setTorch(false) } catch (error: Exception) {
             Log.w("RemoteCameraService", "Could not turn off torch during service cleanup", error)
         }
+        try {
+            torchCallback?.let { (getSystemService(CAMERA_SERVICE) as CameraManager).unregisterTorchCallback(it) }
+        } catch (error: Exception) {
+            Log.w("RemoteCameraService", "Could not unregister torch callback", error)
+        }
+        torchCallback = null
+        torchCallbackRegistered = false
         rtc = null
         try { updateStreamWakeLock(false) } catch (_: Exception) {}
         try { updateDisplayWakeLock(false) } catch (_: Exception) {}
