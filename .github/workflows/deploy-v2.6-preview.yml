@@ -19,6 +19,7 @@ on:
       - "noise-suppressor-processor.js"
       - ".github/workflows/deploy-v2.6-preview.yml"
       - "V2.6-STABILITY.md"
+      - "V2.6.1-STABILITY.md"
   workflow_dispatch:
 
 permissions:
