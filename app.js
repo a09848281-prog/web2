@@ -1059,7 +1059,9 @@ async function connect(automatic = false) {
     const audioTransceiver = pc.addTransceiver("audio", { direction: "sendrecv" });
     S.micSender = audioTransceiver.sender;
     updateWebMicrophoneButton();
-    await setWebMicEnabled(true);
+    // Start the browser microphone during Connect, but do not hold up video setup
+    // while a permission prompt is open. A denied permission leaves viewing available.
+    void setWebMicEnabled(true).catch(error => console.warn("Web microphone start failed", error));
     pc.ontrack = event => {
       if (S.pc !== pc) return;
       const track = event.track;
@@ -2130,7 +2132,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       stopMotionDetection("画面がバックグラウンドです。復帰後に再開します。");
-      // A hidden controller must never keep its PTT microphone transmitting.
+      // A hidden controller must never keep its Web microphone transmitting.
       if (S.pttActive) {
         setWebMicEnabled(false);
       }
