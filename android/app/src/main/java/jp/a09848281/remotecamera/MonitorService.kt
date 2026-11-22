@@ -234,7 +234,8 @@ class MonitorService : Service() {
         try { setTorch(false) } catch (_: Exception) {}
         rtc = null
         updateStreamWakeLock(false)
-        prefs.edit().putBoolean("monitoringEnabled", false).apply()
+        updateDisplayWakeLock(false)
+        prefs.edit().putBoolean("monitoringEnabled", false).putBoolean("androidKeepScreenAwake", false).apply()
         stopForeground(STOP_FOREGROUND_REMOVE)
         getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
         stopSelf(startId)
