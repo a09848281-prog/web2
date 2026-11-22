@@ -238,20 +238,26 @@ final class RemoteTorchCamera2Session implements CameraSession {
           }
         }
       }
-      // If no optical mode is available, try software.
+      // Electronic stabilization adds image-processing work. Keep it for lower
+      // frame-rate profiles, but disable it at 30 FPS and above to protect capture
+      // throughput. Hardware optical stabilization above remains enabled when present.
       final int[] availableVideoStabilization = cameraCharacteristics.get(
           CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES);
-      for (int mode : availableVideoStabilization) {
-        if (mode == CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON) {
-          captureRequestBuilder.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
-              CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON);
-          captureRequestBuilder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
-              CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF);
-          Logging.d(TAG, "Using video stabilization.");
-          return;
+      if (captureFormat.framerate.max < 30000 && availableVideoStabilization != null) {
+        for (int mode : availableVideoStabilization) {
+          if (mode == CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON) {
+            captureRequestBuilder.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON);
+            captureRequestBuilder.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF);
+            Logging.d(TAG, "Using video stabilization for a lower-FPS profile.");
+            return;
+          }
         }
       }
-      Logging.d(TAG, "Stabilization not available.");
+      Logging.d(TAG, captureFormat.framerate.max >= 30000
+          ? "Electronic stabilization disabled to prioritize 30+ FPS."
+          : "Stabilization not available.");
     }
 
     private void chooseFocusMode(CaptureRequest.Builder captureRequestBuilder) {
@@ -342,8 +348,34 @@ final class RemoteTorchCamera2Session implements CameraSession {
       return false;
     }
 
-    final CaptureFormat.FramerateRange bestFpsRange =
-        CameraEnumerationAndroid.getClosestSupportedFramerateRange(framerateRanges, framerate);
+    // Prefer an exact fixed-rate range first (for example 30-30 FPS). The generic
+    // WebRTC selector intentionally favors variable ranges so AE can reduce FPS in
+    // low light; that behavior can make a requested 30 FPS stream fall far below target.
+    CaptureFormat.FramerateRange bestFpsRange = null;
+    for (CaptureFormat.FramerateRange range : framerateRanges) {
+      if (range.min == framerate && range.max == framerate) {
+        bestFpsRange = range;
+        break;
+      }
+    }
+    if (bestFpsRange == null) {
+      int bestScore = Integer.MAX_VALUE;
+      for (CaptureFormat.FramerateRange range : framerateRanges) {
+        if (range.min <= framerate && range.max >= framerate) {
+          int score = Math.abs(framerate - range.min) * 3
+              + Math.abs(range.max - framerate);
+          if (score < bestScore) {
+            bestScore = score;
+            bestFpsRange = range;
+          }
+        }
+      }
+    }
+    if (bestFpsRange == null) {
+      bestFpsRange =
+          CameraEnumerationAndroid.getClosestSupportedFramerateRange(framerateRanges, framerate);
+    }
+    Logging.d(TAG, "Selected target FPS range: " + bestFpsRange + " for request " + framerate);
 
     final Size bestSize = CameraEnumerationAndroid.getClosestSupportedSize(sizes, width, height);
     CameraEnumerationAndroid.reportCameraResolution(camera2ResolutionHistogram, bestSize);
