@@ -2113,8 +2113,9 @@ function startRtcStats() {
           const seconds = (now - S.statsFrameLast.at) / 1000;
           const deltaFrames = Math.max(0, decodedVideoFrames - S.statsFrameLast.frames);
           const measuredFps = deltaFrames / seconds;
-          if (fps === null || !Number.isFinite(fps) || fps <= 0) fps = measuredFps;
-          else fps = Math.min(fps, measuredFps > 0 ? measuredFps : fps);
+          if (deltaFrames === 0) fps = 0;
+          else if (fps === null || !Number.isFinite(fps) || fps <= 0) fps = measuredFps;
+          else fps = Math.min(fps, measuredFps);
         }
         S.statsFrameLast = { at: now, frames: decodedVideoFrames };
       }
