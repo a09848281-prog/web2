@@ -48,6 +48,7 @@ const S = {
   viewportRestoreTimer: null,
   hasReceivedVideoFrame: false, lastVideoFrameAt: 0, connectedAt: 0, sessionTimer: null,
   statsLast: null, manualDisconnect: false, reconnectResetTimer: null,
+  connectionTimeoutTimer: null, connectionTimeoutPeer: null, cameraCapabilities: [],
   settingsSaveQueue: Promise.resolve()
 };
 
@@ -414,12 +415,12 @@ function startVideoWatchdog(peer) {
       }
     }
     const now = Date.now();
-    if (!S.hasReceivedVideoFrame && now - S.connectedAt > 15000) {
-      $("videoState").textContent = "映像未着信・再接続中";
-      scheduleReconnect(peer, true, 1200);
-    } else if (S.hasReceivedVideoFrame && now - S.lastVideoFrameAt > 8000) {
-      $("videoState").textContent = "映像フリーズ・再接続中";
-      scheduleReconnect(peer, true, 1200);
+    if (!S.hasReceivedVideoFrame && now - S.connectedAt > 12000) {
+      $("videoState").textContent = "映像未着信・自動復旧中";
+      scheduleReconnect(peer, true, 500, "video-stalled");
+    } else if (S.hasReceivedVideoFrame && now - S.lastVideoFrameAt > 6000) {
+      $("videoState").textContent = "映像フリーズ・自動復旧中";
+      scheduleReconnect(peer, true, 500, "video-stalled");
     }
   }, 2000);
 }
@@ -660,6 +661,37 @@ async function clearMotionHistory() {
   $("motionRows").replaceChildren();
   $("motionRows").textContent="検知履歴を "+(result.deleted||0)+" 件削除しました。";
   toast("動体検知履歴を削除しました。");
+}
+function updateWideCameraButton() {
+  const button = $("wideCameraButton");
+  if (!button) return;
+  const rear = S.cameraCapabilities.filter(camera => camera && camera.facing === "back");
+  const selected = $("camera")?.value || "";
+  const widest = rear.slice().sort((a, b) => {
+    const fovA = Number(a.horizontalFovDegrees) || 0;
+    const fovB = Number(b.horizontalFovDegrees) || 0;
+    if (fovA !== fovB) return fovB - fovA;
+    return (Number(a.focalLengthMm) || Number.POSITIVE_INFINITY) -
+      (Number(b.focalLengthMm) || Number.POSITIVE_INFINITY);
+  })[0];
+  button.disabled = S.control?.readyState !== "open" || rear.length < 2 || !widest || selected === widest.id;
+  button.textContent = widest && Number(widest.horizontalFovDegrees) >= 90
+    ? "🌄 超広角へ切替" : "🌄 最も広い背面カメラへ切替";
+}
+function switchToWidestCamera() {
+  const rear = S.cameraCapabilities.filter(camera => camera && camera.facing === "back");
+  const widest = rear.slice().sort((a, b) => {
+    const fovA = Number(a.horizontalFovDegrees) || 0, fovB = Number(b.horizontalFovDegrees) || 0;
+    if (fovA !== fovB) return fovB - fovA;
+    return (Number(a.focalLengthMm) || Number.POSITIVE_INFINITY) -
+      (Number(b.focalLengthMm) || Number.POSITIVE_INFINITY);
+  })[0];
+  if (!widest || rear.length < 2) return toast("Androidから切替可能な広角レンズが複数公開されていません。");
+  if ($("camera").value === widest.id) return toast("現在、最も広い背面カメラを使用しています。");
+  $("camera").value = widest.id;
+  command("camera", { cameraId: widest.id, facing: "back" })
+    .then(() => toast("最も広い背面カメラへの切替を要求しました。"))
+    .catch(error => toast("広角カメラへの切替に失敗しました: " + error.message));
 }
 function applyViewerZoom() {
   const zoom = Math.max(100, Math.min(300, Number($("zoom").value) || 100));
@@ -969,6 +1001,37 @@ function waitIce(pc, ms) {
     pc.addEventListener("icegatheringstatechange", check);
   });
 }
+function clearConnectionTimeout(peer = null) {
+  if (peer && S.connectionTimeoutPeer && S.connectionTimeoutPeer !== peer) return;
+  if (S.connectionTimeoutTimer) clearTimeout(S.connectionTimeoutTimer);
+  S.connectionTimeoutTimer = null;
+  S.connectionTimeoutPeer = null;
+}
+function armConnectionTimeout(peer) {
+  clearConnectionTimeout();
+  S.connectionTimeoutPeer = peer;
+  S.connectionTimeoutTimer = setTimeout(() => {
+    S.connectionTimeoutTimer = null;
+    if (S.pc !== peer || S.manualDisconnect) return;
+    if (peer.connectionState === "connected" && S.control?.readyState === "open") {
+      clearConnectionTimeout(peer);
+      return;
+    }
+    $("streamState").textContent = "接続セットアップがタイムアウト・自動復旧中";
+    scheduleReconnect(peer, true, 300, "setup-timeout");
+  }, 25000);
+}
+function markRtcStable(peer) {
+  if (S.pc !== peer || peer.connectionState !== "connected" || S.control?.readyState !== "open") return;
+  clearConnectionTimeout(peer);
+  if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
+  S.reconnectTimer = null;
+  if (S.reconnectResetTimer) clearTimeout(S.reconnectResetTimer);
+  S.reconnectResetTimer = setTimeout(() => {
+    if (S.pc === peer && peer.connectionState === "connected" && S.control?.readyState === "open") S.reconnectAttempts = 0;
+    S.reconnectResetTimer = null;
+  }, 30000);
+}
 async function connect(automatic = false) {
   automatic = automatic === true;
   if (!S.device) return toast("先にAndroidをペアリングしてください。");
@@ -1011,12 +1074,15 @@ async function connect(automatic = false) {
     S.pc = pc;
     const control = pc.createDataChannel("remote-control", { ordered: true });
     S.control = control;
+    armConnectionTimeout(pc);
     control.onopen = () => {
       if (S.pc !== pc) return;
       $("diagnostics").disabled = false;
       $("torch").disabled = !S.flashAvailable;
       status("監視中・DataChannel直接接続", true);
       $("streamState").textContent = "映像・音声・DataChannel接続中";
+      markRtcStable(pc);
+      updateWideCameraButton();
       startRtcStats();
       startVideoWatchdog(pc);
       updateAndroidMediaButtons();
@@ -1037,8 +1103,8 @@ async function connect(automatic = false) {
       settlePendingControlAcks("制御チャネルが切断されました。");
       if (S.pttActive || S.pttRequested) setWebMicEnabled(false);
       stopRtcStats();
-      status("制御チャネル切断");
-      if (S.pc === pc && S.everConnected && !S.manualDisconnect) scheduleReconnect(pc);
+      status("制御チャネル切断・自動復旧中");
+      if (S.pc === pc && S.everConnected && !S.manualDisconnect) scheduleReconnect(pc, true, 450, "datachannel");
     };
     control.onmessage = event => { if (S.pc === pc) handleControlMessage(event.data); };
     control.onerror = () => {
@@ -1070,7 +1136,7 @@ async function connect(automatic = false) {
         track.addEventListener("ended", () => {
           $("videoState").textContent = "映像トラック終了";
           stopMotionDetection("映像が終了しました。");
-          if (S.pc === pc && !S.manualDisconnect) scheduleReconnect(pc, true, 1200);
+          if (S.pc === pc && !S.manualDisconnect) scheduleReconnect(pc, true, 350, "track-ended");
         });
         track.addEventListener("mute", () => { $("videoState").textContent = "映像一時停止"; });
         track.addEventListener("unmute", () => { $("videoState").textContent = "映像再開中"; startMotionDetection(); });
@@ -1092,26 +1158,23 @@ async function connect(automatic = false) {
       if (S.pc !== pc) return;
       const state = pc.connectionState;
       $("iceState").textContent = "ICE: " + state;
-      status(state === "connected" ? "監視中" : state, state === "connected");
-      $("streamState").textContent = state === "connected" ? "映像・音声接続中" : "接続処理中";
+      status(state === "connected" && S.control?.readyState === "open" ? "監視中" : state,
+        state === "connected" && S.control?.readyState === "open");
+      $("streamState").textContent = state === "connected"
+        ? (S.control?.readyState === "open" ? "映像・音声接続中" : "映像接続済み・制御チャネル確認中")
+        : "接続処理中";
       if (state === "connected") {
         S.everConnected = true;
-        if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
-        S.reconnectTimer = null;
-        if (S.reconnectResetTimer) clearTimeout(S.reconnectResetTimer);
-        S.reconnectResetTimer = setTimeout(() => {
-          if (S.pc === pc && pc.connectionState === "connected") S.reconnectAttempts = 0;
-          S.reconnectResetTimer = null;
-        }, 30000);
+        if (S.control?.readyState === "open") markRtcStable(pc);
         startSessionClock();
         startRtcStats();
         startVideoWatchdog(pc);
       } else if ((state === "failed" || state === "disconnected" || state === "closed") && S.everConnected && !S.manualDisconnect) {
-        if (S.pttActive || S.pttRequested) setWebMicEnabled(false);
         if (S.reconnectResetTimer) clearTimeout(S.reconnectResetTimer);
         S.reconnectResetTimer = null;
         stopSessionClock();
-        scheduleReconnect(pc, false, state === "disconnected" ? 8000 : 1500);
+        const reason = state === "failed" ? "failed" : "disconnected";
+        scheduleReconnect(pc, true, state === "disconnected" ? 900 : 350, reason);
       }
     };
     const offer = await pc.createOffer();
@@ -1135,31 +1198,44 @@ async function connect(automatic = false) {
   } catch (error) {
     await disconnect(false, false, true);
     toast("接続開始失敗: " + error.message);
-    if (S.everConnected && !S.manualDisconnect) scheduleReconnect(null);
+    if (S.everConnected && !S.manualDisconnect) scheduleReconnect(null, true, null, "connect-error");
     return false;
   } finally {
     S.connecting = false;
     $("connect").disabled = !S.device || !!S.pc;
   }
 }
-function scheduleReconnect(expectedPc, forceReconnect = false, initialWait = null) {
-  if (S.manualDisconnect || S.reconnectTimer || !S.everConnected || !S.device) return;
-  const waits = [2500, 5000, 10000, 15000, 20000];
-  if (S.reconnectAttempts >= waits.length) {
-    toast("自動再接続を5回試しました。回線とAndroidの待機状態を確認してください。");
+function scheduleReconnect(expectedPc, forceReconnect = false, initialWait = null, reason = "disconnected") {
+  if (!RemoteCameraRecovery.shouldRetry({
+    manualDisconnect: S.manualDisconnect, hasDevice: !!S.device, everConnected: S.everConnected
+  }) || S.reconnectTimer) return;
+  if (navigator.onLine === false) {
+    status("ネットワーク切断・復旧待機中");
+    $("streamState").textContent = "ネットワーク復旧を待っています";
     return;
   }
   const attempt = S.reconnectAttempts + 1;
-  const wait = initialWait === null ? waits[S.reconnectAttempts] : initialWait;
-  status("再接続を準備中");
-  $("streamState").textContent = "再接続 " + attempt + "/" + waits.length;
+  const wait = initialWait === null ? RemoteCameraRecovery.retryDelay(attempt, reason)
+    : Math.max(150, Math.min(15000, Number(initialWait) || 300));
+  status("自動復旧を準備中");
+  $("streamState").textContent = "自動復旧 " + attempt + "回目・" + (wait / 1000).toFixed(1) + "秒後";
   S.reconnectTimer = setTimeout(async () => {
     S.reconnectTimer = null;
     if (S.manualDisconnect || !S.device || (expectedPc && S.pc !== expectedPc)) return;
+    if (navigator.onLine === false) {
+      status("ネットワーク切断・復旧待機中");
+      $("streamState").textContent = "ネットワーク復旧を待っています";
+      return;
+    }
+    if (expectedPc && expectedPc.connectionState === "connected" && S.control?.readyState === "open") return;
     if (expectedPc && expectedPc.connectionState === "connected" && !forceReconnect) return;
+    if (S.connecting) {
+      scheduleReconnect(null, true, 900, "connect-error");
+      return;
+    }
     S.reconnectAttempts = attempt;
     const ok = await connect(true);
-    if (!ok && !S.reconnectTimer) scheduleReconnect(null);
+    if (!ok && !S.reconnectTimer) scheduleReconnect(null, true, null, "connect-error");
   }, wait);
 }
 async function pollAnswers(peer, sessionId, device) {
@@ -1220,6 +1296,7 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
       }
     });
   }
+  clearConnectionTimeout(old);
   stopRtcStats();
   stopVideoWatchdog();
   stopSessionClock();
@@ -1584,22 +1661,22 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
    applyLiveLocationUpdate(d.location || d);
  }
  else if(d.type==="camera_capabilities"){
-  const select=$("camera");
-  const cameras=Array.isArray(d.cameras)?d.cameras:[];
-  if(cameras.length){
-   const previous=select.value;
-   select.replaceChildren();
-   cameras.forEach(camera=>{
-    if(!camera||typeof camera.id!=="string")return;
-    const option=document.createElement("option");
-    option.value=camera.id;
+  const select=$("camera"), cameras=Array.isArray(d.cameras)?d.cameras:[];
+  S.cameraCapabilities=cameras.filter(camera=>camera&&typeof camera.id==="string");
+  if(S.cameraCapabilities.length){
+   const previous=select.value;select.replaceChildren();
+   S.cameraCapabilities.forEach(camera=>{
+    const option=document.createElement("option");option.value=camera.id;
     option.textContent=String(camera.label||"カメラ");
     option.dataset.facing=String(camera.facing||"back");
+    option.dataset.horizontalFovDegrees=String(camera.horizontalFovDegrees||"");
+    option.dataset.focalLengthMm=String(camera.focalLengthMm||"");
     select.appendChild(option);
    });
    const target=String(d.selectedCameraId||previous||"");
    if([...select.options].some(option=>option.value===target))select.value=target;
-   toast("端末が対応するカメラ・画角を読み込みました。");
+   updateWideCameraButton();
+   toast("端末が公開しているカメラレンズ情報を読み込みました。");
   }
  }
  else if(d.type==="telemetry"){
@@ -2195,8 +2272,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   setReceiveVolume(storedVolume === null ? 70 : Number(storedVolume), false);
   $("camera").addEventListener("change", event => {
     const option=event.target.selectedOptions && event.target.selectedOptions[0];
+    updateWideCameraButton();
     command("camera", { cameraId: event.target.value, facing: option?.dataset.facing || event.target.value }).catch(error => toast(error.message));
   });
+  $("wideCameraButton").addEventListener("click", switchToWidestCamera);
+  updateWideCameraButton();
   $("quality").addEventListener("change", scheduleSettingsSave);
   $("dataMode").addEventListener("change", scheduleSettingsSave);
   try {
@@ -2235,6 +2315,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     toast(error.message);
     status("設定エラー");
   }
+});
+
+window.addEventListener("offline", () => {
+  if (S.everConnected && !S.manualDisconnect) {
+    status("ネットワーク切断・復旧待機中");
+    $("streamState").textContent = "ネットワーク復旧を待っています";
+  }
+});
+window.addEventListener("online", () => {
+  if (!S.everConnected || S.manualDisconnect || !S.device) return;
+  if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
+  S.reconnectTimer = null;
+  scheduleReconnect(S.pc, true, 200, "online");
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || !S.everConnected || S.manualDisconnect || !S.device) return;
+  if (S.pc?.connectionState === "connected" && S.control?.readyState === "open") {
+    restoreRemotePlayback();
+    return;
+  }
+  scheduleReconnect(S.pc, true, 250, "resume");
 });
 
 window.addEventListener("pagehide", () => {
