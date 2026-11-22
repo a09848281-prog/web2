@@ -69,7 +69,7 @@
         <label>Androidスピーカー音量（PTT受信側） <output id="androidSpeakerVolumeValue">70%</output><input id="androidSpeakerVolume" type="range" min="0" max="100" value="70"></label>
         <div class="audioMeterPanel"><div><b>Androidマイク音声レベル</b><span id="audioLevelText">待機中</span></div><progress id="audioLevel" max="1" value="0"></progress></div>
         <label>Androidノイズ抑制（0=OFF／1〜100=ON要求） <output id="micNoiseValue">端末標準ON</output><input id="micNoise" type="range" min="0" max="100" step="1" value="70"></label>
-        <p class="hint">このAndroidの標準NoiseSuppressorはON/OFF方式です。0はOFF、1〜100は端末標準の抑制をONにします。数値による段階的な強度変更はAndroid APIが公開していません。</p>
+        <p class="hint">0はOFF、1〜100はON要求です。Android標準NoiseSuppressorはON/OFF方式のため、数値に応じた段階的な強さは変更できません。変更は対応端末でリアルタイムに反映されます。</p>
         <p class="hint">ノイズ抑制の効果は端末・音声処理に依存します。設定変更は次回RTC接続から反映されます。</p>
         <input type="hidden" id="micMode" value="balanced">
         <input type="hidden" id="micSensitivity" value="70"><output id="micSensitivityValue" hidden>70%</output>
@@ -148,6 +148,7 @@
       <button id="cameraToggle" type="button" disabled>📷 Androidカメラ OFF</button>
       <button id="micToggle" type="button" disabled>🎙 Androidマイク OFF</button>
       <button id="androidKeepAwake" type="button" disabled>📱 Android自動消灯防止 OFF</button>
+      <small class="audioControlHint">Androidアプリ画面が表示されている間の自動消灯を防ぎます。端末のPIN・パターン・生体認証ロックは無効化しません。</small>
       <button id="fullscreen" type="button">全画面</button>
       <button id="fitMode" type="button">全体表示</button>
       <button id="torch" type="button" disabled>🔦 ライトをON</button>
@@ -182,7 +183,7 @@
       <div id="map"></div>
       <p id="locationInfo">位置情報はありません。</p>
     </div>
-    <p class="footer">録画・録音・静止画保存は行いません。Android側で監視待機を開始し、利用者が接続したときにカメラ・マイクを使用します。</p>
+    <p class="footer">録画・録音・静止画保存は行いません。Android側で監視待機を開始し、Web接続時にカメラ・Androidマイクを使用します。Web側マイクは送話ボタンを押している間だけ取得します。</p>
   </section>
 </main>
 
