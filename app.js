@@ -2278,3 +2278,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     status("設定エラー");
   }
 });
+
+window.addEventListener("pagehide", () => {
+  if (!S.screenRequested || !S.control || S.control.readyState !== "open") return;
+  try {
+    S.control.send(JSON.stringify({ type: "command", command: "screen_stop", requestId: rid(), payload: {} }));
+  } catch (error) {
+    console.warn("Could not send screen-stop during pagehide", error);
+  }
+});
+window.addEventListener("pageshow", event => {
+  if (!event.persisted) return;
+  S.screenRequested = false;
+  S.screenActive = false;
+  $("screenPlaceholder").classList.remove("hidden");
+  $("screenStatus").textContent = "画面共有状態を再確認してください。";
+  updateScreenControls();
+});
