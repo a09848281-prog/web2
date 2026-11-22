@@ -37,7 +37,7 @@ const S = {
   adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 },
   audioContext: null, remoteGain: null, remoteAudioSource: null, remoteAnalyser: null,
   flashAvailable: false,
-  androidCameraEnabled: true, androidMicEnabled: true, androidKeepAwake: false, androidKeepAwake: false,
+  androidCameraEnabled: true, androidMicEnabled: true, androidKeepAwake: false,
   audioMeterFrame: null, receiveVolume: 70, remoteAudioMuted: false,
   pttLocked: false, pttStartedAt: 0, pttTimeout: null, pttKeyActive: false,
   wakeLock: null, keepAwakeWanted: false,
@@ -250,7 +250,6 @@ async function ptt(enabled) {
       return false;
     } finally {
       S.pttStarting = false;
-  updateAndroidKeepAwakeButton();
     }
   }
 
@@ -1255,7 +1254,6 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   updateAndroidMediaButtons();
   $("ptt").disabled = true;
   $("pttLock").disabled = true;
-  $("pttLock").disabled = true;
   $("keepAwake").disabled = true;
   $("ptt").classList.remove("active");
   $("ptt").textContent = "🎙 押している間だけ話す";
@@ -1449,23 +1447,7 @@ function toggleAndroidKeepAwake() {
     : "Androidの自動消灯防止を解除しました。");
 }
 
-function updateAndroidKeepAwakeButton() {
-  const button = $("androidKeepAwake");
-  if (!button) return;
-  button.textContent = S.androidKeepAwake ? "📱 Android自動消灯防止 ON" : "📱 Android自動消灯防止 OFF";
-  button.classList.toggle("active", S.androidKeepAwake);
-  button.disabled = !S.pc || S.control?.readyState !== "open";
-}
 
-function toggleAndroidKeepAwake() {
-  const next = !S.androidKeepAwake;
-  if (!sendControl("android_keep_awake", { enabled: next })) return;
-  S.androidKeepAwake = next;
-  updateAndroidKeepAwakeButton();
-  toast(next
-    ? "Androidの自動消灯防止を有効にしました（アプリ画面が前面の間）。"
-    : "Androidの自動消灯防止を解除しました。");
-}
 function toggleAndroidCamera() {
   if (!S.control || S.control.readyState !== "open") return toast("AndroidとのDataChannel接続が必要です。");
   const next = !S.androidCameraEnabled;
@@ -2009,10 +1991,6 @@ async function reserveConnection(){
  if(!S.device)throw Error("先にAndroid端末をペアリングしてください。");
  const input=$("reserveAt").value;const when=new Date(input).getTime();
  if(!Number.isFinite(when)||when<Date.now()+15000)throw Error("15秒以上先の日時を指定してください。");
- // Request microphone permission during the user gesture; no track is kept while waiting.
- if(!navigator.mediaDevices?.getUserMedia)throw Error("このブラウザーではマイクを利用できません。");
- const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
- stream.getTracks().forEach(track=>track.stop());
  localStorage.setItem(RESERVATION_KEY,JSON.stringify({deviceId:S.device.deviceId,when}));
  refreshReservationUi();toast("接続予約を保存しました。予約時刻にこのWeb画面が動作している必要があります。");
 }
@@ -2198,7 +2176,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   $("cameraToggle").addEventListener("click",toggleAndroidCamera);
   $("micToggle").addEventListener("click",toggleAndroidMicrophone);
-  $("androidKeepAwake").addEventListener("click",toggleAndroidKeepAwake);
   $("androidKeepAwake").addEventListener("click",toggleAndroidKeepAwake);
   $("reserveConnection").addEventListener("click",()=>reserveConnection().catch(e=>toast(e.message)));
   $("cancelReservation").addEventListener("click",cancelConnectionReservation);
