@@ -1088,19 +1088,19 @@ async function claimDevice() {
 
 function waitIce(pc, ms) {
   return new Promise(resolve => {
-    if (pc.iceGatheringState === "complete") return resolve();
+    if (pc.iceGatheringState === "complete") return resolve(true);
     let done = false;
-    const finish = () => {
+    const finish = complete => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       pc.removeEventListener("icegatheringstatechange", check);
-      resolve();
+      resolve(complete);
     };
     const check = () => {
-      if (pc.iceGatheringState === "complete") finish();
+      if (pc.iceGatheringState === "complete") finish(true);
     };
-    const timer = setTimeout(finish, ms);
+    const timer = setTimeout(() => finish(pc.iceGatheringState === "complete"), ms);
     pc.addEventListener("icegatheringstatechange", check);
   });
 }
@@ -1120,9 +1120,9 @@ function armConnectionTimeout(peer) {
       clearConnectionTimeout(peer);
       return;
     }
-    $("streamState").textContent = "接続セットアップがタイムアウト・自動復旧中";
+    $("streamState").textContent = "応答待ちが長いため接続を作り直します";
     scheduleReconnect(peer, "setup-timeout");
-  }, 25000);
+  }, 35000);
 }
 function markRtcStable(peer) {
   if (S.pc !== peer || peer.connectionState !== "connected" || S.control?.readyState !== "open") return;
@@ -1135,12 +1135,72 @@ function markRtcStable(peer) {
     S.reconnectResetTimer = null;
   }, 30000);
 }
+function abortStalledConnectAttempt(attemptId) {
+  if (S.connectionAttemptId !== attemptId || !S.connecting) return false;
+  ++S.connectionAttemptId; // invalidate every late Promise/callback from the stalled attempt
+  if (S.connectionAttemptWatchdog) clearTimeout(S.connectionAttemptWatchdog);
+  S.connectionAttemptWatchdog = null;
+  S.connecting = false;
+
+  const oldPeer = S.pc;
+  const oldControl = S.control;
+  clearConnectionTimeout(oldPeer);
+  stopRtcStats();
+  stopVideoWatchdog();
+  stopSessionClock();
+  settlePendingControlAcks("接続処理がタイムアウトしたため破棄しました。");
+  discardControlSendQueue(oldControl);
+  S.pc = null;
+  S.control = null;
+  S.session = "";
+  try { oldControl?.close(); } catch (_) {}
+  try { oldPeer?.close(); } catch (_) {}
+
+  const mic = S.mic;
+  S.mic = null;
+  try { S.micSender?.replaceTrack(null).catch(() => {}); } catch (_) {}
+  try { mic?.getTracks().forEach(track => track.stop()); } catch (_) {}
+  S.micSender = null;
+  S.pttRequested = false;
+  S.pttStarting = false;
+  S.pttActive = false;
+  S.remoteAudioTracks = [];
+  S.remoteVideoStream = null;
+  $("remoteVideo").srcObject = null;
+  $("placeholder").classList.remove("hidden");
+  $("connect").disabled = !S.device;
+  $("disconnect").disabled = true;
+  $("ptt").disabled = true;
+  $("camera").disabled = true;
+  $("torch").disabled = true;
+  $("diagnostics").disabled = true;
+  $("cameraToggle").disabled = true;
+  $("micToggle").disabled = true;
+  $("streamState").textContent = "接続処理が停止したため、接続を作り直します";
+  $("iceState").textContent = "ICE: timeout";
+  status("接続を自動復旧中");
+  updateAndroidMediaButtons();
+
+  if (RemoteCameraRecovery.shouldRetry({
+    manualDisconnect: S.manualDisconnect, hasDevice: !!S.device,
+    everConnected: S.everConnected, autoConnectWanted: S.autoConnectWanted
+  })) {
+    scheduleReconnect(null, "connect-timeout");
+  }
+  return true;
+}
+function assertConnectAttempt(attemptId, deviceId) {
+  if (S.connectionAttemptId !== attemptId || S.manualDisconnect ||
+      !S.device || S.device.deviceId !== deviceId) {
+    throw new Error("この接続試行は終了しました。");
+  }
+}
 async function connect(automatic = false) {
   automatic = automatic === true;
   if (!S.device) return toast("先にAndroidをペアリングしてください。");
   if (S.connecting) return false;
   const device = S.device;
-  if (!device) return false;
+  const attemptId = ++S.connectionAttemptId;
   if (!automatic) {
     S.manualDisconnect = false;
     S.autoConnectWanted = true;
@@ -1153,28 +1213,46 @@ async function connect(automatic = false) {
   }
   S.connecting = true;
   $("connect").disabled = true;
-  // Resume/create Web Audio while the Connect click still has user activation on iPad Safari.
+  S.connectionAttemptWatchdog = setTimeout(
+    () => abortStalledConnectAttempt(attemptId), 45000
+  );
   prepareAudioOutput();
+
   try {
-    if (S.pc) await disconnect(false, automatic, true, automatic);
-    if (!S.device || S.device.deviceId !== device.deviceId) {
-      throw Error("接続先端末が変更されました。もう一度選択してください。");
+    if (S.pc) {
+      await withTimeout(
+        disconnect(false, automatic, true, automatic),
+        3000,
+        "前回接続の後始末"
+      );
+      assertConnectAttempt(attemptId, device.deviceId);
     }
     S.mic = null;
     S.micSender = null;
     S.pttRequested = false;
     S.pttActive = false;
-    S.session = rid();
+    const sessionId = rid();
+    S.session = sessionId;
     S.seq = 0;
     S.hasReceivedVideoFrame = false;
+    S.videoWatchdogGraceUntil = 0;
+    S.statsFrameLast = null;
+
     try {
-      const iceConfig = await api("get_ice_config", { controllerToken:device.controllerToken, deviceId:device.deviceId });
-      if (!S.device || S.device.deviceId !== device.deviceId) throw Error("接続先端末が変更されました。");
-      if (Array.isArray(iceConfig.iceServers) && iceConfig.iceServers.length) S.iceServers = iceConfig.iceServers;
+      const iceConfig = await api("get_ice_config", {
+        controllerToken: device.controllerToken, deviceId: device.deviceId
+      }, 8000);
+      assertConnectAttempt(attemptId, device.deviceId);
+      if (Array.isArray(iceConfig.iceServers) && iceConfig.iceServers.length) {
+        S.iceServers = iceConfig.iceServers;
+      }
     } catch (iceError) {
+      assertConnectAttempt(attemptId, device.deviceId);
       console.warn("TURN configuration unavailable; continue with public STUN", iceError);
       S.iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
     }
+
+    assertConnectAttempt(attemptId, device.deviceId);
     const pc = new RTCPeerConnection({ iceServers: S.iceServers });
     S.pc = pc;
     const control = pc.createDataChannel("remote-control", { ordered: true });
@@ -1208,7 +1286,9 @@ async function connect(automatic = false) {
       if (S.pttActive || S.pttRequested) setWebMicEnabled(false);
       stopRtcStats();
       status("制御チャネル切断・自動復旧中");
-      if (S.pc === pc && (S.everConnected || S.autoConnectWanted) && !S.manualDisconnect) scheduleReconnect(pc, "datachannel");
+      if (S.pc === pc && (S.everConnected || S.autoConnectWanted) && !S.manualDisconnect) {
+        scheduleReconnect(pc, "datachannel");
+      }
     };
     control.onmessage = event => { if (S.pc === pc) handleControlMessage(event.data); };
     control.onerror = () => {
@@ -1217,6 +1297,7 @@ async function connect(automatic = false) {
         $("streamState").textContent = "制御チャネルで通信エラーが発生しました";
       }
     };
+
     $("camera").disabled = false;
     const remote = new MediaStream();
     S.remoteVideoStream = remote;
@@ -1229,9 +1310,8 @@ async function connect(automatic = false) {
     const audioTransceiver = pc.addTransceiver("audio", { direction: "sendrecv" });
     S.micSender = audioTransceiver.sender;
     updateWebMicrophoneButton();
-    // Start the browser microphone during Connect, but do not hold up video setup
-    // while a permission prompt is open. A denied permission leaves viewing available.
     void setWebMicEnabled(true).catch(error => console.warn("Web microphone start failed", error));
+
     pc.ontrack = event => {
       if (S.pc !== pc) return;
       const track = event.track;
@@ -1273,42 +1353,62 @@ async function connect(automatic = false) {
         startSessionClock();
         startRtcStats();
         startVideoWatchdog(pc);
-      } else if ((state === "failed" || state === "disconnected" || state === "closed") && (S.everConnected || S.autoConnectWanted) && !S.manualDisconnect) {
+      } else if ((state === "failed" || state === "disconnected" || state === "closed") &&
+          (S.everConnected || S.autoConnectWanted) && !S.manualDisconnect) {
         if (S.reconnectResetTimer) clearTimeout(S.reconnectResetTimer);
         S.reconnectResetTimer = null;
         stopSessionClock();
-        const reason = state === "failed" ? "failed" : "disconnected";
-        scheduleReconnect(pc, reason);
+        scheduleReconnect(pc, state === "failed" ? "failed" : "disconnected");
       }
     };
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await waitIce(pc, 12000);
+
+    const offer = await withTimeout(pc.createOffer(), 8000, "接続要求の作成");
+    assertConnectAttempt(attemptId, device.deviceId);
+    await withTimeout(pc.setLocalDescription(offer), 8000, "接続情報の設定");
+    assertConnectAttempt(attemptId, device.deviceId);
+    const iceReady = await withTimeout(waitIce(pc, 8000), 8500, "通信経路の準備");
+    assertConnectAttempt(attemptId, device.deviceId);
+    if (!iceReady) throw new Error("ICE候補の収集が完了しませんでした。");
+
     await api("send_signal", {
       controllerToken: device.controllerToken,
       deviceId: device.deviceId,
-      sessionId: S.session,
+      sessionId,
       recipient: "device",
       kind: "offer",
       sdp: pc.localDescription.sdp
-    });
+    }, 10000);
+    assertConnectAttempt(attemptId, device.deviceId);
     $("connect").disabled = true;
     $("disconnect").disabled = false;
     $("ptt").disabled = false;
     $("streamState").textContent = "Android応答待ち";
     status("接続要求中");
-    pollAnswers(pc, S.session, device);
+    pollAnswers(pc, sessionId, device);
     return true;
   } catch (error) {
-    await disconnect(false, false, true, true);
-    toast("接続開始失敗: " + error.message);
-    if (RemoteCameraRecovery.shouldRetry({ manualDisconnect: S.manualDisconnect, hasDevice: !!S.device, everConnected: S.everConnected, autoConnectWanted: S.autoConnectWanted })) {
-      scheduleReconnect(null, "connect-error");
+    if (S.connectionAttemptId !== attemptId) return false;
+    try {
+      await withTimeout(disconnect(false, false, true, true), 2500, "接続失敗の後始末");
+    } catch (cleanupError) {
+      console.warn("Connection cleanup needed a forced reset", cleanupError);
+      abortStalledConnectAttempt(attemptId);
+      return false;
     }
+    if (S.connectionAttemptId !== attemptId) return false;
+    toast("接続開始失敗: " + error.message);
+    if (RemoteCameraRecovery.shouldRetry({
+      manualDisconnect: S.manualDisconnect, hasDevice: !!S.device,
+      everConnected: S.everConnected, autoConnectWanted: S.autoConnectWanted
+    })) scheduleReconnect(null, "connect-error");
     return false;
   } finally {
-    S.connecting = false;
-    $("connect").disabled = !S.device || !!S.pc;
+    if (S.connectionAttemptId === attemptId) {
+      if (S.connectionAttemptWatchdog) clearTimeout(S.connectionAttemptWatchdog);
+      S.connectionAttemptWatchdog = null;
+      S.connecting = false;
+      $("connect").disabled = !S.device || !!S.pc;
+    }
   }
 }
 function scheduleReconnect(expectedPc, reason = "disconnected") {
@@ -1319,6 +1419,12 @@ function scheduleReconnect(expectedPc, reason = "disconnected") {
   if (navigator.onLine === false) {
     status("ネットワーク切断・復旧待機中");
     $("streamState").textContent = "ネットワーク復旧を待っています";
+    return;
+  }
+  if (S.connecting) {
+    // The active attempt has a hard watchdog. Do not stack retry timers behind it;
+    // that was allowing a stalled SDP/GAS operation to leave reconnect apparently frozen.
+    $("streamState").textContent = "接続処理の応答待ち・停止時は自動でリセットします";
     return;
   }
   const attempt = S.reconnectAttempts + 1;
@@ -1334,32 +1440,48 @@ function scheduleReconnect(expectedPc, reason = "disconnected") {
       return;
     }
     if (expectedPc && expectedPc.connectionState === "connected" && S.control?.readyState === "open") return;
-    if (S.connecting) {
-      scheduleReconnect(null, "connect-error");
-      return;
-    }
+    if (S.connecting) return;
     S.reconnectAttempts = attempt;
     const ok = await connect(true);
-    if (!ok && !S.reconnectTimer) scheduleReconnect(null, "connect-error");
+    if (!ok && !S.reconnectTimer && !S.connecting) scheduleReconnect(null, "connect-error");
   }, wait);
 }
 async function pollAnswers(peer, sessionId, device) {
+  let consecutiveFailures = 0;
   while (S.pc === peer && S.session === sessionId && S.device &&
       S.device.deviceId === device.deviceId && (!S.control || S.control.readyState !== "open")) {
     try {
       const result = await api("poll_signals", {
         controllerToken: device.controllerToken, deviceId: device.deviceId,
-        sessionId: sessionId, afterSeq: S.seq
-      });
+        sessionId, afterSeq: S.seq
+      }, 9000);
       if (S.pc !== peer || S.session !== sessionId) return;
+      consecutiveFailures = 0;
       for (const signal of result.signals || []) {
         S.seq = Math.max(S.seq, Number(signal.seq) || 0);
         if (signal.kind === "answer" && !peer.remoteDescription) {
-          await peer.setRemoteDescription({ type: "answer", sdp: signal.sdp });
-        } else if (signal.kind === "error") toast(signal.sdp || "Android側で接続エラーが発生しました。");
+          await withTimeout(
+            peer.setRemoteDescription({ type: "answer", sdp: signal.sdp }),
+            9000,
+            "Androidからの接続応答"
+          );
+        } else if (signal.kind === "error") {
+          toast(signal.sdp || "Android側で接続エラーが発生しました。");
+          scheduleReconnect(peer, "android-answer-error");
+          return;
+        }
       }
-    } catch (error) { console.warn("pollAnswers", error); }
-    await new Promise(resolve => setTimeout(resolve, Number(S.cfg.pollIntervalMs) || 2500));
+    } catch (error) {
+      if (S.pc !== peer || S.session !== sessionId) return;
+      consecutiveFailures++;
+      console.warn("pollAnswers", error);
+      if (consecutiveFailures >= 3) {
+        $("streamState").textContent = "Androidの応答を連続して受信できないため再接続します";
+        scheduleReconnect(peer, "signal-poll-failed");
+        return;
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, Math.max(1500, Number(S.cfg.pollIntervalMs) || 2500)));
   }
 }
 async function disconnect(sendCommand = true, preserveMic = false, notifyRemote = sendCommand, keepRecovery = false) {
