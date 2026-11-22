@@ -31,7 +31,7 @@ test("Web microphone toggle requests, attaches, detaches and stops tracks", () =
   const mic = section(web, "async function setWebMicEnabled(enabled)", "async function enableScreenWakeLock()");
   assert.match(mic, /navigator\.mediaDevices\.getUserMedia/);
   assert.match(mic, /sender\.replaceTrack\(track\)/);
-  assert.match(mic, /sender\?\.replaceTrack\(null\)/);
+  assert.match(mic, /sender\.replaceTrack\(null\)/);
   assert.match(mic, /stream\?\.getTracks\(\)\.forEach\(track => track\.stop\(\)\)/);
   assert.match(mic, /requestId !== S\.pttRequestId/);
   assert.equal(html.includes('id="pttLock"'), false);
