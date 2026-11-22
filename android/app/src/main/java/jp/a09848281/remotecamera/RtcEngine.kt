@@ -9,6 +9,8 @@ import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.media.MediaRecorder
 import android.util.Log
+import android.util.DisplayMetrics
+import android.view.WindowManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -571,6 +573,7 @@ class RtcEngine(
             }
         }
         if (peers.isEmpty()) stopMedia()
+        onConnectionState(sessionId, "SESSION_REMOVED")
     }
 
     @Synchronized
@@ -612,10 +615,27 @@ class RtcEngine(
         check(resultCode == android.app.Activity.RESULT_OK) { "画面共有の許可がキャンセルされました。" }
         val source = screenVideoSource ?: error("画面共有映像ソースがありません。")
         val helperForScreen = screenHelper ?: error("画面共有ヘルパーがありません。")
-        val metrics = context.resources.displayMetrics
-        val scale = minOf(1.0, 1600.0 / maxOf(metrics.widthPixels, metrics.heightPixels).coerceAtLeast(1))
-        val width = ((metrics.widthPixels * scale).toInt().coerceAtLeast(2) / 2) * 2
-        val height = ((metrics.heightPixels * scale).toInt().coerceAtLeast(2) / 2) * 2
+        // Capture the full logical display bounds (not the app window bounds),
+        // preserving the phone orientation and exact display aspect ratio.
+        val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val displayWidth: Int
+        val displayHeight: Int
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            val bounds = windowManager.maximumWindowMetrics.bounds
+            displayWidth = bounds.width()
+            displayHeight = bounds.height()
+        } else {
+            val realMetrics = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(realMetrics)
+            displayWidth = realMetrics.widthPixels
+            displayHeight = realMetrics.heightPixels
+        }
+        require(displayWidth > 0 && displayHeight > 0) { "Android画面サイズを取得できません。" }
+        // Keep the device ratio while limiting encoder workload on mid-range phones.
+        val scale = minOf(1.0, 1440.0 / maxOf(displayWidth, displayHeight).coerceAtLeast(1))
+        val width = ((displayWidth * scale).toInt().coerceAtLeast(2) / 2) * 2
+        val height = ((displayHeight * scale).toInt().coerceAtLeast(2) / 2) * 2
         val capturer = ScreenCapturerAndroid(permissionData, object : MediaProjection.Callback() {
             override fun onStop() {
                 if (!screenStopping) {
@@ -628,20 +648,20 @@ class RtcEngine(
         try {
             capturer.initialize(helperForScreen, context, source.capturerObserver)
             screenVideoTrack?.setEnabled(true)
-            capturer.startCapture(width, height, 15)
+            capturer.startCapture(width, height, 20)
             screenCapturer = capturer
             screenSharing = true
             screenSenders.values.forEach { sender ->
                 try {
                     val params = sender.parameters
-                    params.encodings.forEach { it.maxBitrateBps = 1800000; it.maxFramerate = 15 }
+                    params.encodings.forEach { it.maxBitrateBps = 2000000; it.maxFramerate = 20 }
                     sender.setParameters(params)
                 } catch (error: Exception) {
                     Log.w("RemoteCameraRTC", "Could not apply screen video bitrate", error)
                 }
             }
             onScreenShareState(true, "Android画面の共有を開始しました。")
-            onState("Android画面共有中：${width}×${height} @ 15FPS")
+            onState("Android画面共有中：${width}×${height} @ 20FPS")
         } catch (error: Exception) {
             screenVideoTrack?.setEnabled(false)
             try { capturer.stopCapture() } catch (_: Exception) {}
