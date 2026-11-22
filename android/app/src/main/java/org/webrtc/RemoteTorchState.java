@@ -19,12 +19,14 @@ final class RemoteTorchState {
 
   void attach(CameraCaptureSession session, CaptureRequest.Builder builder,
       Handler handler, boolean available) {
+    CountDownLatch previous = ready;
     ready = new CountDownLatch(1);
     cameraHandler = handler;
     captureSession = session;
     requestBuilder = builder;
     flashAvailable = available;
     if (!available) desiredEnabled = false;
+    previous.countDown();
   }
 
   boolean isDesiredEnabled() {
@@ -54,10 +56,19 @@ final class RemoteTorchState {
       appliedEnabled = false;
       return;
     }
-    final CountDownLatch sessionReady = ready;
-    if (!sessionReady.await(8, TimeUnit.SECONDS)) {
-      desiredEnabled = false;
-      throw new IllegalStateException("Camera2撮影セッションの準備がタイムアウトしました。");
+    final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8);
+    while (true) {
+      final CountDownLatch sessionReady = ready;
+      final long remaining = deadline - System.nanoTime();
+      if (remaining <= 0L || !sessionReady.await(remaining, TimeUnit.NANOSECONDS)) {
+        desiredEnabled = false;
+        throw new IllegalStateException("Camera2撮影セッションの準備がタイムアウトしました。");
+      }
+      if (ready == sessionReady) break;
+      if (!enabled && cameraHandler == null) {
+        appliedEnabled = false;
+        return;
+      }
     }
     if (enabled && !flashAvailable) {
       desiredEnabled = false;
