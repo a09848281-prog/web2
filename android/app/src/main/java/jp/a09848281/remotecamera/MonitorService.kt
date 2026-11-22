@@ -540,9 +540,10 @@ class MonitorService : Service() {
                     }
                 }
             }
-            "FAILED","CLOSED","DISCONNECTED" -> {
+            "FAILED", "CLOSED" -> {
+                releaseScreenRequester(sessionId)
                 lastNetworkError="WebRTC ICE状態: "+state
-                notifyState("RTC "+state+"：復旧を待機します")
+                notifyState("RTC "+state+"：セッションを整理しています")
                 scope.launch {
                     delay(20000L)
                     val engine = rtc
@@ -553,6 +554,26 @@ class MonitorService : Service() {
                     updateStreamWakeLock(rtc?.hasPeers() == true)
                 }
             }
+            "DISCONNECTED" -> {
+                scope.launch {
+                    delay(15000L)
+                    val engine = rtc
+                    if (engine == null || !engine.hasSession(sessionId)) {
+                        releaseScreenRequester(sessionId)
+                        updateStreamWakeLock(rtc?.hasPeers() == true)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun releaseScreenRequester(sessionId: String) {
+        screenRequesters.remove(sessionId)
+        if (screenRequesters.isEmpty()) {
+            screenPermissionPending = false
+            getSystemService(NotificationManager::class.java).cancel(SCREEN_NOTIFICATION_ID)
+            rtc?.stopScreenShare("WebRTC接続が終了したため画面共有を停止しました。")
+            try { updateForegroundScreenProjection(false) } catch (_: Exception) {}
         }
     }
     private fun closeRtcViewerSession(sessionId: String) {
