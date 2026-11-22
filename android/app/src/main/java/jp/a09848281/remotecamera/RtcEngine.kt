@@ -434,6 +434,8 @@ class RtcEngine(
             val observer = object : PeerConnection.Observer {
                 override fun onSignalingChange(state: PeerConnection.SignalingState) {}
                 override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
+                    // Ignore late CLOSED callbacks after this viewer has already been removed.
+                    if (state == PeerConnection.IceConnectionState.CLOSED && peers[sessionId] !== peer) return
                     onState("WebRTC: " + state.name)
                     onConnectionState(sessionId,state.name)
                     if (state == PeerConnection.IceConnectionState.DISCONNECTED) {
@@ -590,6 +592,7 @@ class RtcEngine(
     fun hasPeers():Boolean=peers.isNotEmpty()
     fun peerCount():Int=peers.size
     fun hasSession(sessionId: String): Boolean = peers.containsKey(sessionId)
+    fun iceConnectionState(sessionId: String): String? = peers[sessionId]?.iceConnectionState()?.name
     fun isScreenSharing(): Boolean = screenSharing
 
     @Synchronized
