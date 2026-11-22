@@ -160,7 +160,7 @@ assert.ok(service.includes("if (needsPairing)") && service.includes("rtc?.dispos
 assert.ok(service.includes('val signals = if (needsPairing) JSONArray()'), "No-controller state must ignore stale offers");
 assert.ok(service.includes('val sessionId = payload.optString("sessionId", "")'), "Disconnect commands must be viewer-session scoped");
 assert.ok(js.includes("payload:{sessionId:sessionId}"), "Web disconnect fallback must include its session ID");
-assert.ok(js.includes("await api(\"send_signal\""), "Web disconnect must await the session bye signal before unpair");
+assert.ok(js.includes("void api(\"send_signal\""), "Web disconnect must send the GAS bye signal without blocking local cleanup");
 assert.ok(js.includes('window.addEventListener("online"'), "Motion metadata must retry after network recovery");
 assert.ok(js.includes("S.motion.retryTimer = setInterval"), "Motion metadata must have a periodic retry fallback");
 assert.ok(config.includes("POLL_SECONDS = 10L"), "Default polling interval must be 10 seconds");
@@ -210,6 +210,7 @@ assert.ok(!rtc.includes("MediaProjection") && !rtc.includes("ScreenCapturer") &&
 assert.ok(!service.includes("MediaProjection") && !service.includes("screenRequesters") && !service.includes("screen_start"), "Android service must not retain screen-share lifecycle code");
 assert.ok(!manifest.includes("FOREGROUND_SERVICE_MEDIA_PROJECTION") && !manifest.includes("mediaProjection") && !manifest.includes("RemoteControlAccessibilityService"), "Manifest must not declare screen capture or accessibility control");
 assert.ok(js.includes("async function ptt(enabled)") && js.includes("navigator.mediaDevices.getUserMedia"), "PTT must acquire microphone only on explicit talk action");
+assert.ok(js.includes('$("micNoise").addEventListener("input"') && js.includes('sendControl("mic_noise"'), "Noise suppression slider must send live values as it moves");
 const connectFunction = js.slice(js.indexOf("async function connect("), js.indexOf("function scheduleReconnect("));
 assert.ok(!connectFunction.includes("getUserMedia"), "Web connection must not acquire microphone while idle");
 assert.ok(js.includes("S.micSender.replaceTrack(track)") && js.includes("S.micSender?.replaceTrack(null)") && js.includes("track.stop()"), "PTT must attach and fully release microphone tracks");
@@ -217,8 +218,9 @@ assert.ok(js.includes('await ptt(false);') && js.includes('sendControlAndWait("d
 assert.ok(main.includes("StopMonitoringReceiver.stop(this)"), "Android UI stop button must use common stop receiver");
 assert.ok(fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/StopMonitoringReceiver.kt", "utf8").includes("stopService("), "Notification stop action must directly stop the foreground service");
 assert.ok(service.includes("getBroadcast(") && service.includes("待機を停止"), "Persistent notification must expose a service-independent stop action");
+assert.ok(service.includes("if (!prefs.getBoolean(\"monitoringEnabled\", false))") && service.includes("catch (cancelled: CancellationException)"), "A cancelled service must not recreate a startup-error notification or retry");
 assert.ok(service.includes("updateDisplayWakeLock(false)") && service.includes("PowerManager.SCREEN_DIM_WAKE_LOCK"), "Android display-awake lock must be reversible and released on shutdown");
-assert.ok(service.includes('"android_keep_awake"') && service.includes('"androidKeepAwake"'), "Android display-awake setting must be remotely controllable and reported");
+assert.ok(service.includes('"android_keep_awake"') && service.includes('"androidKeepAwake"') && service.includes("ACTION_DISPLAY_AWAKE"), "Android display-awake setting must be remotely controllable and reported");
 assert.ok(main.includes("FLAG_KEEP_SCREEN_ON") && main.includes("ACTION_KEEP_SCREEN_AWAKE_STATE"), "Android UI must include its local display-awake control");
 assert.ok(html.includes('id="androidKeepAwake"') && js.includes('sendControl("android_keep_awake"'), "Web must expose Android display-awake toggle");
 assert.ok(service.includes('if (!enabled && !torchEnabled)') && service.includes("activeTorchCameraId"), "Torch cleanup must not call CameraManager when flashlight was never enabled");
