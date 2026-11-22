@@ -324,7 +324,8 @@ function updateScreenWakeLockButton() {
   button.disabled = S.keepAwakeTogglePending || !S.pc;
 }
 
-async function enableScreenWakeLock(generation = S.wakeLockRequestGeneration) {
+async function enableScreenWakeLock() {
+  const generation = S.wakeLockRequestGeneration;
   if (!navigator.wakeLock || typeof navigator.wakeLock.request !== "function") {
     toast("このブラウザーは画面スリープ防止に対応していません。");
     return false;
