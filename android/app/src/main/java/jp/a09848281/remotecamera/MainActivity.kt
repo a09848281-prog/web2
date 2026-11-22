@@ -9,13 +9,13 @@ import android.app.PendingIntent
 import android.app.TimePickerDialog
 import android.content.Context
 import android.content.Intent
-import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.provider.Settings
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
+import android.view.WindowManager
 import android.text.InputType
 import android.text.Editable
 import android.text.TextWatcher
@@ -46,6 +46,7 @@ class MainActivity : Activity() {
     private lateinit var startButton: Button
     private lateinit var refreshCodeButton: Button
     private lateinit var stopButton: Button
+    private lateinit var keepAwakeButton: Button
     private lateinit var pollIntervalInput: EditText
     private lateinit var qualitySpinner: Spinner
     private lateinit var fpsSpinner: Spinner
@@ -56,7 +57,6 @@ class MainActivity : Activity() {
     private var scheduleEndAt = 0L
     private var uiInitialized = false
     private var gasUrl = ""
-    private var screenPermissionPromptStarted = false
     private val prefs by lazy { getSharedPreferences(AppConfig.PREFS, MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -99,6 +99,13 @@ class MainActivity : Activity() {
             text = "監視待機を停止"
             isEnabled = false
             setOnClickListener { stopMonitoring() }
+        }
+        keepAwakeButton = Button(this).apply {
+            setOnClickListener {
+                val enabled = !prefs.getBoolean("androidKeepScreenAwake", false)
+                prefs.edit().putBoolean("androidKeepScreenAwake", enabled).apply()
+                applyKeepScreenAwake()
+            }
         }
         root.addView(status)
         root.addView(codeView)
@@ -186,6 +193,13 @@ class MainActivity : Activity() {
         root.addView(refreshCodeButton, LinearLayout.LayoutParams(-1, -2))
         root.addView(startButton, LinearLayout.LayoutParams(-1, -2))
         root.addView(stopButton, LinearLayout.LayoutParams(-1, -2))
+        root.addView(keepAwakeButton, LinearLayout.LayoutParams(-1, -2))
+        root.addView(TextView(this).apply {
+            text = "自動消灯防止はこのアプリ画面が前面にある間だけ有効です。AndroidのPIN・パターン・生体認証ロックを無効化する機能ではありません。"
+            textSize = 12f
+            setTextColor(0xFF66758B.toInt())
+            setPadding(0, 4, 0, 10)
+        })
         root.addView(Button(this).apply {
             text = "遠隔操作サービスを設定"
             setOnClickListener {
@@ -484,20 +498,16 @@ class MainActivity : Activity() {
     }
 
     private fun stopMonitoring() {
-        val stopIntent = Intent(this, MonitorService::class.java).setAction(MonitorService.ACTION_STOP)
-        try {
-            // Ask the running foreground service to execute its full shutdown path.
-            startService(stopIntent)
-            prefs.edit().putBoolean("monitoringEnabled", false).apply()
-            status.text = "監視待機の停止を要求しました。カメラ・マイク・通信を終了しています。"
-        } catch (error: Exception) {
-            // A direct stop is a last-resort fallback if Android rejects the explicit action.
-            stopService(Intent(this, MonitorService::class.java))
-            prefs.edit().putBoolean("monitoringEnabled", false).apply()
-            status.text = "監視サービスを停止しました。"
-            Toast.makeText(this, "停止処理: " + (error.message ?: "サービス終了"), Toast.LENGTH_LONG).show()
-        }
+        StopMonitoringReceiver.stop(this)
+        status.text = "監視待機を停止しました。カメラ・マイク・通信を終了しました。"
         refreshMonitoringButtons()
+    }
+
+    private fun applyKeepScreenAwake() {
+        val enabled = prefs.getBoolean("androidKeepScreenAwake", false)
+        if (enabled) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        keepAwakeButton.text = if (enabled) "📱 自動消灯防止 ON" else "📱 自動消灯防止 OFF"
     }
 
     private fun showSavedCode() {
@@ -516,55 +526,13 @@ class MainActivity : Activity() {
         super.onResume()
         prefs.edit().putBoolean("mainActivityVisible", true).apply()
         val filter = android.content.IntentFilter(MonitorService.ACTION_CODE).apply {
-            addAction(MonitorService.ACTION_SCREEN_PERMISSION_NEEDED)
+            addAction(ACTION_KEEP_SCREEN_AWAKE_STATE)
         }
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(codeReceiver, filter, RECEIVER_NOT_EXPORTED)
         else @Suppress("DEPRECATION") registerReceiver(codeReceiver, filter)
         showSavedCode()
         refreshMonitoringButtons()
-        maybeRequestScreenPermission()
-    }
-
-    override fun onNewIntent(intent: Intent?) {
-        super.onNewIntent(intent)
-        if (intent != null) {
-            setIntent(intent)
-            maybeRequestScreenPermission()
-        }
-    }
-
-    private fun maybeRequestScreenPermission() {
-        val launchIntent = intent ?: return
-        val explicitRequest = launchIntent.getBooleanExtra(MonitorService.EXTRA_REQUEST_SCREEN_PERMISSION, false)
-        val pendingRequest = prefs.getBoolean("pendingScreenPermission", false)
-        if (!explicitRequest && !pendingRequest) return
-        launchIntent.removeExtra(MonitorService.EXTRA_REQUEST_SCREEN_PERMISSION)
-        if (screenPermissionPromptStarted) return
-        screenPermissionPromptStarted = true
-        try {
-            val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            startActivityForResult(manager.createScreenCaptureIntent(), 5205)
-        } catch (error: Exception) {
-            screenPermissionPromptStarted = false
-            Toast.makeText(this, "画面共有の許可画面を開けませんでした：" + (error.message ?: "不明"), Toast.LENGTH_LONG).show()
-        }
-    }
-
-    @Deprecated("Android screen capture consent result")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != 5205) return
-        screenPermissionPromptStarted = false
-        prefs.edit().putBoolean("pendingScreenPermission", false).apply()
-        val result = Intent(this, MonitorService::class.java)
-            .setAction(MonitorService.ACTION_SCREEN_PERMISSION_RESULT)
-            .putExtra(MonitorService.EXTRA_SCREEN_RESULT_CODE, resultCode)
-        if (data != null) result.putExtra(MonitorService.EXTRA_SCREEN_RESULT_DATA, data)
-        try {
-            startService(result)
-        } catch (error: Exception) {
-            Toast.makeText(this, "画面共有の結果をアプリへ渡せませんでした：" + (error.message ?: "不明"), Toast.LENGTH_LONG).show()
-        }
+        applyKeepScreenAwake()
     }
 
     override fun onPause() {
@@ -575,9 +543,9 @@ class MainActivity : Activity() {
 
     private val codeReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
-            if (intent?.action == MonitorService.ACTION_SCREEN_PERMISSION_NEEDED) {
-                this@MainActivity.intent?.putExtra(MonitorService.EXTRA_REQUEST_SCREEN_PERMISSION, true)
-                maybeRequestScreenPermission()
+            if (intent?.action == ACTION_KEEP_SCREEN_AWAKE_STATE) {
+                prefs.edit().putBoolean("androidKeepScreenAwake", intent.getBooleanExtra("enabled", false)).apply()
+                applyKeepScreenAwake()
                 return
             }
             val code = intent?.getStringExtra(MonitorService.EXTRA_CODE) ?: return
@@ -601,5 +569,9 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         scope.cancel()
         super.onDestroy()
+    }
+
+    companion object {
+        const val ACTION_KEEP_SCREEN_AWAKE_STATE = "jp.a09848281.remotecamera.KEEP_SCREEN_AWAKE_STATE"
     }
 }
