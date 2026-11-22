@@ -235,9 +235,16 @@ class MonitorService : Service() {
         pollJob = null
         locationJob?.cancel()
         locationJob = null
-        rtc?.dispose()
-        try { setTorch(false) } catch (_: Exception) {}
-        rtc = null
+        try {
+            rtc?.dispose()
+        } catch (error: Exception) {
+            Log.e("RemoteCameraService", "RTC cleanup failed during explicit stop", error)
+        } finally {
+            rtc = null
+        }
+        try { setTorch(false) } catch (error: Exception) {
+            Log.w("RemoteCameraService", "Torch cleanup failed during explicit stop", error)
+        }
         updateStreamWakeLock(false)
         updateDisplayWakeLock(false)
         prefs.edit().putBoolean("monitoringEnabled", false).putBoolean("androidKeepScreenAwake", false).apply()
@@ -1242,11 +1249,16 @@ class MonitorService : Service() {
     override fun onDestroy() {
         pollJob?.cancel()
         locationJob?.cancel()
-        rtc?.dispose()
+        try {
+            rtc?.dispose()
+        } catch (error: Exception) {
+            Log.e("RemoteCameraService", "RTC cleanup failed during service destruction", error)
+        } finally {
+            rtc = null
+        }
         try { setTorch(false) } catch (error: Exception) {
             Log.w("RemoteCameraService", "Could not turn off torch during service cleanup", error)
         }
-        rtc = null
         try { updateStreamWakeLock(false) } catch (_: Exception) {}
         try { updateDisplayWakeLock(false) } catch (_: Exception) {}
         try { streamWifiLock?.let { if (it.isHeld) it.release() } } catch (_: Exception) {}
