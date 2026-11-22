@@ -10,12 +10,20 @@ import androidx.core.content.ContextCompat
 class ScheduleReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         when (intent?.action) {
-            Intent.ACTION_BOOT_COMPLETED -> restoreScheduleAfterBoot(context)
+            Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_MY_PACKAGE_REPLACED,
+            AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED -> restoreScheduleAfterBoot(context)
             ACTION_START -> {
                 val prefs = context.getSharedPreferences(AppConfig.PREFS, Context.MODE_PRIVATE)
                 val gasUrl = prefs.getString("gasUrl", "") ?: ""
                 if (!gasUrl.startsWith("https://script.google.com/macros/s/") || !gasUrl.endsWith("/exec")) {
                     Log.e("RemoteCameraSchedule", "Scheduled start skipped: GAS URL is unavailable.")
+                    return
+                }
+                val cameraGranted = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                val microphoneGranted = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (!cameraGranted || !microphoneGranted) {
+                    Log.e("RemoteCameraSchedule", "Scheduled start blocked: camera and microphone permissions must be granted in the app first.")
                     return
                 }
                 prefs.edit().putBoolean("monitoringEnabled", true).apply()

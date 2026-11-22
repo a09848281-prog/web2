@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.Gravity
+import android.util.Log
 import android.text.InputType
 import android.text.Editable
 import android.text.TextWatcher
@@ -53,6 +54,7 @@ class MainActivity : Activity() {
     private lateinit var scheduleStatus: TextView
     private var scheduleStartAt = 0L
     private var scheduleEndAt = 0L
+    private var pendingExactAlarmPermission = false
     private var uiInitialized = false
     private var gasUrl = ""
     private val prefs by lazy { getSharedPreferences(AppConfig.PREFS, MODE_PRIVATE) }
@@ -137,10 +139,10 @@ class MainActivity : Activity() {
         qualitySpinner.setSelection(listOf("360", "480", "720", "1080").indexOf(savedQuality).coerceAtLeast(0))
         root.addView(qualitySpinner, LinearLayout.LayoutParams(-1, -2))
         fpsSpinner = Spinner(this)
-        val fpsOptions = listOf("10 FPS", "15 FPS", "20 FPS", "24 FPS", "30 FPS", "60 FPS")
+        val fpsOptions = listOf("10 FPS", "15 FPS", "20 FPS", "24 FPS", "30 FPS", "40 FPS", "45 FPS", "50 FPS", "55 FPS", "60 FPS")
         fpsSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, fpsOptions)
         val savedFps = prefs.getInt("fps", 24)
-        fpsSpinner.setSelection(listOf(10, 15, 20, 24, 30, 60).indexOf(savedFps).coerceAtLeast(0))
+        fpsSpinner.setSelection(listOf(10, 15, 20, 24, 30, 40, 45, 50, 55, 60).indexOf(savedFps).coerceAtLeast(0))
         root.addView(fpsSpinner, LinearLayout.LayoutParams(-1, -2))
         root.addView(TextView(this).apply {
             text = "これは待機中に撮影する設定ではありません。Webから接続され、Androidカメラが起動したときに使う画質とFPSです。待機中は撮影・録画しません。1080p・60FPSは端末対応時のみ反映されます。"
@@ -229,7 +231,7 @@ class MainActivity : Activity() {
 
     private fun saveNativeVideoSettings() {
         val quality = listOf("360", "480", "720", "1080").getOrElse(qualitySpinner.selectedItemPosition) { "720" }
-        val fps = listOf(10, 15, 20, 24, 30, 60).getOrElse(fpsSpinner.selectedItemPosition) { 24 }
+        val fps = listOf(10, 15, 20, 24, 30, 40, 45, 50, 55, 60).getOrElse(fpsSpinner.selectedItemPosition) { 24 }
         prefs.edit()
             .putString("requestedQuality", quality)
             .putInt("fps", fps)
@@ -341,6 +343,7 @@ class MainActivity : Activity() {
         val alarm = getSystemService(Context.ALARM_SERVICE) as AlarmManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarm.canScheduleExactAlarms()) {
             try {
+                pendingExactAlarmPermission = true
                 startActivity(
                     Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
                         .setData(Uri.parse("package:$packageName"))
@@ -361,9 +364,37 @@ class MainActivity : Activity() {
             }
             prefs.edit().putLong("scheduleStartAt", scheduleStartAt).putLong("scheduleEndAt", scheduleEndAt).apply()
             updateScheduleLabels()
+            syncScheduleToGas(scheduleStartAt, scheduleEndAt)
             Toast.makeText(this, "開始・終了を秒単位で予約しました。", Toast.LENGTH_LONG).show()
         } catch (error: SecurityException) {
             Toast.makeText(this, "正確なアラームの権限がありません。設定から許可してください。", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun syncScheduleToGas(startAt: Long, endAt: Long) {
+        val id = prefs.getString("deviceId", "") ?: ""
+        val secret = prefs.getString("deviceSecret", "") ?: ""
+        if (id.isBlank() || secret.isBlank() || gasUrl.isBlank()) {
+            if (::scheduleStatus.isInitialized) scheduleStatus.text = scheduleStatus.text.toString() + "\nWeb同期：Android端末の登録後に同期します。"
+            return
+        }
+        val url = gasUrl
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    ApiClient(url).call("save_device_schedule", JSONObject()
+                        .put("deviceId", id).put("deviceSecret", secret)
+                        .put("startAt", startAt).put("endAt", endAt))
+                }
+                if (::scheduleStatus.isInitialized && scheduleStartAt == startAt && scheduleEndAt == endAt) {
+                    scheduleStatus.text = scheduleStatus.text.toString() + "\nWeb同期：完了"
+                }
+            } catch (error: Exception) {
+                Log.w("RemoteCameraSchedule", "Could not sync Android schedule to Web", error)
+                if (::scheduleStatus.isInitialized && scheduleStartAt == startAt && scheduleEndAt == endAt) {
+                    scheduleStatus.text = scheduleStatus.text.toString() + "\nWeb同期：失敗（予約はAndroid内に保存済み）"
+                }
+            }
         }
     }
 
@@ -375,6 +406,7 @@ class MainActivity : Activity() {
         scheduleEndAt = 0L
         prefs.edit().remove("scheduleStartAt").remove("scheduleEndAt").apply()
         updateScheduleLabels()
+        syncScheduleToGas(0L, 0L)
         Toast.makeText(this, "予約を解除しました。", Toast.LENGTH_SHORT).show()
     }
 
@@ -497,6 +529,15 @@ class MainActivity : Activity() {
         else @Suppress("DEPRECATION") registerReceiver(codeReceiver, filter)
         showSavedCode()
         refreshMonitoringButtons()
+        if (pendingExactAlarmPermission) {
+            pendingExactAlarmPermission = false
+            val alarm = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarm.canScheduleExactAlarms()) {
+                saveMonitoringSchedule()
+            } else {
+                Toast.makeText(this, "正確なアラームが許可されていないため、予約は保存されていません。", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     override fun onPause() {

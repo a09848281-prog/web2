@@ -288,6 +288,7 @@ class MonitorService : Service() {
         try {
             api = ApiClient(gasUrl)
             ensureDevice()
+            syncSavedScheduleToGas()
             if (!apiReady.isCompleted) apiReady.complete(Unit)
             while (scope.isActive) {
                 sampleTrafficUsage()
@@ -1017,6 +1018,21 @@ class MonitorService : Service() {
             .put("microphoneMode",prefs.getString("micMode","balanced") ?: "balanced")
             .put("network",networkInfo())
         rtc?.sendControlToOpenDataChannels(data)
+    }
+
+    private suspend fun syncSavedScheduleToGas() {
+        val startAt = prefs.getLong("scheduleStartAt", 0L)
+        val endAt = prefs.getLong("scheduleEndAt", 0L)
+        if (startAt <= 0L || endAt <= startAt) return
+        try {
+            api?.call("save_device_schedule", JSONObject()
+                .put("deviceId", prefs.getString("deviceId", ""))
+                .put("deviceSecret", prefs.getString("deviceSecret", ""))
+                .put("startAt", startAt).put("endAt", endAt))
+            Log.i("RemoteCameraSchedule", "Saved APK schedule synchronized to GAS.")
+        } catch (error: Exception) {
+            Log.w("RemoteCameraSchedule", "Saved APK schedule sync will be retried on next service start.", error)
+        }
     }
 
     private suspend fun ensureDevice() {

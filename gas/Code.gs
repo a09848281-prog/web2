@@ -584,7 +584,7 @@ function saveSettings_(r) {
   const clean = {
     quality: ["auto", "360", "480", "720", "1080"].includes(String(s.quality)) ? String(s.quality) : "720",
     dataMode: ["auto", "ultra", "save", "standard", "high"].includes(String(s.dataMode)) ? String(s.dataMode) : "standard",
-    fps: clamp_(s.fps, 10, 60, 24),
+    fps: [10, 15, 20, 24, 30, 40, 45, 50, 55, 60].includes(Number(s.fps)) ? Number(s.fps) : 24,
     aspectRatio: ["16:9", "4:3", "1:1", "9:16", "original"].includes(String(s.aspectRatio)) ? String(s.aspectRatio) : "16:9",
     micNoise: clamp_(s.micNoise, 0, 100, 0),
     micSensitivity: clamp_(s.micSensitivity, 0, 100, 0),
