@@ -264,13 +264,13 @@ class MonitorService : Service() {
     private fun requestScreenPermission(sessionId: String): String {
         val engine = rtc ?: error("WebRTC接続が終了しています。")
         screenRequesters.add(sessionId)
-        prefs.edit().putBoolean("pendingScreenPermission", true).apply()
-        sendBroadcast(Intent(ACTION_SCREEN_PERMISSION_NEEDED).setPackage(packageName))
         if (engine.isScreenSharing()) {
             engine.sendControl(sessionId, JSONObject().put("type", "screen_state").put("active", true)
                 .put("message", "Android画面を共有中です。"))
             return "画面共有中のストリームに接続しました。"
         }
+        prefs.edit().putBoolean("pendingScreenPermission", true).apply()
+        sendBroadcast(Intent(ACTION_SCREEN_PERMISSION_NEEDED).setPackage(packageName))
         if (!screenPermissionPending) {
             screenPermissionPending = true
             notifyScreenPermissionNeeded()
@@ -348,6 +348,7 @@ class MonitorService : Service() {
         locationJob = null
         screenRequesters.clear()
         screenPermissionPending = false
+        prefs.edit().putBoolean("pendingScreenPermission", false).apply()
         getSystemService(NotificationManager::class.java).cancel(SCREEN_NOTIFICATION_ID)
         rtc?.dispose()
         try { setTorch(false) } catch (_: Exception) {}
@@ -576,6 +577,7 @@ class MonitorService : Service() {
         screenRequesters.remove(sessionId)
         if (screenRequesters.isEmpty()) {
             screenPermissionPending = false
+            prefs.edit().putBoolean("pendingScreenPermission", false).apply()
             getSystemService(NotificationManager::class.java).cancel(SCREEN_NOTIFICATION_ID)
             rtc?.stopScreenShare("WebRTC接続が終了したため画面共有を停止しました。")
             try { updateForegroundScreenProjection(false) } catch (_: Exception) {}
@@ -1305,6 +1307,7 @@ class MonitorService : Service() {
         locationJob?.cancel()
         screenRequesters.clear()
         screenPermissionPending = false
+        try { prefs.edit().putBoolean("pendingScreenPermission", false).apply() } catch (_: Exception) {}
         try { getSystemService(NotificationManager::class.java).cancel(SCREEN_NOTIFICATION_ID) } catch (_: Exception) {}
         rtc?.dispose()
         try { setTorch(false) } catch (error: Exception) {
