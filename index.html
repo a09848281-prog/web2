@@ -70,7 +70,7 @@
         <div class="audioMeterPanel"><div><b>Androidマイク音声レベル</b><span id="audioLevelText">待機中</span></div><progress id="audioLevel" max="1" value="0"></progress></div>
         <label>Androidノイズ抑制（0=OFF／1〜100=ON要求） <output id="micNoiseValue">端末標準ON</output><input id="micNoise" type="range" min="0" max="100" step="1" value="70"></label>
         <p class="hint">0はOFF、1〜100はON要求です。Android標準NoiseSuppressorはON/OFF方式のため、数値に応じた段階的な強さは変更できません。変更は対応端末でリアルタイムに反映されます。</p>
-        <p class="hint">ノイズ抑制の効果は端末・音声処理に依存します。設定変更は次回RTC接続から反映されます。</p>
+        <p class="hint">ノイズ抑制はリアルタイムでON/OFFを要求します。端末APIが切替に対応しない場合は、次回音声開始時に再適用します。</p>
         <input type="hidden" id="micMode" value="balanced">
         <input type="hidden" id="micSensitivity" value="70"><output id="micSensitivityValue" hidden>70%</output>
         <input type="hidden" id="micGain" value="100"><output id="micGainValue" hidden>100%</output>
