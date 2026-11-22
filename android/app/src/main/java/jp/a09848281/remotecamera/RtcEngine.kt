@@ -343,30 +343,36 @@ class RtcEngine(
         val effectiveFps = chooseSupportedFps(cameraId, requested.fps)
         val fpsOptions = (listOf(effectiveFps, 60, 55, 50, 45, 40, 30, 24, 20, 15, 10))
             .distinct().filter { it in 10..effectiveFps }.sortedDescending()
+        // When the user explicitly asks for 50/55/60 FPS, try that frame rate
+        // at every supported size before falling back to a lower frame rate.
+        // The previous size-first loop silently preferred 1080p30 over 720p60.
+        val candidates = if (requested.fps >= 50) {
+            fpsOptions.flatMap { fps -> sizes.map { size -> Triple(size.first, size.second, fps) } }
+        } else {
+            sizes.flatMap { size -> fpsOptions.map { fps -> Triple(size.first, size.second, fps) } }
+        }
         var lastError: Exception? = null
-        for ((width, height) in sizes) {
-            for (fps in fpsOptions) {
-                var candidate: CameraVideoCapturer? = null
-                try {
-                    candidate = RemoteTorchCamera2Capturer(context, cameraId, null)
-                    candidate.initialize(surfaceHelper, context.applicationContext, source.capturerObserver)
-                    candidate.startCapture(width, height, fps)
-                    if (torchRequested) {
-                        try {
-                            (candidate as? TorchCaptureControl)?.setTorchEnabled(true)
-                        } catch (torchError: Exception) {
-                            torchRequested = false
-                            Log.w("RemoteCameraRTC", "Torch could not be restored on the selected camera", torchError)
-                        }
+        for ((width, height, fps) in candidates) {
+            var candidate: CameraVideoCapturer? = null
+            try {
+                candidate = RemoteTorchCamera2Capturer(context, cameraId, null)
+                candidate.initialize(surfaceHelper, context.applicationContext, source.capturerObserver)
+                candidate.startCapture(width, height, fps)
+                if (torchRequested) {
+                    try {
+                        (candidate as? TorchCaptureControl)?.setTorchEnabled(true)
+                    } catch (torchError: Exception) {
+                        torchRequested = false
+                        Log.w("RemoteCameraRTC", "Torch could not be restored on the selected camera", torchError)
                     }
-                    Log.i("RemoteCameraRTC", "Camera capture requested: ${width}x${height}@${fps}; supported output selected.")
-                    return StartedCapture(candidate, width, height, fps)
-                } catch (error: Exception) {
-                    lastError = error
-                    Log.w("RemoteCameraRTC", "Camera format failed: ${width}x${height}@${fps}", error)
-                    try { candidate?.stopCapture() } catch (_: Exception) {}
-                    try { candidate?.dispose() } catch (_: Exception) {}
                 }
+                Log.i("RemoteCameraRTC", "Camera capture profile selected: ${width}x${height}@${fps}; hardware support must be measured at runtime.")
+                return StartedCapture(candidate, width, height, fps)
+            } catch (error: Exception) {
+                lastError = error
+                Log.w("RemoteCameraRTC", "Camera format failed: ${width}x${height}@${fps}", error)
+                try { candidate?.stopCapture() } catch (_: Exception) {}
+                try { candidate?.dispose() } catch (_: Exception) {}
             }
         }
         throw lastError ?: IllegalStateException("対応する撮影形式がありません。")
