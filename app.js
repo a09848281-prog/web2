@@ -13,12 +13,12 @@ const S = {
   pc: null,
   connecting: false,
   mic: null,
+  micSender: null,
+  pttRequestId: 0,
+  pttRequested: false,
+  pttStarting: false,
   remoteAudioTracks: [],
-  remoteScreenStream: null,
   pendingControlAcks: new Map(),
-  screenRequested: false,
-  screenActive: false,
-  accessibilityEnabled: false,
   pttActive: false,
   session: "",
   seq: 0,
@@ -187,41 +187,93 @@ function stopPttSafetyTimer() {
   S.pttTimeout = null;
 }
 
-function ptt(enabled) {
-  const track = S.mic && S.mic.getAudioTracks()[0];
-  if (!track) return false;
+async function ptt(enabled) {
   const next = enabled === true;
   if (next) {
-    S.pttStartedAt = Date.now();
-    stopPttSafetyTimer();
-    S.pttTimeout = setTimeout(() => {
+    if (S.pttActive || S.pttStarting) return true;
+    if (!S.pc || !S.micSender) return false;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      toast("このブラウザーではマイクを利用できません。HTTPS接続とSafariの権限を確認してください。");
+      return false;
+    }
+    const requestId = ++S.pttRequestId;
+    S.pttRequested = true;
+    S.pttStarting = true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false
+      });
+      const track = stream.getAudioTracks()[0];
+      if (!track) throw new Error("マイク音声トラックを取得できませんでした。");
+      if (requestId !== S.pttRequestId || !S.pttRequested || !S.pc || S.pc.connectionState === "closed") {
+        stream.getTracks().forEach(item => item.stop());
+        return false;
+      }
+      S.mic = stream;
+      await S.micSender.replaceTrack(track);
+      if (requestId !== S.pttRequestId || !S.pttRequested || !S.pc) {
+        try { await S.micSender?.replaceTrack(null); } catch (_) {}
+        stream.getTracks().forEach(item => item.stop());
+        if (S.mic === stream) S.mic = null;
+        return false;
+      }
+      track.enabled = true;
+      S.pttActive = true;
+      S.pttStartedAt = Date.now();
+      stopPttSafetyTimer();
+      S.pttTimeout = setTimeout(() => {
+        S.pttLocked = false;
+        S.pttKeyActive = false;
+        $("pttLock").textContent = "送話ロック OFF";
+        $("pttLock").classList.remove("active");
+        ptt(false);
+        toast("安全タイマーにより送話を3分で自動停止しました。");
+      }, 180000);
+      S.remoteAudioTracks.forEach(remoteTrack => { remoteTrack.enabled = false; });
+      stopAudioMeter();
+      $("audioLevelText").textContent = "送話中";
+      $("ptt").classList.add("active");
+      $("ptt").textContent = "🎙 送話中…";
+      return true;
+    } catch (error) {
+      if (S.mic) {
+        S.mic.getTracks().forEach(item => item.stop());
+        S.mic = null;
+      }
+      S.pttRequested = false;
       S.pttLocked = false;
-      S.pttKeyActive = false;
       $("pttLock").textContent = "送話ロック OFF";
       $("pttLock").classList.remove("active");
-      ptt(false);
-      toast("安全タイマーにより送話を3分で自動停止しました。");
-    }, 180000);
-  } else {
-    stopPttSafetyTimer();
-    S.pttStartedAt = 0;
+      const reason = error?.name === "NotAllowedError" ? "マイク使用が許可されませんでした。" : "マイクを開始できません: " + (error?.message || "不明なエラー");
+      toast(reason);
+      return false;
+    } finally {
+      S.pttStarting = false;
+    }
   }
-  S.pttActive = next;
-  track.enabled = next;
-  S.remoteAudioTracks.forEach(remoteTrack => { remoteTrack.enabled = !next && !S.remoteAudioMuted; });
-  if (next) {
-    stopAudioMeter();
-    $("audioLevelText").textContent = "送話中";
-  } else if (S.remoteAudioTracks.some(remoteTrack => remoteTrack.readyState === "live") && !S.remoteAudioMuted) {
-    startAudioMeter();
+
+  S.pttRequested = false;
+  ++S.pttRequestId;
+  stopPttSafetyTimer();
+  S.pttStartedAt = 0;
+  S.pttActive = false;
+  const stream = S.mic;
+  S.mic = null;
+  try { await S.micSender?.replaceTrack(null); } catch (error) {
+    console.warn("Could not detach the Web microphone sender", error);
   }
-  $("ptt").classList.toggle("active", next);
-  $("ptt").textContent = next ? "🎙 送話中…" : "🎙 押している間だけ話す";
+  try { stream?.getTracks().forEach(track => track.stop()); } catch (_) {}
+  S.remoteAudioTracks.forEach(remoteTrack => { remoteTrack.enabled = !S.remoteAudioMuted; });
+  if (S.remoteAudioTracks.some(remoteTrack => remoteTrack.readyState === "live") && !S.remoteAudioMuted) startAudioMeter();
+  $("ptt").classList.remove("active");
+  $("ptt").textContent = "🎙 押している間だけ話す";
+  if (S.remoteAudioMuted) $("audioLevelText").textContent = "ミュート中";
   return true;
 }
 
 function togglePttLock() {
-  if (!S.mic || !S.mic.getAudioTracks().some(track => track.readyState === "live")) {
+  if (!S.pc || !S.micSender) {
     toast("先にAndroidへ接続してください。");
     return;
   }
@@ -769,12 +821,10 @@ function setControlsEnabled(enabled) {
   $("disconnect").disabled = !S.pc;
   $("torch").disabled = !S.pc || !S.control || S.control.readyState !== "open" || !S.flashAvailable;
   $("camera").disabled = !enabled || !S.pc;
-  $("ptt").disabled = !S.pc || !S.mic;
+  $("ptt").disabled = !S.pc || !S.micSender;
   $("remoteMute").disabled = true;
-  $("screenTab").disabled = !enabled || !S.pc || !S.control || S.control.readyState !== "open";
   updateAndroidMediaButtons();
-  updateScreenControls();
-  $("pttLock").disabled = !enabled || !S.pc || !S.mic;
+  $("pttLock").disabled = !enabled || !S.pc || !S.micSender;
   $("keepAwake").disabled = !enabled || !S.pc;
 }
 function selectDevice(device) {
@@ -894,9 +944,6 @@ function waitIce(pc, ms) {
 async function connect(automatic = false) {
   automatic = automatic === true;
   if (!S.device) return toast("先にAndroidをペアリングしてください。");
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    return toast("このブラウザではマイクを利用できません。SafariのHTTPS接続を確認してください。");
-  }
   if (S.connecting) return false;
   const device = S.device;
   if (!device) return false;
@@ -917,21 +964,10 @@ async function connect(automatic = false) {
     if (!S.device || S.device.deviceId !== device.deviceId) {
       throw Error("接続先端末が変更されました。もう一度選択してください。");
     }
-    // Reuse the already-authorized microphone during automatic recovery.
-    let stream = S.mic;
-    let localAudioTrack = stream && stream.getAudioTracks().find(track => track.readyState === "live");
-    if (!localAudioTrack) {
-      if (stream) stream.getTracks().forEach(track => track.stop());
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: false
-      });
-      S.mic = stream;
-      localAudioTrack = stream.getAudioTracks()[0] || null;
-    }
-    if (!localAudioTrack) throw Error("マイク音声トラックを作成できませんでした。");
-    if (!S.device || S.device.deviceId !== device.deviceId) throw Error("接続先端末が変更されました。");
-    localAudioTrack.enabled = false;
+    // No microphone is acquired until the user presses the PTT button.
+    S.mic = null;
+    S.micSender = null;
+    S.pttRequested = false;
     S.pttActive = false;
     S.session = rid();
     S.seq = 0;
@@ -957,8 +993,7 @@ async function connect(automatic = false) {
       startRtcStats();
       startVideoWatchdog(pc);
        updateAndroidMediaButtons();
-       updateScreenControls();
-       $("remoteMute").disabled = true;
+        $("remoteMute").disabled = true;
       $("pttLock").disabled = false;
       $("keepAwake").disabled = false;
       if (S.keepAwakeWanted && !S.wakeLock) enableScreenWakeLock().catch(() => {});
@@ -971,14 +1006,9 @@ async function connect(automatic = false) {
       $("cameraToggle").disabled = true;
       $("micToggle").disabled = true;
       updateAndroidMediaButtons();
-      S.screenRequested = false;
-      S.screenActive = false;
       settlePendingControlAcks("制御チャネルが切断されました。");
-      updateScreenControls();
-      $("screenPlaceholder").classList.remove("hidden");
-      $("screenStatus").textContent = "制御チャネルが切断されました。";
-      $("pttLock").disabled = true;
-      if (S.pttActive) ptt(false);
+          $("pttLock").disabled = true;
+      if (S.pttActive || S.pttRequested) ptt(false);
       S.pttLocked = false;
       $("pttLock").textContent = "送話ロック OFF";
       $("pttLock").classList.remove("active");
@@ -995,62 +1025,33 @@ async function connect(automatic = false) {
     };
     $("camera").disabled = false;
     const remote = new MediaStream();
-    const remoteScreen = new MediaStream();
     S.remoteVideoStream = remote;
-    S.remoteScreenStream = remoteScreen;
     $("remoteVideo").style.objectFit = "contain";
     $("remoteVideo").style.objectPosition = "50% 50%";
     $("remoteVideo").srcObject = remote;
     $("remoteVideo").muted = true;
     prepareAudioOutput();
     pc.addTransceiver("video", { direction: "recvonly" });
-    pc.addTransceiver("video", { direction: "recvonly" });
-    pc.addTrack(localAudioTrack, stream);
-    $("remoteScreenVideo").srcObject = remoteScreen;
-    $("remoteScreenVideo").addEventListener("loadedmetadata", syncScreenStageAspectRatio);
-    $("remoteScreenVideo").addEventListener("resize", syncScreenStageAspectRatio);
+    const audioTransceiver = pc.addTransceiver("audio", { direction: "sendrecv" });
+    S.micSender = audioTransceiver.sender;
     pc.ontrack = event => {
       if (S.pc !== pc) return;
       const track = event.track;
-      const isScreenTrack = track.kind === "video" && (event.streams || []).some(stream => stream.id === "remote-screen");
       if (track.kind === "video") {
-        const target = isScreenTrack ? remoteScreen : remote;
-        if (!target.getTracks().some(existing => existing.id === track.id)) target.addTrack(track);
-        if (isScreenTrack) {
-          $("remoteScreenVideo").play().catch(() => {});
-          track.addEventListener("unmute", () => {
-            if (S.pc !== pc) return;
-            $("screenPlaceholder").classList.add("hidden");
-            $("screenStatus").textContent = "Android画面を受信しています。タップ・スワイプで操作できます。";
-            S.screenActive = true;
-            updateScreenControls();
-            $("remoteScreenVideo").play().catch(() => {});
-          });
-          track.addEventListener("mute", () => {
-            if (!S.screenActive) return;
-            $("screenStatus").textContent = "画面映像が一時停止しました。";
-          });
-          track.addEventListener("ended", () => {
-            S.screenActive = false;
-            $("screenPlaceholder").classList.remove("hidden");
-            $("screenStatus").textContent = "画面映像が終了しました。";
-            updateScreenControls();
-          });
-        } else {
-          track.addEventListener("ended", () => {
-            $("videoState").textContent = "映像トラック終了";
-            stopMotionDetection("映像が終了しました。");
-            if (S.pc === pc && !S.manualDisconnect) scheduleReconnect(pc, true, 1200);
-          });
-          track.addEventListener("mute", () => { $("videoState").textContent = "映像一時停止"; });
-          track.addEventListener("unmute", () => { $("videoState").textContent = "映像再開中"; startMotionDetection(); });
-          $("placeholder").classList.add("hidden");
-          $("remoteVideo").play().then(() => {
-            restoreRemotePlayback();
-            startVideoWatchdog(pc);
-            startMotionDetection();
-          }).catch(() => toast("映像・音声を再生するには画面をタップしてください。"));
-        }
+        if (!remote.getTracks().some(existing => existing.id === track.id)) remote.addTrack(track);
+        track.addEventListener("ended", () => {
+          $("videoState").textContent = "映像トラック終了";
+          stopMotionDetection("映像が終了しました。");
+          if (S.pc === pc && !S.manualDisconnect) scheduleReconnect(pc, true, 1200);
+        });
+        track.addEventListener("mute", () => { $("videoState").textContent = "映像一時停止"; });
+        track.addEventListener("unmute", () => { $("videoState").textContent = "映像再開中"; startMotionDetection(); });
+        $("placeholder").classList.add("hidden");
+        $("remoteVideo").play().then(() => {
+          restoreRemotePlayback();
+          startVideoWatchdog(pc);
+          startMotionDetection();
+        }).catch(() => toast("映像・音声を再生するには画面をタップしてください。"));
       } else if (track.kind === "audio" && !S.remoteAudioTracks.some(existing => existing.id === track.id)) {
         track.enabled = !S.pttActive && !S.remoteAudioMuted;
         track.addEventListener("unmute", () => attachRemoteAudio());
@@ -1078,7 +1079,7 @@ async function connect(automatic = false) {
         startRtcStats();
         startVideoWatchdog(pc);
       } else if ((state === "failed" || state === "disconnected" || state === "closed") && S.everConnected && !S.manualDisconnect) {
-        if (S.pttActive) ptt(false);
+        if (S.pttActive || S.pttRequested) ptt(false);
         S.pttLocked = false;
         $("pttLock").textContent = "送話ロック OFF";
         $("pttLock").classList.remove("active");
@@ -1102,13 +1103,13 @@ async function connect(automatic = false) {
     $("connect").disabled = true;
     $("disconnect").disabled = false;
     $("ptt").disabled = false;
+    $("pttLock").disabled = false;
     $("streamState").textContent = "Android応答待ち";
     status("接続要求中");
     pollAnswers(pc, S.session, device);
     return true;
   } catch (error) {
-    const permissionDenied = error.name === "NotAllowedError" || error.name === "PermissionDeniedError" || error.name === "SecurityError";
-    await disconnect(false, !permissionDenied && (automatic || S.everConnected), true);
+    await disconnect(false, false, true);
     toast("接続開始失敗: " + error.message);
     if (S.everConnected && !S.manualDisconnect) scheduleReconnect(null);
     return false;
@@ -1170,15 +1171,11 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   const device = S.device;
   const sessionId = S.session;
   const old = S.pc;
+  await ptt(false);
   if (notifyRemote && old && device && sessionId) {
     const channelOpen = S.control?.readyState === "open";
-    // Wait for Android to acknowledge the stop/disconnect requests before closing SCTP.
-    if (channelOpen && (S.screenRequested || S.screenActive)) {
-      const screenStopResult = await sendControlAndWait("screen_stop", {}, 1200);
-      if (!screenStopResult.ok) console.warn("Screen stop was not acknowledged", screenStopResult.message);
-    }
     if (channelOpen) {
-      const disconnectResult = await sendControlAndWait("disconnect", { sessionId }, 1800);
+      const disconnectResult = await sendControlAndWait("disconnect", { sessionId }, 800);
       if (!disconnectResult.ok) console.warn("Remote disconnect was not acknowledged", disconnectResult.message);
     }
     try {
@@ -1200,12 +1197,6 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
       }
     }
   }
-  S.screenRequested = false;
-  S.screenActive = false;
-  $("screenPlaceholder").classList.remove("hidden");
-  $("screenStatus").textContent = "接続を終了しました。";
-  updateScreenControls();
-
   stopRtcStats();
   stopVideoWatchdog();
   stopSessionClock();
@@ -1216,10 +1207,6 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   S.pttActive = false;
   $("pttLock").textContent = "送話ロック OFF";
   $("pttLock").classList.remove("active");
-  try {
-    const track = S.mic && S.mic.getAudioTracks()[0];
-    if (track) track.enabled = false;
-  } catch (_) {}
   stopAudioMeter();
   try { S.remoteAudioSource?.disconnect(); } catch (_) {}
   try { S.remoteAnalyser?.disconnect(); } catch (_) {}
@@ -1241,19 +1228,15 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   S.session = "";
   try { old?.close(); } catch (_) {}
 
-  if (!preserveMic && S.mic) {
+  if (S.mic) {
     S.mic.getTracks().forEach(track => track.stop());
     S.mic = null;
   }
+  S.micSender = null;
+  S.pttRequested = false;
+  S.pttStarting = false;
   S.remoteAudioTracks = [];
   S.remoteVideoStream = null;
-  S.remoteScreenStream = null;
-  $("remoteScreenVideo").srcObject = null;
-  $("remoteScreenVideo").style.width = "";
-  $("remoteScreenVideo").style.height = "";
-  $("screenStage").style.width = "";
-  $("screenStage").style.height = "";
-  $("screenStage").style.aspectRatio = "";
   $("remoteVideo").srcObject = null;
   $("remoteVideo").muted = false;
   $("placeholder").classList.remove("hidden");
@@ -1267,6 +1250,7 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   $("micToggle").disabled = true;
   updateAndroidMediaButtons();
   $("ptt").disabled = true;
+  $("pttLock").disabled = true;
   $("pttLock").disabled = true;
   $("keepAwake").disabled = true;
   $("ptt").classList.remove("active");
@@ -1432,23 +1416,6 @@ function settlePendingControlAcks(message = "制御チャネルが閉じられ�
     S.pendingControlAcks.delete(requestId);
   }
 }
-function syncScreenStageAspectRatio() {
-  const video = $("remoteScreenVideo");
-  const stage = $("screenStage");
-  if (!video || !stage) return;
-  const width = Number(video.videoWidth) || 0;
-  const height = Number(video.videoHeight) || 0;
-  if (!(width > 0 && height > 0)) return;
-  const containerWidth = stage.parentElement?.clientWidth || window.innerWidth - 32;
-  const maxHeight = Math.max(160, window.innerHeight * (window.matchMedia("(max-width: 650px)").matches ? 0.58 : 0.68));
-  const fitted = RemoteScreenUtils.fitStageSize(containerWidth, maxHeight, width, height);
-  if (!fitted) return;
-  stage.style.aspectRatio = fitted.aspectRatio;
-  stage.style.width = fitted.width + "px";
-  stage.style.height = fitted.height + "px";
-  stage.dataset.videoWidth = String(width);
-  stage.dataset.videoHeight = String(height);
-}
 function updateAndroidMediaButtons() {
   const open = S.control?.readyState === "open";
   $("cameraToggle").disabled = !open;
@@ -1528,14 +1495,6 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
   $("networkSummary").textContent=ackResult.message;
   if(!d.ok)toast(ackResult.message);
  }
- else if(d.type==="screen_state"){
-  S.screenActive = d.active === true;
-  if (!S.screenActive || d.denied) S.screenRequested = false;
-  $("screenStatus").textContent = String(d.message || (S.screenActive ? "Android画面を受信しています。" : "画面共有は停止中です。"));
-  $("screenPlaceholder").classList.toggle("hidden", S.screenActive);
-  if (S.screenActive) $("remoteScreenVideo").play().catch(() => {});
-  updateScreenControls();
- }
  else if(d.type==="device_settings"){
   const v=d.settings||{};
   if(["auto","360","480","720","1080"].includes(String(v.quality))) $("quality").value=String(v.quality);
@@ -1592,12 +1551,9 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
  }
  else if(d.type==="telemetry"){
   S.deviceTelemetry = d;
-  S.accessibilityEnabled = d.accessibilityEnabled === true;
-  if (S.screenActive && !S.accessibilityEnabled) $("screenStatus").textContent = "画面共有中です。操作するにはAndroid設定で「Remote Camera操作サービス」を有効にしてください。";
   S.androidCameraEnabled = d.cameraEnabled !== false;
   S.androidMicEnabled = d.microphoneEnabled !== false;
   updateAndroidMediaButtons();
-  updateScreenControls();
   const width=Number(d.captureWidth)||0,height=Number(d.captureHeight)||0,actualFps=Number(d.captureFps)||0;
   $("actualVideoFormat").textContent = width>0&&height>0 ? "撮影形式 "+width+"×"+height+" @ "+(actualFps||"--")+"FPS" : "撮影形式 取得待ち";
   if(Number.isFinite(Number(d.speakerVolumePercent))) $("androidSpeakerVolume").value=String(Math.max(0,Math.min(100,Number(d.speakerVolumePercent))));
@@ -1894,83 +1850,22 @@ function startLocationRefresh() {
     }
   }, 30000);
 }
-function stopScreenShareRequest(showMessage = false) {
-  const shouldStop = S.screenRequested || S.screenActive;
-  if (shouldStop && S.control?.readyState === "open") {
-    sendControlAndWait("screen_stop", {}, 1400).then(result => {
-      if (!result.ok) {
-        console.warn("Screen-stop acknowledgement missing", result.message);
-        if (showMessage) $("screenStatus").textContent = "停止要求は送信しました。Androidの停止応答を確認できませんでした。";
-      } else if (showMessage) {
-        $("screenStatus").textContent = result.message || "画面共有を停止しました。";
-      }
-    });
-  }
-  S.screenRequested = false;
-  S.screenActive = false;
-  $("screenPlaceholder").classList.remove("hidden");
-  if (showMessage) $("screenStatus").textContent = "画面共有の停止を要求しました。";
-  updateScreenControls();
-}
-function requestScreenShare() {
-  if (!S.pc || S.control?.readyState !== "open") {
-    $("screenStatus").textContent = "先にAndroidへ接続してください。";
-    toast("画面共有にはAndroidとの接続が必要です。");
-    return;
-  }
-  if (S.screenRequested || S.screenActive) return;
-  S.screenRequested = true;
-  $("screenStatus").textContent = "Androidへ画面共有を要求しています。Androidアプリが前面なら許可画面が自動で開きます。バックグラウンドならAndroid通知をタップして許可してください。";
-  $("screenPlaceholder").classList.remove("hidden");
-  if (!sendControl("screen_start", {})) {
-    S.screenRequested = false;
-    $("screenStatus").textContent = "要求を送信できませんでした。接続を確認してください。";
-  }
-  updateScreenControls();
-}
-function updateScreenControls() {
-  const connected = !!S.pc && S.control?.readyState === "open";
-  const canControl = connected && S.screenActive && S.accessibilityEnabled;
-  ["screenBack","screenHome","screenRecent","screenNotifications","screenQuickSettings","screenSendText","screenOpenApp","screenOpenUrl"].forEach(id => { if ($(id)) $(id).disabled = !canControl; });
-  $("screenStop").disabled = !connected || (!S.screenRequested && !S.screenActive);
-  $("screenTab").disabled = !connected;
-  $("screenTextInput").disabled = !canControl;
-  $("screenAppInput").disabled = !canControl;
-  $("screenUrlInput").disabled = !canControl;
-}
-function showScreen() {
-  stopLocationRefresh();
-  $("videoPane").classList.add("hidden");
-  $("mapPane").classList.add("hidden");
-  $("screenPane").classList.remove("hidden");
-  $("screenTab").classList.add("active");
-  $("videoTab").classList.remove("active");
-  $("mapTab").classList.remove("active");
-  if (!S.screenRequested && !S.screenActive) requestScreenShare();
-  updateScreenControls();
-}
 function showMap() {
-  stopScreenShareRequest();
-  $("screenPane").classList.add("hidden");
   $("videoPane").classList.add("hidden");
   $("mapPane").classList.remove("hidden");
   $("mapTab").classList.add("active");
   $("videoTab").classList.remove("active");
-  $("screenTab").classList.remove("active");
   initMap();
   setTimeout(() => { if (S.map) S.map.invalidateSize(); }, 100);
   if (S.history.length) drawMap(S.history);
   startLocationRefresh();
 }
 function showVideo() {
-  stopScreenShareRequest();
   stopLocationRefresh();
-  $("screenPane").classList.add("hidden");
   $("mapPane").classList.add("hidden");
   $("videoPane").classList.remove("hidden");
   $("videoTab").classList.add("active");
   $("mapTab").classList.remove("active");
-  $("screenTab").classList.remove("active");
   restoreRemotePlayback();
   if (S.pc) startVideoWatchdog(S.pc);
 }
@@ -2095,9 +1990,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("claim").addEventListener("click", claimDevice);
   $("connect").addEventListener("click", () => connect(false));
   $("disconnect").addEventListener("click", () => disconnect(true));
-  updateScreenControls();
   $("ptt").addEventListener("pointerdown", event => {
-    if (!S.pc || !S.mic) return;
+    if (!S.pc || !S.micSender) return;
     event.preventDefault();
     try { $("ptt").setPointerCapture(event.pointerId); } catch (_) {}
     if (S.pttLocked) {
@@ -2121,7 +2015,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const target = event.target;
     if (target && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(target.tagName)) return;
     if (event.repeat || S.pttKeyActive || S.pttLocked) return;
-    if (!S.pc || !S.mic) return;
+    if (!S.pc || !S.micSender) return;
     event.preventDefault();
     S.pttKeyActive = true;
     ptt(true);
@@ -2166,50 +2060,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("deleteHistory").addEventListener("click", () => deleteHistory().catch(error => toast(error.message)));
   $("videoTab").addEventListener("click", showVideo);
   $("mapTab").addEventListener("click", showMap);
-  $("screenTab").addEventListener("click", showScreen);
-  $("screenStop").addEventListener("click", () => stopScreenShareRequest(true));
-  const remoteAction = name => { if (!S.screenActive || !S.accessibilityEnabled) return toast("Android画面共有と操作サービスの有効化が必要です。"); if (!sendControl(name, {})) toast("Androidへ操作を送信できませんでした。"); };
-  $("screenBack").addEventListener("click", () => remoteAction("remote_back"));
-  $("screenHome").addEventListener("click", () => remoteAction("remote_home"));
-  $("screenRecent").addEventListener("click", () => remoteAction("remote_recents"));
-  $("screenNotifications").addEventListener("click", () => remoteAction("remote_notifications"));
-  $("screenQuickSettings").addEventListener("click", () => remoteAction("remote_quick_settings"));
-  $("screenSendText").addEventListener("click", () => { const textValue = RemoteScreenUtils.sanitizeText($("screenTextInput").value); if (!textValue) return; if (sendControl("remote_text", { text: textValue })) $("screenTextInput").value = ""; });
-  $("screenOpenApp").addEventListener("click", () => { const appName = $("screenAppInput").value.trim().slice(0,120); if (appName) sendControl("remote_open_app", { app: appName }); });
-  $("screenOpenUrl").addEventListener("click", () => { const url = $("screenUrlInput").value.trim().slice(0,1500); if (/^https?:\/\//i.test(url)) sendControl("remote_open_url", { url }); else toast("http:// または https:// から始まるURLを入力してください。"); });
-  let screenPointerStart = null;
-  $("screenTouchLayer").addEventListener("pointerdown", event => {
-    if (!S.screenActive || !S.accessibilityEnabled || !S.control || S.control.readyState !== "open") return;
-    const rect = $("remoteScreenVideo").getBoundingClientRect();
-    const point = RemoteScreenUtils.mapPoint(rect, $("remoteScreenVideo").videoWidth, $("remoteScreenVideo").videoHeight, event.clientX, event.clientY);
-    if (!point) return;
-    screenPointerStart = { point, clientX: event.clientX, clientY: event.clientY, pointerId: event.pointerId, startedAt: Date.now(), moved: false, endPoint: point };
-    try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) {}
-    event.preventDefault();
-  });
-  $("screenTouchLayer").addEventListener("pointermove", event => {
-    if (!screenPointerStart || screenPointerStart.pointerId !== event.pointerId) return;
-    if (Math.hypot(event.clientX - screenPointerStart.clientX, event.clientY - screenPointerStart.clientY) > 14) screenPointerStart.moved = true;
-    const rect = $("remoteScreenVideo").getBoundingClientRect();
-    const point = RemoteScreenUtils.mapPoint(rect, $("remoteScreenVideo").videoWidth, $("remoteScreenVideo").videoHeight, event.clientX, event.clientY);
-    if (point) screenPointerStart.endPoint = point;
-    event.preventDefault();
-  });
-  $("screenTouchLayer").addEventListener("pointerup", event => {
-    const start = screenPointerStart;
-    if (!start || start.pointerId !== event.pointerId) return;
-    screenPointerStart = null;
-    const duration = Date.now() - start.startedAt;
-    const gesture = RemoteScreenUtils.classifyGesture(start.point, start.endPoint, duration, start.moved);
-    const payload = { width: $("remoteScreenVideo").videoWidth, height: $("remoteScreenVideo").videoHeight };
-    if (gesture.type === "tap") sendControl("remote_tap", { ...payload, x: start.point.x, y: start.point.y });
-    else if (gesture.type === "long_press") sendControl("remote_long_press", { ...payload, x: start.point.x, y: start.point.y });
-    else if (gesture.type === "swipe") sendControl("remote_swipe", { ...payload, startX: start.point.x, startY: start.point.y, endX: start.endPoint.x, endY: start.endPoint.y, durationMs: gesture.durationMs });
-    event.preventDefault();
-  });
-  $("screenTouchLayer").addEventListener("pointercancel", () => { screenPointerStart = null; });
-  window.addEventListener("resize", syncScreenStageAspectRatio, { passive: true });
-  window.addEventListener("orientationchange", () => setTimeout(syncScreenStageAspectRatio, 120), { passive: true });
   $("fullscreen").addEventListener("click", toggleFullscreen);
   $("motionEnabled").addEventListener("change", saveMotionSettings);
   $("motionSensitivity").addEventListener("change", saveMotionSettings);
@@ -2370,20 +2220,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 window.addEventListener("pagehide", () => {
   if (!S.control || S.control.readyState !== "open") return;
   try {
-    if (S.screenRequested || S.screenActive) {
-      S.control.send(JSON.stringify({ type: "command", command: "screen_stop", requestId: rid(), payload: {} }));
-    }
-    // DataChannel is ordered: request the viewer session to close after screen_stop.
     S.control.send(JSON.stringify({ type: "command", command: "disconnect", requestId: rid(), payload: { sessionId: S.session } }));
   } catch (error) {
     console.warn("Could not send remote shutdown during pagehide", error);
   }
 });
-window.addEventListener("pageshow", event => {
-  if (!event.persisted) return;
-  S.screenRequested = false;
-  S.screenActive = false;
-  $("screenPlaceholder").classList.remove("hidden");
-  $("screenStatus").textContent = "画面共有状態を再確認してください。";
-  updateScreenControls();
-});
+
