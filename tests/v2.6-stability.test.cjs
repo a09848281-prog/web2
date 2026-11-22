@@ -112,7 +112,8 @@ test("flashlight requests are tracked and restored after camera switching", () =
   assert.match(service, /registerTorchCallback/);
   assert.match(service, /onTorchModeChanged\(cameraId: String, enabled: Boolean\)/);
   assert.match(service, /sortedByDescending \{ it == selectedId \}/);
-  assert.doesNotMatch(service, /Torch restore after camera switch/);\n  assert.match(service, /if \(enabled\) torchRequested = false/);
+  assert.doesNotMatch(service, /Torch restore after camera switch/);
+  assert.match(service, /if \(enabled\) torchRequested = false/);
   assert.match(service, /activeTorchCameraId/);
   assert.match(service, /CameraAccessException\.CAMERA_IN_USE/);
   assert.match(service, /\.put\("flashEnabled",torchEnabled\)/);
