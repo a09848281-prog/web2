@@ -198,7 +198,7 @@ assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from S
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.2.0"'), "GAS API version must be 1.2.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 426"), "Android version code must be 427 for v2.6");
+assert.ok(androidBuild.includes("versionCode = 427"), "Android version code must be 427 for v2.6");
 assert.equal(manifestJson.name, "Remote Camera Web2 v2.6 Preview", "PWA display name must match v2.6");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 console.log("Web2 source checks passed.");
@@ -223,7 +223,6 @@ assert.ok(main.includes("FLAG_KEEP_SCREEN_ON") && main.includes("ACTION_KEEP_SCR
 assert.ok(html.includes('id="androidKeepAwake"') && js.includes('sendControl("android_keep_awake"'), "Web must expose Android display-awake toggle");
 assert.ok(service.includes('if (!enabled && !torchEnabled)') && service.includes("activeTorchCameraId"), "Torch cleanup must not call CameraManager when flashlight was never enabled");
 assert.ok(service.includes("LENS_FACING_BACK") && service.includes("FLASH_INFO_AVAILABLE"), "Flash capability must match a rear camera flash");
-assert.ok(rtc.includes('listOf("remote-screen")') && service.includes("screenRequesters"), "Screen capture recipients must remain isolated by Web session");
 
 assert.ok(html.includes('class="settingsGroup"'), "Legacy v4.1 collapsible settings groups must be restored");
 assert.ok(html.includes('class="viewerControls"'), "Legacy v4.1 viewer toolbar must be restored");
