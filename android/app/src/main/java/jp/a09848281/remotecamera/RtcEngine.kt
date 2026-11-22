@@ -78,6 +78,37 @@ class RtcEngine(
     @Volatile private var cameraEnabled = true
     @Volatile private var microphoneEnabled = true
     @Volatile private var iceServerConfig = JSONArray()
+    private val captureFpsLock = Any()
+    private var captureFpsWindowStartedNs = 0L
+    private var captureFramesInWindow = 0
+    @Volatile private var measuredCaptureFps = 0
+    @Volatile private var lastCaptureFrameAtNs = 0L
+    private val captureFpsMonitor = object : VideoSink {
+        override fun onFrame(frame: VideoFrame) {
+            val now = System.nanoTime()
+            synchronized(captureFpsLock) {
+                lastCaptureFrameAtNs = now
+                if (captureFpsWindowStartedNs == 0L) captureFpsWindowStartedNs = now
+                captureFramesInWindow++
+                val elapsed = now - captureFpsWindowStartedNs
+                if (elapsed >= 2_000_000_000L) {
+                    measuredCaptureFps = ((captureFramesInWindow.toDouble() * 1_000_000_000.0) / elapsed)
+                        .roundToInt().coerceIn(0, 120)
+                    captureFpsWindowStartedNs = now
+                    captureFramesInWindow = 0
+                }
+            }
+        }
+    }
+
+    private fun resetCaptureFpsMonitor() {
+        synchronized(captureFpsLock) {
+            captureFpsWindowStartedNs = 0L
+            captureFramesInWindow = 0
+            measuredCaptureFps = 0
+            lastCaptureFrameAtNs = 0L
+        }
+    }
 
     fun setIceServers(servers: JSONArray?) {
         iceServerConfig = servers ?: JSONArray()
@@ -424,7 +455,11 @@ class RtcEngine(
             captureWidth = started.width
             captureHeight = started.height
             captureFps = started.fps
-            videoTrack = factory!!.createVideoTrack("remote-camera-video", videoSource).apply { setEnabled(true) }
+            resetCaptureFpsMonitor()
+            videoTrack = factory!!.createVideoTrack("remote-camera-video", videoSource).apply {
+                setEnabled(true)
+                addSink(captureFpsMonitor)
+            }
             val constraints = MediaConstraints()
             val ambientMode = microphoneMode == "ambient"
             constraints.mandatory.add(MediaConstraints.KeyValuePair(
@@ -709,14 +744,22 @@ class RtcEngine(
     fun isTorchEnabled(): Boolean = (capturer as? TorchCaptureControl)?.isTorchEnabled() == true
     fun hasTorchSupport(): Boolean = cameraEnabled && (capturer as? TorchCaptureControl)?.hasTorchSupport() == true
 
-    fun captureInfo(): JSONObject = JSONObject()
-        .put("width", captureWidth)
-        .put("height", captureHeight)
-        .put("fps", captureFps)
-        .put("cameraEnabled", cameraEnabled)
+    fun captureInfo(): JSONObject {
+        val lastFrameNs = lastCaptureFrameAtNs
+        val frameAgeMs = if (lastFrameNs > 0L) {
+            ((System.nanoTime() - lastFrameNs).coerceAtLeast(0L) / 1_000_000L)
+        } else -1L
+        return JSONObject()
+            .put("width", captureWidth)
+            .put("height", captureHeight)
+            .put("fps", captureFps)
+            .put("measuredFps", if (cameraEnabled) measuredCaptureFps else 0)
+            .put("frameAgeMs", frameAgeMs)
+            .put("cameraEnabled", cameraEnabled)
         .put("microphoneEnabled", microphoneEnabled)
-        .put("flashAvailable", hasTorchSupport())
-        .put("flashEnabled", isTorchEnabled())
+            .put("flashAvailable", hasTorchSupport())
+            .put("flashEnabled", isTorchEnabled())
+    }
 
     fun switchCamera(facing: String) {
         check(cameraEnabled) { "カメラがOFFの間は切り替えできません。先にカメラをONにしてください。" }
@@ -752,6 +795,7 @@ class RtcEngine(
         val currentSource = videoSource ?: error("映像ソースがありません。")
         val enumerator = Camera2Enumerator(context)
         oldCapturer.stopCapture()
+        resetCaptureFpsMonitor()
         var replacement: CameraVideoCapturer? = null
         try {
             // Create and initialise a candidate only once. The fallback helper owns
@@ -802,6 +846,7 @@ class RtcEngine(
                 // Recreate only the capturer; keep PeerConnections, audio and control channels alive.
                 try { camera.stopCapture() } catch (_: Exception) {}
                 try { camera.dispose() } catch (_: Exception) {}
+                resetCaptureFpsMonitor()
                 capturer = null
                 val started = startCaptureWithFallback(
                     Camera2Enumerator(context), selectedCameraId, currentHelper, currentSource, profile
@@ -871,8 +916,10 @@ class RtcEngine(
         capturer = null
         try { helper?.dispose() } catch (_: Exception) {}
         helper = null
+        try { videoTrack?.removeSink(captureFpsMonitor) } catch (_: Exception) {}
         try { videoTrack?.dispose() } catch (_: Exception) {}
         videoTrack = null
+        resetCaptureFpsMonitor()
         try { audioTrack?.dispose() } catch (_: Exception) {}
         audioTrack = null
         try { videoSource?.dispose() } catch (_: Exception) {}
