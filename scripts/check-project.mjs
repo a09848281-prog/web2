@@ -156,9 +156,10 @@ assert.ok(service.includes("updateStreamWakeLock(false)"), "Service shutdown mus
 const stopShutdown = service.slice(service.indexOf("private fun stopMonitoringNow"), service.indexOf("private fun notifyState"));
 const destroyShutdown = service.slice(service.indexOf("override fun onDestroy()"));
 for (const shutdown of [stopShutdown, destroyShutdown]) {
-  assert.ok(shutdown.indexOf("rtc?.dispose()") < shutdown.indexOf("setTorch(false)") &&
-    shutdown.indexOf("setTorch(false)") < shutdown.indexOf("rtc = null"),
-    "Camera ID must remain available until the torch is switched off after RTC disposal");
+  assert.ok(shutdown.indexOf("rtc?.setTorchEnabled(false)") >= 0 &&
+    shutdown.indexOf("rtc?.setTorchEnabled(false)") < shutdown.indexOf("rtc?.dispose()") &&
+    shutdown.indexOf("rtc?.dispose()") < shutdown.indexOf("rtc = null"),
+    "Active Camera2 capture must switch its in-stream torch off before RTC resources are disposed");
 }
 assert.ok(service.includes("if (needsPairing)") && service.includes("rtc?.dispose()"), "No-controller state must close orphan camera sessions");
 assert.ok(service.includes('val signals = if (needsPairing) JSONArray()'), "No-controller state must ignore stale offers");
