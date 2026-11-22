@@ -17,10 +17,22 @@
     if (distance >= threshold) return { type: "swipe", durationMs: Math.max(80, Math.min(900, Number(durationMs) || 250)) };
     return { type: "tap" };
   }
+  function fitStageSize(containerWidth, maxHeight, videoWidth, videoHeight) {
+    const boundsWidth = Number(containerWidth), boundsHeight = Number(maxHeight);
+    const sourceWidth = Number(videoWidth), sourceHeight = Number(videoHeight);
+    if (![boundsWidth, boundsHeight, sourceWidth, sourceHeight].every(Number.isFinite) ||
+        boundsWidth <= 0 || boundsHeight <= 0 || sourceWidth <= 0 || sourceHeight <= 0) return null;
+    const scale = Math.min(boundsWidth / sourceWidth, boundsHeight / sourceHeight);
+    return {
+      width: Math.max(1, Math.round(sourceWidth * scale)),
+      height: Math.max(1, Math.round(sourceHeight * scale)),
+      aspectRatio: sourceWidth + " / " + sourceHeight
+    };
+  }
   function sanitizeText(value) {
     return String(value ?? "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").slice(0, 300);
   }
-  const api = { mapPoint, classifyGesture, sanitizeText };
+  const api = { mapPoint, classifyGesture, fitStageSize, sanitizeText };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.RemoteScreenUtils = api;
 })(typeof window !== "undefined" ? window : globalThis);
