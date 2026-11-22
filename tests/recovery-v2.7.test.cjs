@@ -8,7 +8,7 @@ const service = fs.readFileSync("android/app/src/main/java/jp/a09848281/remoteca
 
 test("Web recovery handles DataChannel loss, ICE failure, setup timeout and frozen video", () => {
   assert.match(web, /scheduleReconnect\(pc, "datachannel"\)/);
-  assert.match(web, /const reason = state === "failed" \? "failed" : "disconnected"/);
+  assert.ok(web.includes('scheduleReconnect(pc, state === "failed" ? "failed" : "disconnected")'));
   assert.match(web, /setup-timeout/);
   assert.match(web, /video-stalled/);
   assert.match(web, /addEventListener\("online"/);
