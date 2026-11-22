@@ -63,6 +63,13 @@ test("video watchdog uses a separate startup timeout before the first frame", ()
   }), true);
 });
 
+test("hidden video pane never starts a video-stall reconnect", () => {
+  assert.equal(Recovery.shouldRecoverVideo({
+    now: 500000, videoVisible: false, cameraEnabled: true, lastFrameAt: 1,
+    hasReceivedFrame: true, freezeMs: 15000
+  }), false);
+});
+
 test("manual disconnect suppresses video-stall recovery", () => {
   assert.equal(Recovery.shouldRecoverVideo({
     now: 500000, manualDisconnect: true, cameraEnabled: true,
