@@ -68,9 +68,8 @@
         <p class="hint">100%を超えると受信音声をWeb側で増幅します。音割れが発生する場合があります。</p>
         <label>Androidスピーカー音量（PTT受信側） <output id="androidSpeakerVolumeValue">70%</output><input id="androidSpeakerVolume" type="range" min="0" max="100" value="70"></label>
         <div class="audioMeterPanel"><div><b>Androidマイク音声レベル</b><span id="audioLevelText">待機中</span></div><progress id="audioLevel" max="1" value="0"></progress></div>
-        <label>Androidノイズ抑制（0=OFF／1〜100=ON要求） <output id="micNoiseValue">端末標準ON</output><input id="micNoise" type="range" min="0" max="100" step="1" value="70"></label>
-        <p class="hint">0はOFF、1〜100はON要求です。Android標準NoiseSuppressorはON/OFF方式のため、数値に応じた段階的な強さは変更できません。変更は対応端末でリアルタイムに反映されます。</p>
-        <p class="hint">ノイズ抑制はリアルタイムでON/OFFを要求します。端末APIが切替に対応しない場合は、次回音声開始時に再適用します。</p>
+        <label>Android受信音声のノイズ抑制 <output id="micNoiseValue">70%（Web適応ノイズゲート）</output><input id="micNoise" type="range" min="0" max="100" step="1" value="70"></label>
+        <p class="hint">Web側で受信したAndroid音声に適応ノイズゲートを適用します。0は完全にOFF、100は強めに抑制します。強くすると小さな声まで抑えられる場合があります。</p>
         <input type="hidden" id="micMode" value="balanced">
         <input type="hidden" id="micSensitivity" value="70"><output id="micSensitivityValue" hidden>70%</output>
         <input type="hidden" id="micGain" value="100"><output id="micGainValue" hidden>100%</output>
@@ -141,13 +140,12 @@
     </div>
 
     <div class="viewerControls">
-      <button id="ptt" type="button" class="ptt pttProminent" disabled>🎙 押している間だけ話す</button>
-      <button id="pttLock" type="button" disabled>送話ロック OFF</button>
-      <span class="audioControlHint">送話ロックで長押し不要・送話は3分で自動停止</span>
+      <button id="ptt" type="button" class="ptt pttProminent" disabled>🎙 Webマイク OFF（開始）</button>
+      <span class="audioControlHint">接続時にマイクを開始します。ボタンでON/OFFできます。</span>
       <button id="remoteMute" type="button" hidden disabled>Android音声 ON</button>
       <button id="cameraToggle" type="button" disabled>📷 Androidカメラ OFF</button>
       <button id="micToggle" type="button" disabled>🎙 Androidマイク OFF</button>
-      <button id="androidKeepAwake" type="button" disabled>📱 Android自動消灯防止 OFF</button>
+      <button id="androidKeepAwake" type="button" disabled>📱 Androidスリープ防止 OFF</button>
       <small class="audioControlHint">Androidの自動消灯を防ぎます。画面が点灯し続けるため電池を消費します。端末のPIN・パターン・生体認証ロックは無効化しません。</small>
       <button id="fullscreen" type="button">全画面</button>
       <button id="fitMode" type="button">全体表示</button>
