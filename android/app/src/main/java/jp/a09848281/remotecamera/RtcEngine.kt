@@ -641,9 +641,23 @@ class RtcEngine(
             val currentHelper = helper ?: error("カメラ初期化情報がありません。")
             val currentSource = videoSource ?: error("映像ソースがありません。")
             val profile = profileFor(currentQuality, currentDataMode, currentFps, selectedCameraId)
-            val started = startCaptureWithFallback(
-                Camera2Enumerator(context), selectedCameraId, currentHelper, currentSource, profile
-            )
+            val started = try {
+                startCaptureWithFallback(
+                    Camera2Enumerator(context), selectedCameraId, currentHelper, currentSource, profile
+                )
+            } catch (error: Exception) {
+                // Keep the previous stopped capturer recoverable if the requested profile
+                // cannot be opened; do not leave the Android camera toggle permanently stuck OFF.
+                try {
+                    oldCamera.startCapture(captureWidth, captureHeight, captureFps)
+                    track.setEnabled(true)
+                    cameraEnabled = true
+                    onState("新しい撮影設定を開けなかったため、以前の撮影形式でカメラを再開しました。")
+                } catch (restoreError: Exception) {
+                    Log.e("RemoteCameraRTC", "Could not restore camera after failed re-enable", restoreError)
+                }
+                throw error
+            }
             capturer = started.capturer
             captureWidth = started.width
             captureHeight = started.height
