@@ -226,9 +226,9 @@ assert.ok(service.includes("LENS_FACING_BACK") && service.includes("FLASH_INFO_A
 assert.ok(rtc.includes("module.setNoiseSuppressorEnabled(enabled)"), "Noise suppressor must support live hardware ON/OFF changes");
 assert.ok(service.includes('"mic_noise"') && service.includes("setNoiseSuppressionLevel(strength)"), "Web slider changes must be applied immediately through Android control channel");
 assert.ok(html.includes("0はOFF") && html.includes("リアルタイムでON"), "Noise suppression UI must explain the live binary toggle");
-assert.equal([...js.matchAll(/function updateAndroidKeepAwakeButton\\(/g)].length, 1, "Android display-awake helper must not be duplicated");
-assert.equal([...js.matchAll(/function toggleAndroidKeepAwake\\(/g)].length, 1, "Android display-awake handler must not be duplicated");
-assert.equal([...js.matchAll(/addEventListener\\("click",\\s*toggleAndroidKeepAwake\\)/g)].length, 1, "Android display-awake button listener must be registered once");
+assert.equal([...js.matchAll(/function updateAndroidKeepAwakeButton\(/g)].length, 1, "Android display-awake helper must not be duplicated");
+assert.equal([...js.matchAll(/function toggleAndroidKeepAwake\(/g)].length, 1, "Android display-awake handler must not be duplicated");
+assert.equal([...js.matchAll(/addEventListener\("click",\s*toggleAndroidKeepAwake\)/g)].length, 1, "Android display-awake button listener must be registered once");
 
 assert.ok(html.includes('class="settingsGroup"'), "Legacy v4.1 collapsible settings groups must be restored");
 assert.ok(html.includes('class="viewerControls"'), "Legacy v4.1 viewer toolbar must be restored");
