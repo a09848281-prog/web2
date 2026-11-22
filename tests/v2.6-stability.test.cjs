@@ -15,7 +15,7 @@ test("RTC connect does not request a browser microphone", () => {
   const connect = web.slice(web.indexOf("async function connect("), web.indexOf("function scheduleReconnect("));
   assert.ok(connect.length > 0);
   assert.equal(connect.includes("getUserMedia"), false);
-  assert.match(connect, /createTransceiver\("audio", \{ direction: "sendrecv" \}\)/);
+  assert.match(connect, /addTransceiver\("audio", \{ direction: "sendrecv" \}\)/);
 });
 
 test("PTT obtains a track only after press and stops it after release", () => {
