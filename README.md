@@ -3,7 +3,7 @@
 Android・iPad・PC対応の個人利用向け遠隔監視カメラシステムです。
 旧web v3.8〜v4.1の画面構成とWeb2の機能を統合した独立プレビューです。
 
-- Current stability preview: `preview/v2.6.1-stability`
+- Current stability preview: `preview/v2.7-auto-recovery`
 - PWA: GitHub Pages（iPad Safari / PC browser）
 - Android: Kotlin / Foreground Service / WebRTC
 - Signaling and history: Google Apps Script + Google Sheets
@@ -13,10 +13,10 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 
 ## Current stability preview
 
-- App version: `2.6.1-preview`
-- Android versionCode: `428`
-- PWA preview: https://a09848281-prog.github.io/web2/v2.6.1/
-- Branch: `preview/v2.6.1-stability`
+- App version: `2.7.0-preview`
+- Android versionCode: `429`
+- PWA preview: https://a09848281-prog.github.io/web2/v2.7/
+- Branch: `preview/v2.7-auto-recovery`
 - Previous v2.6 preview remains available: https://a09848281-prog.github.io/web2/v2.6/
 - Previous v2.1 preview: https://a09848281-prog.github.io/web2/v2.1/
 
@@ -24,16 +24,16 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 
 1. Deploy `gas/Code.gs` as a Google Apps Script Web App.
 2. Confirm `gasUrl` in `config.json` points to the deployed `/exec` URL. Do not commit TURN credentials or other secrets.
-3. Publish the PWA with the `Deploy v2.6 Preview to GitHub Pages` workflow. It publishes the v2.6.1 preview at `/v2.6.1/` without replacing the older preview folders.
+3. Publish the PWA with the `Deploy v2.6 Preview to GitHub Pages` workflow. It publishes the v2.7 preview at `/v2.7/` without replacing older preview folders. without replacing the older preview folders.
 4. Build the Android APK with the `Android APK Build` workflow. Download the `remote-camera-web2-preview-v2.6.1-apk` artifact.
 5. Follow `docs/WEB2-V2.1.0-CHECKLIST.md` for Galaxy A22 5G / Android 13 and iPad Safari tests.
 
-## v2.6.1 Stability Preview
+## v2.7 Automatic Recovery Preview
 
-- Branch: `preview/v2.6.1-stability`
-- Android package: `jp.a09848281.remotecamera.v26` / `2.6.1-preview` (versionCode 428). The package ID is unchanged from v2.6, so Android can install it as an update to v2.6.
-- PWA: `https://a09848281-prog.github.io/web2/v2.6.1/`
-- APK artifact: `remote-camera-web2-preview-v2.6.1-apk`
+- Branch: `preview/v2.7-auto-recovery`
+- Android package: `jp.a09848281.remotecamera.v26` / `2.7.0-preview` (versionCode 429). The package ID is unchanged, so Android can install it as an update to v2.6.1.
+- PWA: `https://a09848281-prog.github.io/web2/v2.7/`
+- APK artifact: `remote-camera-web2-preview-v2.7-apk`
 - **Web microphone:** starts automatically as the RTC connection is set up. The Web microphone button becomes an ON/OFF toggle. Permission denial does not intentionally block the camera-view setup; the user can retry from the button. Android receive audio remains active for full-duplex sound.
 - **Noise control:** the 0–100 slider is now applied in the Web Audio receive path using an adaptive noise gate. 0 bypasses the gate; larger values attenuate low-level background sound more strongly. This is software gating, not full spectral noise cancellation, and a high setting can also reduce quiet speech. The setting is stored locally in the Web viewer.
 - **Android sleep prevention:** the APK's local sleep toggle has been removed. The Web viewer is the only control surface. The Android foreground service applies a screen wake lock, reports whether the lock is actually held, and acknowledges ON/OFF changes. It does not bypass the PIN/pattern/biometric lock and can increase battery use.
@@ -41,7 +41,10 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 - **Flashlight:** the service tries every flash-capable rear camera ID (preferring the selected rear camera), tracks Android's real torch callback, and reports confirmed ON/OFF state. A rejected ON request is cleared rather than being delayed until a future camera flip. Android's public `CameraManager.setTorchMode()` may reject a request while the active camera resources are in use; on those devices, guaranteed simultaneous lighting requires integrating `FLASH_MODE_TORCH` into the active WebRTC Camera2 capture request. That deeper integration is not claimed as complete in this preview. The Web UI reports actual state and the reason for failure rather than showing a false ON state.
 - Android screen sharing and AccessibilityService controls remain excluded. Recording and image saving remain excluded.
 
-See [V2.6.1-STABILITY.md](V2.6.1-STABILITY.md) for implementation details, checks and known hardware limits.
+- **自動復旧:** DataChannel切断、ICE切断、接続セットアップのタイムアウト、映像停止、ネットワーク復帰、PWA復帰を検知します。最初は高速に再試行し、失敗が続くと最大15秒まで間隔を広げます。
+- **Android側:** 切断後45秒間、GASのシグナリングを1秒間隔で確認します。
+- **画角:** Camera2が個別の背面カメラとして公開しているレンズから、画角が最も広いものを選べます。端末が複数レンズを1台の論理カメラとして公開する場合は切替できません。
+- v2.6.1の記録は [V2.6.1-STABILITY.md](V2.6.1-STABILITY.md) に残しています。v2.7の詳細は [V2.7-AUTO-RECOVERY.md](V2.7-AUTO-RECOVERY.md) を確認してください。
 
 ## Location delivery
 
