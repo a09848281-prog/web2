@@ -1541,20 +1541,57 @@ function scheduleSettingsSave() {
   }, 450);
 }
 
+const CONTROL_SEND_INTERVAL_MS = 120;
+const CONTROL_SEND_QUEUE_LIMIT = 24;
+const controlSendQueue = [];
+let controlSendBusy = false;
+let lastControlPacketAt = 0;
+
+function pumpControlSendQueue() {
+  if (controlSendBusy || !controlSendQueue.length) return;
+  controlSendBusy = true;
+  const item = controlSendQueue.shift();
+  const wait = Math.max(0, CONTROL_SEND_INTERVAL_MS - (Date.now() - lastControlPacketAt));
+  setTimeout(() => {
+    if (item.channel !== S.control || item.channel.readyState !== "open") {
+      controlSendBusy = false;
+      pumpControlSendQueue();
+      return;
+    }
+    if (item.channel.bufferedAmount > 128 * 1024) {
+      controlSendQueue.unshift(item);
+      controlSendBusy = false;
+      setTimeout(pumpControlSendQueue, 300);
+      return;
+    }
+    try {
+      item.channel.send(item.packet);
+      lastControlPacketAt = Date.now();
+    } catch (error) {
+      console.warn("Queued DataChannel send failed", error);
+      if (S.control === item.channel) toast("DataChannelへの送信に失敗しました。自動復旧を確認してください。");
+    }
+    controlSendBusy = false;
+    pumpControlSendQueue();
+  }, wait);
+}
+
 function sendControl(name,payload={}) {
-  if(!S.control||S.control.readyState!=="open"){toast("DataChannelが未接続です。");return false;}
-  if (S.control.bufferedAmount > 256 * 1024) {
-    toast("設定送信が混み合っています。少し待ってから操作してください。");
+  const channel = S.control;
+  if (!channel || channel.readyState !== "open") {
+    toast("DataChannelが未接続です。");
     return false;
   }
-  try {
-    S.control.send(JSON.stringify({type:"command",command:name,requestId:rid(),payload}));
-    return true;
-  } catch (error) {
-    console.warn("DataChannel send failed", error);
-    toast("DataChannelへの送信に失敗しました。");
+  if (channel.bufferedAmount > 512 * 1024 || controlSendQueue.length >= CONTROL_SEND_QUEUE_LIMIT) {
+    toast("Androidへの操作が集中しています。少し待ってから再操作してください。");
     return false;
   }
+  controlSendQueue.push({
+    channel,
+    packet: JSON.stringify({type:"command",command:name,requestId:rid(),payload})
+  });
+  pumpControlSendQueue();
+  return true;
 }
 function sendControlAndWait(name, payload = {}, timeoutMs = 1200) {
   const channel = S.control;
