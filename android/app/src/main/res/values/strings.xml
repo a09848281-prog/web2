@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">ペアリング済みのWeb画面から送信された操作を実行します。画面共有中はAndroidの画面上の共有インジケーターを確認してください。</string>
+</resources>
