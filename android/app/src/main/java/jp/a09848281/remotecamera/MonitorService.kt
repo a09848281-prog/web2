@@ -261,6 +261,11 @@ class MonitorService : Service() {
     }
 
     private fun notifyState(text: String) {
+        // A delayed coroutine must never recreate the foreground notification after stop.
+        if (!prefs.getBoolean("monitoringEnabled", false)) {
+            try { getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID) } catch (_: Exception) {}
+            return
+        }
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(text))
     }
 
@@ -389,7 +394,12 @@ class MonitorService : Service() {
                         prefs.edit().putInt("afterSeq", afterSeq).apply()
                         notifyState(if (rtc?.hasPeers() == true) "監視中・接続済み" else "監視待機中")
                     }
+                } catch (cancelled: CancellationException) {
+                    // Explicit stop cancels this job. Never convert that into an error
+                    // notification or schedule a retry after the user stopped waiting.
+                    throw cancelled
                 } catch (e: Exception) {
+                    if (!scope.isActive || !prefs.getBoolean("monitoringEnabled", false)) throw e
                     Log.e("RemoteCameraService", "Polling iteration failed; foreground service remains active", e)
                     lastNetworkError=e.message ?: "Polling iteration failed"
                     if (rtc?.hasOpenControlChannel() == true) {
@@ -409,7 +419,10 @@ class MonitorService : Service() {
                 // elapsed-time gate above enforces the configured 1–50s interval.
                 delay(if (rtc?.hasOpenControlChannel()==true) 250L else pollIntervalSeconds*1000L)
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
+            if (!scope.isActive || !prefs.getBoolean("monitoringEnabled", false)) throw e
             Log.e("RemoteCameraService", "Initial GAS registration failed; retry will continue", e)
             lastNetworkError = e.message ?: "Initial GAS registration failed"
             notifyState("初期接続に失敗しました。5秒後に自動再試行します")
@@ -529,7 +542,10 @@ class MonitorService : Service() {
                         delay(150L)
                         closeRtcViewerSession(sessionId)
                     }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (error: Exception) {
+                    if (!scope.isActive || !prefs.getBoolean("monitoringEnabled", false)) throw error
                     try {
                         rtc?.sendControl(sessionId, JSONObject()
                             .put("type", "ack").put("requestId", requestId)
