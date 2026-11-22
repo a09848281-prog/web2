@@ -2,6 +2,7 @@ package jp.a09848281.remotecamera
 
 import android.Manifest
 import android.app.Activity
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -267,6 +268,13 @@ class MonitorService : Service() {
         }
     }
 
+    private fun isMainActivityVisible(): Boolean {
+        val process = ActivityManager.RunningAppProcessInfo()
+        ActivityManager.getMyMemoryState(process)
+        return process.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND ||
+            process.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE
+    }
+
     private fun requestScreenPermission(sessionId: String): String {
         val engine = rtc ?: error("WebRTC接続が終了しています。")
         engine.setScreenShareRecipient(sessionId, true)
@@ -278,7 +286,7 @@ class MonitorService : Service() {
         }
         prefs.edit().putBoolean("pendingScreenPermission", true).apply()
         sendBroadcast(Intent(ACTION_SCREEN_PERMISSION_NEEDED).setPackage(packageName))
-        val activityVisible = prefs.getBoolean("mainActivityVisible", false)
+        val activityVisible = prefs.getBoolean("mainActivityVisible", false) && isMainActivityVisible()
         if (!screenPermissionPending) {
             screenPermissionPending = true
             if (!activityVisible) notifyScreenPermissionNeeded()
