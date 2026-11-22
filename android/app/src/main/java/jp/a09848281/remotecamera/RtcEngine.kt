@@ -577,6 +577,7 @@ class RtcEngine(
 
     fun hasPeers():Boolean=peers.isNotEmpty()
     fun peerCount():Int=peers.size
+    fun hasSession(sessionId: String): Boolean = peers.containsKey(sessionId)
     fun isScreenSharing(): Boolean = screenSharing
 
     @Synchronized
