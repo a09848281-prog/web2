@@ -1,10 +1,11 @@
-name: Deploy v2.6 Preview to GitHub Pages
+name: Deploy Remote Camera Web2 Previews to GitHub Pages
 
 on:
   push:
     branches:
       - preview/v2.6-stability
       - preview/v2.6.1-stability
+      - preview/v2.7-auto-recovery
     paths:
       - "index.html"
       - "app.js"
@@ -17,6 +18,8 @@ on:
       - "sw.js"
       - "config.json"
       - "noise-suppressor-processor.js"
+      - "recovery-core.js"
+      - "V2.7-AUTO-RECOVERY.md"
       - ".github/workflows/deploy-v2.6-preview.yml"
       - "V2.6-STABILITY.md"
       - "V2.6.1-STABILITY.md"
@@ -63,14 +66,20 @@ jobs:
         with:
           ref: preview/v2.6.1-stability
           path: v261-source
+      - name: Checkout v2.7 automatic recovery preview
+        uses: actions/checkout@v4
+        with:
+          ref: preview/v2.7-auto-recovery
+          path: v27-source
       - name: Assemble site without replacing the homepage
         run: |
-          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6 _site/v2.6.1
+          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6 _site/v2.6.1 _site/v2.7
           rsync -a --exclude='.git' base-site/ _site/
           rsync -a --exclude='.git' --exclude='.github' v21-source/ _site/v2.1/
           rsync -a --exclude='.git' --exclude='.github' v25-source/ _site/v2.5/
           rsync -a --exclude='.git' --exclude='.github' v26-source/ _site/v2.6/
           rsync -a --exclude='.git' --exclude='.github' v261-source/ _site/v2.6.1/
+          rsync -a --exclude='.git' --exclude='.github' v27-source/ _site/v2.7/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
