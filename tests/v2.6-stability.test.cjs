@@ -140,9 +140,9 @@ test("v2.8 Android, PWA and service-worker versions stay synchronized", () => {
   const sw = read("sw.js");
   const pwa = JSON.parse(read("manifest.webmanifest"));
   assert.match(build, /versionCode = 431/);
-  assert.match(build, /versionName = "2\\.8\\.0-preview"/);
+  assert.match(build, /versionName = "2\.8\.0-preview"/);
   assert.match(build, /applicationId = "jp\.a09848281\.remotecamera\.v26"/);
-  assert.match(config, /"appVersion": "2\\.8\\.0-preview"/);
+  assert.match(config, /"appVersion": "2\.8\.0-preview"/);
   assert.match(sw, /v2-8-0/);
   assert.match(sw, /noise-suppressor-processor\.js/);
   assert.equal(pwa.name, "Remote Camera Web2 v2.8.0 Preview");
