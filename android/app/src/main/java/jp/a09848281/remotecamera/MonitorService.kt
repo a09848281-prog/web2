@@ -743,7 +743,12 @@ class MonitorService : Service() {
             override fun onTorchModeUnavailable(cameraId: String) {
                 if (cameraId != activeTorchCameraId) return
                 torchEnabled = false
-                scope.launch { sendTelemetry() }
+                torchRequested = false
+                activeTorchCameraId = null
+                scope.launch {
+                    sendTelemetry()
+                    notifyState("Androidが背面カメラのライトを利用不可にしました。カメラ撮影中は同時点灯できない端末があります。")
+                }
             }
         }
         try {
