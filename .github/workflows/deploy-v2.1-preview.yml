@@ -1,9 +1,9 @@
-name: Deploy v2.1.0 Preview to GitHub Pages
+name: Deploy v2.1.2 Preview to GitHub Pages
 
 on:
   push:
     branches:
-      - preview/v2.1.0-stability
+      - preview/v2.1.2-stability
   workflow_dispatch:
 
 permissions:
@@ -30,7 +30,7 @@ jobs:
       - name: Checkout v2.1.0 preview
         uses: actions/checkout@v4
         with:
-          ref: preview/v2.1.0-stability
+          ref: preview/v2.1.2-stability
           path: preview-source
       - name: Assemble site without replacing the existing homepage
         run: |

@@ -111,7 +111,7 @@ assert.ok(rtc.includes("ensureWebRtcInitialized(context.applicationContext)"), "
 assert.ok(rtc.includes("private fun startCaptureWithFallback("), "Aspect-ratio preserving camera format fallback missing");
 assert.ok(rtc.includes("source.capturerObserver"), "Capture fallback must use the observer exposed by VideoSource");
 assert.ok(!rtc.includes("VideoCapturer.CapturerObserver"), "Do not hard-code version-sensitive WebRTC observer type names");
-assert.ok(rtc.includes("private fun fallbackCaptureSizes()"), "Camera fallback size profiles missing");
+assert.ok(rtc.includes("private fun fallbackCaptureSizes(cameraId: String)"), "Camera fallback size profiles missing");
 assert.ok(rtc.includes("Media startup failed; releasing partial resources"), "Partial camera/ADM startup rollback missing");
 assert.ok(rtc.includes("MediaRecorder.AudioSource.MIC"), "Ambient microphone input source missing");
 assert.ok(rtc.includes("setUseHardwareAcousticEchoCanceler"), "Selectable hardware AEC handling missing");
@@ -170,11 +170,11 @@ assert.ok(gas.includes("Controllers:"), "Multi-controller storage sheet missing"
 assert.ok(gas.includes("activeControllerCount_(deviceId) >= 3"), "Three-controller pairing limit missing");
 assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi permission missing");
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
-assert.ok(androidBuild.includes('versionName = "2.1.1-preview"'), "Android app version must be v2.1.1");
-assert.ok(androidBuild.includes("versionCode = 423"), "Android version code must be 423");
-assert.ok(webConfig.includes('"appVersion": "2.1.1-preview"'), "Web config version must be v2.1.1");
-assert.ok(html.includes("v2.1.1"), "PWA display version must be v2.1.1");
-assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-1-1"'), "PWA cache key must be bumped to v2.1.1");
+assert.ok(androidBuild.includes('versionName = "2.1.2-preview"'), "Android app version must be v2.1.1");
+assert.ok(androidBuild.includes("versionCode = 424"), "Android version code must be 423");
+assert.ok(webConfig.includes('"appVersion": "2.1.2-preview"'), "Web config version must be v2.1.1");
+assert.ok(html.includes("v2.1.2"), "PWA display version must be v2.1.1");
+assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-1-2"'), "PWA cache key must be bumped to v2.1.1");
 assert.ok(serviceWorker.includes("key.startsWith(CACHE_PREFIX)"), "Service worker must only delete its own cache namespace");
 assert.ok(!serviceWorker.includes("keys.filter(key => key !== CACHE)"), "Service worker must not delete unrelated origin caches");
 assert.ok(serviceWorker.includes("caches.open(CACHE).then(cache => cache.match(event.request))"), "Offline fallback must only read this PWA cache");
@@ -186,7 +186,7 @@ assert.ok(!service.includes("if ((rtc?.peerCount() ?: 0) >= 3)"), "GAS polling m
 assert.ok(service.includes("Keep polling even at viewer capacity"), "Capacity polling regression guard missing");
 assert.ok(js.includes('const savedMicMode = String(settings.micMode || "balanced");'), "Saved microphone preset must be restored");
 const deviceSettingsHandler = js.slice(js.indexOf('else if(d.type==="device_settings")'), js.indexOf('else if(d.type==="location_update")'));
-assert.ok(deviceSettingsHandler.includes("queueDeviceSettingsSave(targetDevice, readSettingsFromUi())"), "Android settings should be stored without echoing a settings_update back to Android");
+assert.ok(deviceSettingsHandler.includes("queueDeviceSettingsSave(targetDevice, snapshot)"), "Android settings should be stored without echoing a settings_update back to Android");
 assert.ok(!deviceSettingsHandler.includes("saveSettings()"), "Device settings handler must not echo settings back to Android");
 assert.ok(gas.includes("MotionEvents:"), "Motion event metadata sheet missing");
 assert.ok(gas.includes("function addMotionEvent_("), "Motion event write endpoint missing");
@@ -198,8 +198,8 @@ assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from S
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.2.0"'), "GAS API version must be 1.2.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 423"), "Android version code must be 423 for v2.1.1");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.1.1 Preview", "PWA display name must match v2.1.1");
+assert.ok(androidBuild.includes("versionCode = 424"), "Android version code must be 423 for v2.1.1");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.1.2 Preview", "PWA display name must match v2.1.1");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 console.log("Web2 source checks passed.");
 
@@ -211,11 +211,21 @@ assert.ok(!html.includes('id="snapshot"'), "Static image capture must remain exc
 assert.equal([...js.matchAll(/\$\("fitMode"\)\.addEventListener\("click"/g)].length, 1, "Fit/fill action must be registered once");
 assert.ok(!js.includes('"pointerup", "pointerleave"'), "Pointer capture must not stop PTT on pointer leave");
 assert.ok(html.includes("RTC接続中はAndroidの現在地をDataChannelで直接受信"), "Location UI must explain RTC live updates");
-console.log("Web2 v2.1.1 Preview UI, RTC location and stability checks passed.");
+console.log("Web2 v2.1.2 Preview UI, RTC location and stability checks passed.");
 
 assert.ok(main.includes("addTextChangedListener") && main.includes('putInt("pollIntervalSeconds", seconds)'), "Polling interval must be saved as it is edited");
-assert.ok(main.includes("saveMonitoringSchedule()") && main.includes("setAndAllowWhileIdle"), "Android standby schedule UI missing");
+assert.ok(main.includes("saveMonitoringSchedule()") && main.includes("setExactAndAllowWhileIdle") && main.includes("NumberPicker") && main.includes("SCHEDULE_EXACT_ALARM"), "Android standby schedule UI missing");
 assert.ok(schedule.includes("ACTION_START") && schedule.includes("ACTION_STOP"), "Android scheduled start/stop receiver missing");
+assert.ok(js.includes("function scheduleSettingsSave()"), "Web setting change debounce missing");
+assert.ok(js.includes("S.control.bufferedAmount > 256 * 1024"), "DataChannel backpressure guard missing");
+assert.ok(js.includes('!S.manualDisconnect && pc.connectionState !== "closed"'), "Expected manual DataChannel close suppression missing");
+assert.ok(rtc.includes('setOf("16:9", "4:3", "1:1", "9:16", "original")'), "Original camera aspect ratio support missing");
+assert.ok(service.includes("dataChannelCommandMutex.withLock"), "DataChannel commands must be serialized");
+assert.ok(service.includes("now - lastTelemetryAt >= 5000L"), "Active RTC telemetry rate limit missing");
+assert.ok(service.includes("v212OriginalAspectMigrationComplete"), "Legacy 16:9 camera ratio migration missing");
+assert.ok(schedule.includes("restoreScheduleAfterBoot"), "Scheduled monitoring must be restored after reboot");
+assert.ok(manifest.includes("android.permission.SCHEDULE_EXACT_ALARM"), "Exact alarm permission missing");
+assert.ok(manifest.includes("android.permission.RECEIVE_BOOT_COMPLETED"), "Boot restore permission missing");
 assert.ok(service.includes("WIFI_MODE_FULL") && service.includes("PARTIAL_WAKE_LOCK"), "Live screen-off connection locks missing");
 assert.ok(service.includes("txBytes7d") && service.includes("txBytes30d"), "7/30-day traffic aggregation missing");
 assert.ok(js.includes('d.type==="device_settings"'), "Android settings synchronization missing");

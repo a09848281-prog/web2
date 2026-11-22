@@ -478,7 +478,7 @@ function devicePoll_(r) {
     }
   }
   const settingsHit = find_("Settings", 0, id);
-  let settings = { quality: "720", dataMode: "standard", fps: 24, aspectRatio: "16:9", micNoise: 0, micSensitivity: 0, micGain: 100, micMode: "ambient", speakerVolume: 70, nightMode: false, connectedLocationEnabled: false, idleLocationEnabled: false, connectedInterval: 30, idleInterval: 300 };
+  let settings = { quality: "720", dataMode: "standard", fps: 24, aspectRatio: "original", micNoise: 0, micSensitivity: 0, micGain: 100, micMode: "ambient", speakerVolume: 70, nightMode: false, connectedLocationEnabled: false, idleLocationEnabled: false, connectedInterval: 30, idleInterval: 300 };
   if (settingsHit) {
     try { settings = Object.assign(settings, JSON.parse(settingsHit.v[1] || "{}")); } catch (err) {}
   }
@@ -571,7 +571,7 @@ function clamp_(value, min, max, fallback) {
 function getSettings_(r) {
   const d = authController_(r);
   const found = find_("Settings", 0, d.deviceId);
-  let settings = { quality: "720", dataMode: "standard", fps: 24, aspectRatio: "16:9", micNoise: 0, micSensitivity: 0, micGain: 100, micMode: "ambient", speakerVolume: 70, nightMode: false, connectedLocationEnabled: false, idleLocationEnabled: false, connectedInterval: 30, idleInterval: 300 };
+  let settings = { quality: "720", dataMode: "standard", fps: 24, aspectRatio: "original", micNoise: 0, micSensitivity: 0, micGain: 100, micMode: "ambient", speakerVolume: 70, nightMode: false, connectedLocationEnabled: false, idleLocationEnabled: false, connectedInterval: 30, idleInterval: 300 };
   if (found) {
     try { settings = Object.assign(settings, JSON.parse(found.v[1] || "{}")); } catch (err) {}
   }

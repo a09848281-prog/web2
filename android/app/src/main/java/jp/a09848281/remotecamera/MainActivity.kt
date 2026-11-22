@@ -2,12 +2,15 @@ package jp.a09848281.remotecamera
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.AlarmManager
 import android.app.DatePickerDialog
 import android.app.PendingIntent
 import android.app.TimePickerDialog
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -18,6 +21,7 @@ import android.text.TextWatcher
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.NumberPicker
 import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.ArrayAdapter
@@ -189,6 +193,9 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this).apply { addView(root) }
         setContentView(scroll)
         uiInitialized = true
+        scheduleStartAt = prefs.getLong("scheduleStartAt", 0L)
+        scheduleEndAt = prefs.getLong("scheduleEndAt", 0L)
+        updateScheduleLabels()
         loadRemoteConfig()
     }
 
@@ -226,7 +233,7 @@ class MainActivity : Activity() {
         prefs.edit()
             .putString("requestedQuality", quality)
             .putInt("fps", fps)
-            .putString("aspectRatio", "16:9")
+            .putString("aspectRatio", "original")
             .putString("requestedDataMode", "standard")
             .putBoolean("nativeVideoOverride", true)
             .apply()
@@ -249,30 +256,57 @@ class MainActivity : Activity() {
     private fun pickScheduleTime(isStart: Boolean) {
         val initial = Calendar.getInstance().apply {
             val stored = if (isStart) scheduleStartAt else scheduleEndAt
-            if (stored > 0L) timeInMillis = stored
-            else add(Calendar.MINUTE, 10)
+            if (stored > 0L) timeInMillis = stored else add(Calendar.MINUTE, 10)
         }
         DatePickerDialog(this, { _, year, month, day ->
             val selected = Calendar.getInstance().apply {
                 set(Calendar.YEAR, year)
                 set(Calendar.MONTH, month)
                 set(Calendar.DAY_OF_MONTH, day)
-                set(Calendar.SECOND, 0)
                 set(Calendar.MILLISECOND, 0)
             }
             TimePickerDialog(this, { _, hour, minute ->
                 selected.set(Calendar.HOUR_OF_DAY, hour)
                 selected.set(Calendar.MINUTE, minute)
-                val stamp = selected.timeInMillis
-                if (isStart) scheduleStartAt = stamp else scheduleEndAt = stamp
-                updateScheduleLabels()
+                val secondsLabel = TextView(this).apply {
+                    text = "秒（0～59）"
+                    textSize = 16f
+                    setPadding(24, 18, 24, 4)
+                }
+                val secondsPicker = NumberPicker(this).apply {
+                    minValue = 0
+                    maxValue = 59
+                    value = if ((if (isStart) scheduleStartAt else scheduleEndAt) > 0L) {
+                        Calendar.getInstance().apply {
+                            timeInMillis = if (isStart) scheduleStartAt else scheduleEndAt
+                        }.get(Calendar.SECOND)
+                    } else initial.get(Calendar.SECOND)
+                    setFormatter { value -> String.format(Locale.JAPAN, "%02d", value) }
+                }
+                val content = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(secondsLabel)
+                    addView(secondsPicker)
+                    setPadding(12, 4, 12, 12)
+                }
+                AlertDialog.Builder(this)
+                    .setTitle("秒を指定")
+                    .setView(content)
+                    .setNegativeButton("キャンセル", null)
+                    .setPositiveButton("設定") { _, _ ->
+                        selected.set(Calendar.SECOND, secondsPicker.value)
+                        val stamp = selected.timeInMillis
+                        if (isStart) scheduleStartAt = stamp else scheduleEndAt = stamp
+                        updateScheduleLabels()
+                    }
+                    .show()
             }, initial.get(Calendar.HOUR_OF_DAY), initial.get(Calendar.MINUTE), true).show()
         }, initial.get(Calendar.YEAR), initial.get(Calendar.MONTH), initial.get(Calendar.DAY_OF_MONTH)).show()
     }
 
     private fun formatScheduleTime(value: Long): String {
         if (value <= 0L) return "未設定"
-        return SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.JAPAN).format(Date(value))
+        return SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.JAPAN).format(Date(value))
     }
 
     private fun updateScheduleLabels() {
@@ -305,11 +339,32 @@ class MainActivity : Activity() {
             return
         }
         val alarm = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, scheduleStartAt, createSchedulePendingIntent(ScheduleReceiver.ACTION_START))
-        alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, scheduleEndAt, createSchedulePendingIntent(ScheduleReceiver.ACTION_STOP))
-        prefs.edit().putLong("scheduleStartAt", scheduleStartAt).putLong("scheduleEndAt", scheduleEndAt).apply()
-        updateScheduleLabels()
-        Toast.makeText(this, "待機開始・終了を予約しました。", Toast.LENGTH_LONG).show()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarm.canScheduleExactAlarms()) {
+            try {
+                startActivity(
+                    Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                        .setData(Uri.parse("package:$packageName"))
+                )
+                Toast.makeText(this, "正確な時刻で予約するため、アラームとリマインダーの許可をONにして、戻ってからもう一度予約してください。", Toast.LENGTH_LONG).show()
+            } catch (error: Exception) {
+                Toast.makeText(this, "正確なアラームの許可画面を開けませんでした：" + (error.message ?: "不明"), Toast.LENGTH_LONG).show()
+            }
+            return
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, scheduleStartAt, createSchedulePendingIntent(ScheduleReceiver.ACTION_START))
+                alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, scheduleEndAt, createSchedulePendingIntent(ScheduleReceiver.ACTION_STOP))
+            } else {
+                alarm.setExact(AlarmManager.RTC_WAKEUP, scheduleStartAt, createSchedulePendingIntent(ScheduleReceiver.ACTION_START))
+                alarm.setExact(AlarmManager.RTC_WAKEUP, scheduleEndAt, createSchedulePendingIntent(ScheduleReceiver.ACTION_STOP))
+            }
+            prefs.edit().putLong("scheduleStartAt", scheduleStartAt).putLong("scheduleEndAt", scheduleEndAt).apply()
+            updateScheduleLabels()
+            Toast.makeText(this, "開始・終了を秒単位で予約しました。", Toast.LENGTH_LONG).show()
+        } catch (error: SecurityException) {
+            Toast.makeText(this, "正確なアラームの権限がありません。設定から許可してください。", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun clearMonitoringSchedule() {

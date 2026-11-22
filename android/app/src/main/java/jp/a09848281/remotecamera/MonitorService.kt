@@ -31,6 +31,8 @@ import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -70,6 +72,9 @@ class MonitorService : Service() {
     private var currentDataMode = "standard"
     private var currentFps = 24
     private var lastDevicePollAt = 0L
+    private var lastTelemetryAt = 0L
+    private val dataChannelCommandMutex = Mutex()
+    private var lastAppliedSettingsSignature = ""
     @Volatile private var lastLocationAttempt = 0L
     private var lastCodeRefresh = 0L
     private var pollIntervalSeconds = AppConfig.POLL_SECONDS
@@ -146,7 +151,7 @@ class MonitorService : Service() {
         if (action == ACTION_VIDEO_SETTINGS) {
             val quality = intent?.getStringExtra("quality") ?: prefs.getString("requestedQuality", "720") ?: "720"
             val fps = (intent?.getIntExtra("fps", prefs.getInt("fps", 24)) ?: 24).coerceIn(10, 60)
-            val ratio = intent?.getStringExtra("aspectRatio") ?: prefs.getString("aspectRatio", "16:9") ?: "16:9"
+            val ratio = intent?.getStringExtra("aspectRatio") ?: prefs.getString("aspectRatio", "original") ?: "16:9"
             prefs.edit().putBoolean("nativeVideoOverride", true).apply()
             applyVideoSettings(JSONObject().put("quality", quality).put("fps", fps).put("aspectRatio", ratio))
             sendDeviceSettingsToOpenChannels()
@@ -251,14 +256,19 @@ class MonitorService : Service() {
                     lastTrafficAt = 0L
                 }
                 if (controlOpen) {
-                    sendTelemetry()
-                    // Keep polling even at viewer capacity: GAS may carry a
-                    // viewer's bye signal or controller revocation. RtcEngine
-                    // still rejects any new offer once the three-viewer limit is reached.
-                    val elapsed = System.currentTimeMillis() - lastDevicePollAt
-                    val untilNextPoll = pollIntervalSeconds * 1000L - elapsed
+                    val now = System.currentTimeMillis()
+                    // RTC DataChannel carries live controls and telemetry.
+                    if (now - lastTelemetryAt >= 5000L) {
+                        sendTelemetry()
+                        lastTelemetryAt = now
+                    }
+                    // Keep polling even at viewer capacity: GAS remains the
+                    // safety-net for revocation and additional viewer signaling.
+                    val activePollInterval = maxOf(pollIntervalSeconds * 1000L, 10000L)
+                    val elapsed = now - lastDevicePollAt
+                    val untilNextPoll = activePollInterval - elapsed
                     if (untilNextPoll > 0L) {
-                        delay(minOf(2000L, untilNextPoll))
+                        delay(minOf(5000L, untilNextPoll))
                         continue
                     }
                 }
@@ -324,7 +334,7 @@ class MonitorService : Service() {
                                                 onDataChannelMessage = ::handleDataChannelMessage,
                                                 onConnectionState = ::onRtcConnectionState,
                                                 microphoneMode = prefs.getString("micMode", "balanced") ?: "balanced",
-                                                captureAspectRatio = prefs.getString("aspectRatio", "16:9") ?: "16:9"
+                                                captureAspectRatio = prefs.getString("aspectRatio", "original") ?: "16:9"
                                             )
                                         }
                                         rtc?.setIceServers(response.optJSONArray("iceServers"))
@@ -333,7 +343,7 @@ class MonitorService : Service() {
                                         rtc?.setMicGain(prefs.getInt("micGain", 100))
                                         rtc?.setNightMode(prefs.getBoolean("nightMode", false))
                                         rtc?.handleOffer(session, signal.optString("sdp"))
-                                        rtc?.setQuality(currentQuality, currentDataMode, currentFps, prefs.getString("aspectRatio", "16:9") ?: "16:9")
+                                        rtc?.setQuality(currentQuality, currentDataMode, currentFps, prefs.getString("aspectRatio", "original") ?: "16:9")
                                         notifyState("接続要求を処理しています")
                                     } catch (e: Exception) {
                                         Log.e("RemoteCameraService", "Offer handling failed; keep foreground service alive", e)
@@ -452,25 +462,39 @@ class MonitorService : Service() {
     }
 
     private fun handleDataChannelMessage(sessionId:String,raw:String) {
-        scope.launch {
-            var requestId=""
-            try {
-                val req=JSONObject(raw)
-                if(req.optString("type")!="command")return@launch
-                requestId=req.optString("requestId")
-                val name=req.optString("command")
-                val payload=req.optJSONObject("payload")?:JSONObject()
-                val result=executeDataChannelCommand(sessionId,name,payload)
-                rtc?.sendControl(sessionId,JSONObject().put("type","ack").put("requestId",requestId).put("ok",true).put("message",result))
-                if(name=="disconnect"){
-                    delay(150L)
-                    closeRtcViewerSession(sessionId)
+        // WebRTC observer callbacks may arrive back-to-back. Serialize camera,
+        // torch and settings operations so an older command cannot overwrite a newer one.
+        scope.launch(Dispatchers.IO) {
+            dataChannelCommandMutex.withLock {
+                var requestId = ""
+                var commandName = ""
+                try {
+                    val req = JSONObject(raw)
+                    if (req.optString("type") != "command") return@withLock
+                    requestId = req.optString("requestId")
+                    commandName = req.optString("command")
+                    val payload = req.optJSONObject("payload") ?: JSONObject()
+                    val result = executeDataChannelCommand(sessionId, commandName, payload)
+                    rtc?.sendControl(sessionId, JSONObject()
+                        .put("type", "ack").put("requestId", requestId)
+                        .put("ok", true).put("message", result))
+                    if (commandName == "disconnect") {
+                        delay(150L)
+                        closeRtcViewerSession(sessionId)
+                    }
+                } catch (error: Exception) {
+                    try {
+                        rtc?.sendControl(sessionId, JSONObject()
+                            .put("type", "ack").put("requestId", requestId)
+                            .put("ok", false)
+                            .put("message", error.message ?: "命令を適用できませんでした"))
+                    } catch (_: Exception) {}
+                    if (commandName != "disconnect") {
+                        lastNetworkError = "DataChannel命令エラー: " + (error.message ?: "不明")
+                        sendNetworkDiagnostic(sessionId, lastNetworkError)
+                        notifyState("DataChannel命令エラー：" + (error.message ?: "不明"))
+                    }
                 }
-            } catch(e:Exception) {
-                try{rtc?.sendControl(sessionId,JSONObject().put("type","ack").put("requestId",requestId).put("ok",false).put("message",e.message?:"命令を適用できませんでした"))}catch(_:Exception){}
-                lastNetworkError="DataChannel命令エラー: "+(e.message?:"不明")
-                sendNetworkDiagnostic(sessionId,lastNetworkError)
-                notifyState("DataChannel命令エラー："+(e.message?:"不明"))
             }
         }
     }
@@ -596,29 +620,38 @@ class MonitorService : Service() {
     }
 
     private fun setTorch(enabled:Boolean) {
-        val manager=getSystemService(CAMERA_SERVICE) as CameraManager
+        val manager = getSystemService(CAMERA_SERVICE) as CameraManager
         val selectedId = rtc?.currentCameraId().orEmpty()
-        val selectedHasFlash = selectedId.isNotBlank() && try {
-            manager.getCameraCharacteristics(selectedId).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-        } catch (_: Exception) { false }
-        val torchId = if (selectedHasFlash) selectedId else manager.cameraIdList.firstOrNull { id ->
-            val chars=manager.getCameraCharacteristics(id)
-            chars.get(CameraCharacteristics.LENS_FACING)==CameraCharacteristics.LENS_FACING_BACK &&
-                chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE)==true
-        } ?: error("ライト対応の背面カメラが見つかりません。")
-        try {
-            manager.setTorchMode(torchId,enabled)
-            torchEnabled = enabled
-            sendTelemetry()
-        } catch (error: Exception) {
-            torchEnabled = false
-            Log.e("RemoteCameraService", "Flashlight request failed on camera $torchId", error)
-            throw IllegalStateException(
-                if (enabled) "ライトを点灯できません。カメラ使用中・端末制限・他アプリのカメラ利用を確認してください。"
-                else "ライトを消灯できませんでした。端末のライト状態を確認してください。",
-                error
-            )
+        val candidates = manager.cameraIdList.filter { id ->
+            try {
+                val chars = manager.getCameraCharacteristics(id)
+                chars.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK &&
+                    chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+            } catch (error: Exception) {
+                Log.w("RemoteCameraService", "Could not inspect flashlight camera $id", error)
+                false
+            }
+        }.sortedBy { it == selectedId } // Try another rear flash before the camera currently streaming.
+        if (candidates.isEmpty()) error("この端末にライト対応の背面カメラがありません。")
+        var lastError: Exception? = null
+        for (torchId in candidates) {
+            try {
+                manager.setTorchMode(torchId, enabled)
+                torchEnabled = enabled
+                sendTelemetry()
+                Log.i("RemoteCameraService", "Flashlight changed: camera=$torchId enabled=$enabled")
+                return
+            } catch (error: Exception) {
+                lastError = error
+                Log.w("RemoteCameraService", "Flashlight camera $torchId is unavailable; trying another rear flash", error)
+            }
         }
+        val reason = if (enabled) {
+            "ライトを点灯できません。撮影中のカメラとライトが競合しているか、別アプリがカメラ・ライトを使用中です。カメラを使用する他のアプリを閉じて再試行してください。"
+        } else {
+            "ライトを消灯できませんでした。端末のライト状態を確認してください。"
+        }
+        throw IllegalStateException(reason, lastError)
     }
 
     private fun sampleTrafficUsage() {
@@ -685,7 +718,7 @@ class MonitorService : Service() {
         val settings = JSONObject()
             .put("quality", prefs.getString("requestedQuality", "720") ?: "720")
             .put("fps", prefs.getInt("fps", 24))
-            .put("aspectRatio", prefs.getString("aspectRatio", "16:9") ?: "16:9")
+            .put("aspectRatio", prefs.getString("aspectRatio", "original") ?: "16:9")
             .put("micNoise", prefs.getInt("micNoise", 70))
             .put("speakerVolume", prefs.getInt("speakerVolume", 70))
             .put("dataMode", "standard")
@@ -696,7 +729,7 @@ class MonitorService : Service() {
         val settings = JSONObject()
             .put("quality", prefs.getString("requestedQuality", "720") ?: "720")
             .put("fps", prefs.getInt("fps", 24))
-            .put("aspectRatio", prefs.getString("aspectRatio", "16:9") ?: "16:9")
+            .put("aspectRatio", prefs.getString("aspectRatio", "original") ?: "16:9")
             .put("micNoise", prefs.getInt("micNoise", 70))
             .put("speakerVolume", prefs.getInt("speakerVolume", 70))
             .put("dataMode", "standard")
@@ -828,7 +861,7 @@ class MonitorService : Service() {
         val requestedDataMode = "standard"
         val previousQuality = prefs.getString("requestedQuality", "720") ?: "720"
         val previousFps = prefs.getInt("fps", 24)
-        val previousRatio = prefs.getString("aspectRatio", "16:9") ?: "16:9"
+        val previousRatio = prefs.getString("aspectRatio", "original") ?: "16:9"
         val requestedFps = settings.optInt("fps", previousFps).coerceIn(10, 60)
         val requestedRatio = settings.optString("aspectRatio", previousRatio)
             .takeIf { it in setOf("16:9", "4:3", "1:1", "9:16", "original") } ?: "16:9"
@@ -861,7 +894,7 @@ class MonitorService : Service() {
             currentDataMode = "ultra"
             currentFps = 10
         }
-        rtc?.setQuality(currentQuality, currentDataMode, currentFps, prefs.getString("aspectRatio", "16:9") ?: "16:9")
+        rtc?.setQuality(currentQuality, currentDataMode, currentFps, prefs.getString("aspectRatio", "original") ?: "16:9")
     }
 
     private fun applyAdaptiveQuality(payload: JSONObject) {
@@ -886,7 +919,7 @@ class MonitorService : Service() {
             .putString("adaptiveDataMode", dataMode)
             .putInt("adaptiveFps", fps)
             .apply()
-        rtc?.setQuality(currentQuality, currentDataMode, currentFps, prefs.getString("aspectRatio", "16:9") ?: "16:9")
+        rtc?.setQuality(currentQuality, currentDataMode, currentFps, prefs.getString("aspectRatio", "original") ?: "16:9")
     }
 
     private fun applyLocationSettings(settings: JSONObject) {
@@ -903,8 +936,28 @@ class MonitorService : Service() {
     }
 
     private fun applySettings(settings: JSONObject) {
-        applyLocationSettings(settings)
-        if (!prefs.getBoolean("nativeVideoOverride", false)) applyVideoSettings(settings)
+        val signatureKeys = listOf(
+            "quality", "dataMode", "fps", "aspectRatio", "micNoise", "micSensitivity",
+            "micGain", "micMode", "speakerVolume", "nightMode",
+            "connectedLocationEnabled", "idleLocationEnabled", "connectedInterval", "idleInterval"
+        )
+        val signature = signatureKeys.joinToString("|") { key ->
+            if (settings.has(key)) settings.opt(key).toString() else "<default>"
+        }
+        if (signature == lastAppliedSettingsSignature) return
+        lastAppliedSettingsSignature = signature
+
+        // One-time migration: old installations used 16:9 as a hard-coded default.
+        // New v2.1.2 installs and existing default profiles should follow the camera sensor.
+        val effectiveSettings = JSONObject(settings.toString())
+        if (!prefs.getBoolean("v212OriginalAspectMigrationComplete", false)) {
+            if (effectiveSettings.optString("aspectRatio", "16:9") == "16:9") {
+                effectiveSettings.put("aspectRatio", "original")
+            }
+            prefs.edit().putBoolean("v212OriginalAspectMigrationComplete", true).apply()
+        }
+        applyLocationSettings(effectiveSettings)
+        if (!prefs.getBoolean("nativeVideoOverride", false)) applyVideoSettings(effectiveSettings)
         val micNoise = settings.optInt("micNoise", prefs.getInt("micNoise", 0)).coerceIn(0, 100)
         val micSensitivity = settings.optInt("micSensitivity", prefs.getInt("micSensitivity", 0)).coerceIn(0, 100)
         val micGain = settings.optInt("micGain", prefs.getInt("micGain", 100)).coerceIn(0, 100)

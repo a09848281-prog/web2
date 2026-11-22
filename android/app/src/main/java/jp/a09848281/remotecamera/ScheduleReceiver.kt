@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat
 class ScheduleReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         when (intent?.action) {
+            Intent.ACTION_BOOT_COMPLETED -> restoreScheduleAfterBoot(context)
             ACTION_START -> {
                 val prefs = context.getSharedPreferences(AppConfig.PREFS, Context.MODE_PRIVATE)
                 val gasUrl = prefs.getString("gasUrl", "") ?: ""
@@ -43,6 +44,49 @@ class ScheduleReceiver : BroadcastReceiver() {
                     Log.e("RemoteCameraSchedule", "Scheduled monitoring stop failed.", error)
                 }
             }
+        }
+    }
+
+    private fun restoreScheduleAfterBoot(context: Context) {
+        val prefs = context.getSharedPreferences(AppConfig.PREFS, Context.MODE_PRIVATE)
+        val startAt = prefs.getLong("scheduleStartAt", 0L)
+        val endAt = prefs.getLong("scheduleEndAt", 0L)
+        val now = System.currentTimeMillis()
+        if (endAt <= now || startAt <= 0L || endAt <= startAt) {
+            if (endAt > 0L && endAt <= now) {
+                prefs.edit().remove("scheduleStartAt").remove("scheduleEndAt")
+                    .putBoolean("monitoringEnabled", false).apply()
+            }
+            return
+        }
+        val alarm = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarm.canScheduleExactAlarms()) {
+            Log.w("RemoteCameraSchedule", "Exact-alarm access is not granted; saved schedule was not restored.")
+            return
+        }
+        fun pending(action: String, requestCode: Int): android.app.PendingIntent {
+            val startIntent = Intent(context, ScheduleReceiver::class.java).setAction(action)
+            return android.app.PendingIntent.getBroadcast(
+                context, requestCode, startIntent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+        val startTime = maxOf(startAt, now + 1000L)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarm.setExactAndAllowWhileIdle(
+                    android.app.AlarmManager.RTC_WAKEUP, startTime, pending(ACTION_START, 8101)
+                )
+                alarm.setExactAndAllowWhileIdle(
+                    android.app.AlarmManager.RTC_WAKEUP, endAt, pending(ACTION_STOP, 8102)
+                )
+            } else {
+                alarm.setExact(android.app.AlarmManager.RTC_WAKEUP, startTime, pending(ACTION_START, 8101))
+                alarm.setExact(android.app.AlarmManager.RTC_WAKEUP, endAt, pending(ACTION_STOP, 8102))
+            }
+            Log.i("RemoteCameraSchedule", "Saved schedule restored after boot.")
+        } catch (error: SecurityException) {
+            Log.e("RemoteCameraSchedule", "Could not restore exact schedule after boot.", error)
         }
     }
 

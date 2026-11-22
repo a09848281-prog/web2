@@ -3,6 +3,7 @@
 const $ = id => document.getElementById(id);
 const STORAGE_KEY = "rc_paired_devices_v1";
 const SELECTED_KEY = "rc_selected_device_v1";
+let settingsChangeTimer = null;
 const S = {
   cfg: null,
   apiVersion: "",
@@ -972,10 +973,17 @@ async function connect(automatic = false) {
       if (S.pc === pc && S.everConnected && !S.manualDisconnect) scheduleReconnect(pc);
     };
     control.onmessage = event => { if (S.pc === pc) handleControlMessage(event.data); };
-    control.onerror = () => { if (S.pc === pc) toast("DataChannel通信エラー"); };
+    control.onerror = () => {
+      if (S.pc === pc && !S.manualDisconnect && pc.connectionState !== "closed") {
+        console.warn("Unexpected DataChannel error");
+        $("streamState").textContent = "制御チャネルで通信エラーが発生しました";
+      }
+    };
     $("camera").disabled = false;
     const remote = new MediaStream();
     S.remoteVideoStream = remote;
+    $("remoteVideo").style.objectFit = "contain";
+    $("remoteVideo").style.objectPosition = "50% 50%";
     $("remoteVideo").srcObject = remote;
     $("remoteVideo").muted = true;
     prepareAudioOutput();
@@ -1244,9 +1252,22 @@ async function loadSettings() {
   $("nightMode").checked=localStorage.getItem(nightViewStorageKey()) === "true";
   applyNightViewFilter();
   $("fps").value=String(settings.fps || 24);
-  $("aspectRatio").value=settings.aspectRatio || "16:9";
+  const ratioKey = "rc_camera_ratio_choice_v1_" + device.deviceId;
+  let userRatio = "";
+  try { userRatio = localStorage.getItem(ratioKey) || ""; } catch (_) {}
+  const serverRatio = settings.aspectRatio || "original";
+  const migrateLegacyRatio = !userRatio && serverRatio === "16:9";
+  $("aspectRatio").value = userRatio || (migrateLegacyRatio ? "original" : serverRatio);
+  if (migrateLegacyRatio) {
+    try { localStorage.setItem(ratioKey, "original"); } catch (_) {}
+  }
   applyAspectRatio($("aspectRatio").value);
   updateSliderLabels();
+  if (migrateLegacyRatio) {
+    const migrated = readSettingsFromUi();
+    queueDeviceSettingsSave(device, migrated).catch(error => console.warn("Could not migrate the old default camera ratio", error));
+    if (S.control?.readyState === "open") sendControl("settings_update", migrated);
+  }
 }
 function queueDeviceSettingsSave(device, settings) {
   const work = () => api("save_settings", {
@@ -1296,8 +1317,20 @@ async function saveSettings() {
     toast("設定を保存しました。次回接続時に反映します。");
   }
 }
+function scheduleSettingsSave() {
+  if (settingsChangeTimer) clearTimeout(settingsChangeTimer);
+  settingsChangeTimer = setTimeout(() => {
+    settingsChangeTimer = null;
+    saveSettings().catch(error => toast(error.message));
+  }, 450);
+}
+
 function sendControl(name,payload={}) {
   if(!S.control||S.control.readyState!=="open"){toast("DataChannelが未接続です。");return false;}
+  if (S.control.bufferedAmount > 256 * 1024) {
+    toast("設定送信が混み合っています。少し待ってから操作してください。");
+    return false;
+  }
   try {
     S.control.send(JSON.stringify({type:"command",command:name,requestId:rid(),payload}));
     return true;
@@ -1382,7 +1415,12 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
   if(["auto","360","480","720","1080"].includes(String(v.quality))) $("quality").value=String(v.quality);
   $("dataMode").value="standard";
   if(Number.isFinite(Number(v.fps))) $("fps").value=String(Math.max(10,Math.min(60,Number(v.fps))));
-  if(["16:9","4:3","1:1","9:16","original"].includes(String(v.aspectRatio))) $("aspectRatio").value=String(v.aspectRatio);
+  if(["16:9","4:3","1:1","9:16","original"].includes(String(v.aspectRatio))) {
+    const ratioKey = "rc_camera_ratio_choice_v1_" + (S.device?.deviceId || "");
+    let preferredRatio = "";
+    try { preferredRatio = localStorage.getItem(ratioKey) || ""; } catch (_) {}
+    $("aspectRatio").value = preferredRatio || (String(v.aspectRatio) === "16:9" ? "original" : String(v.aspectRatio));
+  }
   if(Number.isFinite(Number(v.micNoise))) $("micNoise").value=String(v.micNoise);
   if(Number.isFinite(Number(v.speakerVolume))) $("androidSpeakerVolume").value=String(v.speakerVolume);
   if (["ambient", "balanced", "voice"].includes(String(v.micMode))) {
@@ -1392,8 +1430,16 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
   updateSliderLabels();
   const targetDevice = S.device;
   if (targetDevice) {
-    queueDeviceSettingsSave(targetDevice, readSettingsFromUi())
-      .catch(error => toast("Android設定のGAS保存に失敗しました: " + error.message));
+    const snapshot = readSettingsFromUi();
+    const cacheKey = "rc_live_settings_" + targetDevice.deviceId;
+    let previous = "";
+    try { previous = localStorage.getItem(cacheKey) || ""; } catch (_) {}
+    const serialized = JSON.stringify(snapshot);
+    if (previous !== serialized) {
+      try { localStorage.setItem(cacheKey, serialized); } catch (_) {}
+      queueDeviceSettingsSave(targetDevice, snapshot)
+        .catch(error => toast("Android設定のGAS保存に失敗しました: " + error.message));
+    }
   }
  }
  else if(d.type==="location_update"){
@@ -1497,9 +1543,11 @@ function maybeAdaptQuality(rttMs, lossPercent) {
 function startRtcStats() {
   stopRtcStats();
   S.statsLast = null;
+  let updateRunning = false;
   const update = async () => {
     const peer = S.pc;
-    if (!peer) return;
+    if (!peer || updateRunning) return;
+    updateRunning = true;
     try {
       const stats = await peer.getStats();
       if (peer !== S.pc) return;
@@ -1539,10 +1587,12 @@ function startRtcStats() {
     } catch (_) {
       $("rtcStats").textContent = "統計取得不可";
       $("connectionMetrics").textContent = "通信統計取得不可";
+    } finally {
+      updateRunning = false;
     }
   };
   update();
-  S.statsTimer = setInterval(update, 2000);
+  S.statsTimer = setInterval(update, 5000);
 }
 async function command(name,payload={}) {
   if (!S.device) throw Error("Android端末をペアリングしてください。");
@@ -1625,21 +1675,45 @@ function initMap() {
     updateLocationActions();
   });
 }
+function syncRemoteVideoViewport() {
+  const pane = $("videoPane");
+  const video = $("remoteVideo");
+  if (!pane || !video) return;
+  const selected = $("aspectRatio")?.value || "original";
+  if (selected === "original" && video.videoWidth > 0 && video.videoHeight > 0) {
+    pane.style.aspectRatio = video.videoWidth + " / " + video.videoHeight;
+    pane.style.flex = "0 0 auto";
+    pane.style.height = "auto";
+    pane.style.minHeight = "240px";
+    pane.style.maxHeight = "calc(100dvh - 190px)";
+  }
+  video.style.objectFit = "contain";
+  video.style.objectPosition = "50% 50%";
+}
 function applyAspectRatio(value) {
   const ratios = { "16:9": "16 / 9", "4:3": "4 / 3", "1:1": "1 / 1", "9:16": "9 / 16" };
   const pane = $("videoPane");
   if (!pane) return;
   if (value === "original" || !ratios[value]) {
-    pane.style.aspectRatio = "";
-    pane.style.flex = "1";
-    pane.style.minHeight = "380px";
-  } else {
-    pane.style.aspectRatio = ratios[value];
-    pane.style.flex = "none";
+    const video = $("remoteVideo");
+    if (video && video.videoWidth > 0 && video.videoHeight > 0) {
+      pane.style.aspectRatio = video.videoWidth + " / " + video.videoHeight;
+      pane.style.flex = "0 0 auto";
+    } else {
+      pane.style.aspectRatio = "";
+      pane.style.flex = "1 1 auto";
+    }
     pane.style.height = "auto";
     pane.style.minHeight = "240px";
-    pane.style.maxHeight = "calc(100vh - 220px)";
+    pane.style.maxHeight = "calc(100dvh - 190px)";
+  } else {
+    pane.style.aspectRatio = ratios[value];
+    pane.style.flex = "0 0 auto";
+    pane.style.height = "auto";
+    pane.style.minHeight = "240px";
+    pane.style.maxHeight = "calc(100dvh - 190px)";
   }
+  syncRemoteVideoViewport();
 }
 async function toggleFullscreen() {
   const pane = $("videoPane");
@@ -1874,7 +1948,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (!S.pttLocked) ptt(false);
     }
   });
-    $("saveSettings").addEventListener("click", () => saveSettings().catch(error => toast(error.message)));
+    $("saveSettings").addEventListener("click", () => {
+    if (settingsChangeTimer) clearTimeout(settingsChangeTimer);
+    settingsChangeTimer = null;
+    saveSettings().catch(error => toast(error.message));
+  });
   $("locate").addEventListener("click", () => {
     const rtcReady = S.control?.readyState === "open";
     command("location_once")
@@ -1916,6 +1994,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("motionClear").addEventListener("click", () => clearMotionHistory().catch(error => toast(error.message)));
   $("zoom").addEventListener("input", applyViewerZoom);
   $("zoomReset").addEventListener("click", () => { $("zoom").value = "100"; applyViewerZoom(); });
+  $("remoteVideo").addEventListener("loadedmetadata", () => { applyAspectRatio($("aspectRatio").value); syncRemoteVideoViewport(); });
+  $("remoteVideo").addEventListener("resize", syncRemoteVideoViewport);
   $("remoteVideo").addEventListener("playing", startMotionDetection);
   $("remoteVideo").addEventListener("pause", () => {
     if (S.pc && S.remoteVideoStream && $("remoteVideo").readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
@@ -1934,8 +2014,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (S.map && !$("mapPane").classList.contains("hidden")) {
         try { S.map.invalidateSize({ pan: false }); } catch (_) {}
       }
+      syncRemoteVideoViewport();
       restoreRemotePlayback();
-    }, 180);
+    }, 240);
   };
   document.addEventListener("fullscreenchange", restoreAfterViewportChange);
   document.addEventListener("webkitfullscreenchange", restoreAfterViewportChange);
@@ -1943,6 +2024,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   window.addEventListener("pageshow", restoreAfterViewportChange);
   window.addEventListener("resize", () => {
     if (S.pc) restoreAfterViewportChange();
+    else syncRemoteVideoViewport();
   });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
@@ -1968,15 +2050,16 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (S.pc) startVideoWatchdog(S.pc);
     }
   });
-  $("fps").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
-  $("aspectRatio").addEventListener("change", () => { applyAspectRatio($("aspectRatio").value); saveSettings().catch(error => toast(error.message)); });
-  $("androidSpeakerVolume").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
+  $("fps").addEventListener("change", scheduleSettingsSave);
+  $("aspectRatio").addEventListener("change", () => {
+    try { if (S.device) localStorage.setItem("rc_camera_ratio_choice_v1_" + S.device.deviceId, $("aspectRatio").value); } catch (_) {}
+    applyAspectRatio($("aspectRatio").value);
+    scheduleSettingsSave();
+  });
+  $("androidSpeakerVolume").addEventListener("change", scheduleSettingsSave);
   ["androidSpeakerVolume","micNoise","micSensitivity","micGain"].forEach(id=>$(id).addEventListener("input",updateSliderLabels));
   $("receiveVolume").addEventListener("input", event => setReceiveVolume(event.target.value, true));
-  $("micMode").addEventListener("change", () => {
-    saveSettings().then(() => toast("マイク集音モードは次回接続から反映します。"))
-      .catch(error => toast(error.message));
-  });
+  $("micMode").addEventListener("change", scheduleSettingsSave);
   $("diagnostics").addEventListener("click",()=>command("diagnostics").catch(e=>toast(e.message)));
   $("torch").addEventListener("click",()=>{
     const desired=!S.torchEnabled;
@@ -1988,9 +2071,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("micToggle").addEventListener("click",toggleAndroidMicrophone);
   $("reserveConnection").addEventListener("click",()=>reserveConnection().catch(e=>toast(e.message)));
   $("cancelReservation").addEventListener("click",cancelConnectionReservation);
-  $("micNoise").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
-  $("micSensitivity").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
-  $("micGain").addEventListener("change",()=>saveSettings().catch(x=>toast(x.message)));
+  $("micNoise").addEventListener("change", scheduleSettingsSave);
+  $("micSensitivity").addEventListener("change", scheduleSettingsSave);
+  $("micGain").addEventListener("change", scheduleSettingsSave);
   $("nightMode").addEventListener("change",()=>{applyNightViewFilter();localStorage.setItem(nightViewStorageKey(),String($("nightMode").checked));});
   updateSliderLabels();
   applyAspectRatio($("aspectRatio").value);
@@ -2009,8 +2092,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     const option=event.target.selectedOptions && event.target.selectedOptions[0];
     command("camera", { cameraId: event.target.value, facing: option?.dataset.facing || event.target.value }).catch(error => toast(error.message));
   });
-  $("quality").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
-  $("dataMode").addEventListener("change", () => saveSettings().catch(error => toast(error.message)));
+  $("quality").addEventListener("change", scheduleSettingsSave);
+  $("dataMode").addEventListener("change", scheduleSettingsSave);
   try {
     await loadConfig();
     S.devices = readDevices();

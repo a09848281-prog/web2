@@ -594,7 +594,7 @@ class RtcEngine(
         try {
             // Create and initialise a candidate only once. The fallback helper owns
             // every failed capturer and disposes it before trying the next format.
-            val profile = profileFor(currentQuality, currentDataMode, currentFps)
+            val profile = profileFor(currentQuality, currentDataMode, currentFps, cameraId)
             val started = startCaptureWithFallback(
                 enumerator, cameraId, currentHelper, currentSource, profile
             )
