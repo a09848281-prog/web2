@@ -237,7 +237,7 @@ assert.ok(!html.includes('id="snapshot"'), "Static image capture must remain exc
 assert.equal([...js.matchAll(/\$\("fitMode"\)\.addEventListener\("click"/g)].length, 1, "Fit/fill action must be registered once");
 assert.ok(!js.includes('"pointerup", "pointerleave"'), "Pointer capture must not stop PTT on pointer leave");
 assert.ok(html.includes("RTC接続中はAndroidの現在地をDataChannelで直接受信"), "Location UI must explain RTC live updates");
-console.log("Web2 v2.1.2 Preview UI, RTC location and stability checks passed.");
+console.log("Web2 v2.5 Preview UI, on-demand screen sharing and stability checks passed.");
 
 assert.ok(main.includes("addTextChangedListener") && main.includes('putInt("pollIntervalSeconds", seconds)'), "Polling interval must be saved as it is edited");
 assert.ok(main.includes("saveMonitoringSchedule()") && main.includes("setExactAndAllowWhileIdle") && main.includes("NumberPicker") && main.includes("SCHEDULE_EXACT_ALARM"), "Android standby schedule UI missing");
