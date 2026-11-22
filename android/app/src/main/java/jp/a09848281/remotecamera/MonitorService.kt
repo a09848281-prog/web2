@@ -87,6 +87,7 @@ class MonitorService : Service() {
     private val apiReady = CompletableDeferred<Unit>()
     private var streamWakeLock: PowerManager.WakeLock? = null
     private var streamWifiLock: WifiManager.WifiLock? = null
+    private var displayWakeLock: PowerManager.WakeLock? = null
     private var lastUsageSampleAt = 0L
     private var powerSaveActive = false
     private var torchEnabled = false
@@ -180,6 +181,7 @@ class MonitorService : Service() {
         createChannel()
         prefs.edit().putBoolean("monitoringEnabled", true).apply()
         updateForegroundNotification()
+        updateDisplayWakeLock(prefs.getBoolean("androidKeepScreenAwake", false))
     }
 
     private fun updateForegroundNotification() {
@@ -544,6 +546,7 @@ class MonitorService : Service() {
             "android_keep_awake" -> {
                 val enabled = payload.optBoolean("enabled", false)
                 prefs.edit().putBoolean("androidKeepScreenAwake", enabled).apply()
+                updateDisplayWakeLock(enabled)
                 sendBroadcast(Intent(MainActivity.ACTION_KEEP_SCREEN_AWAKE_STATE)
                     .setPackage(packageName).putExtra("enabled", enabled))
                 sendTelemetry()
@@ -623,6 +626,31 @@ class MonitorService : Service() {
             .put("localIpAddresses",JSONArray(ips))
             .put("networkInterface",links?.interfaceName?:"")
     }
+    @Suppress("DEPRECATION")
+    private fun updateDisplayWakeLock(enabled: Boolean) {
+        try {
+            val power = getSystemService(POWER_SERVICE) as PowerManager
+            if (enabled) {
+                var lock = displayWakeLock
+                if (lock == null) {
+                    lock = power.newWakeLock(
+                        PowerManager.SCREEN_DIM_WAKE_LOCK,
+                        packageName + ":remote-camera-display-awake"
+                    )
+                    lock.setReferenceCounted(false)
+                    displayWakeLock = lock
+                }
+                if (!lock.isHeld) lock.acquire()
+            } else {
+                displayWakeLock?.let { if (it.isHeld) it.release() }
+                displayWakeLock = null
+            }
+        } catch (error: Exception) {
+            Log.w("RemoteCameraService", "Could not update Android display wake lock", error)
+            if (!enabled) displayWakeLock = null
+        }
+    }
+
     private fun updateStreamWakeLock(active: Boolean) {
         try {
             val power = getSystemService(POWER_SERVICE) as PowerManager
@@ -1197,9 +1225,10 @@ class MonitorService : Service() {
         }
         rtc = null
         try { updateStreamWakeLock(false) } catch (_: Exception) {}
+        try { updateDisplayWakeLock(false) } catch (_: Exception) {}
         try { streamWifiLock?.let { if (it.isHeld) it.release() } } catch (_: Exception) {}
         streamWifiLock = null
-        prefs.edit().putBoolean("monitoringEnabled", false).apply()
+        prefs.edit().putBoolean("monitoringEnabled", false).putBoolean("androidKeepScreenAwake", false).apply()
         try { getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID) } catch (_: Exception) {}
         scope.cancel()
         super.onDestroy()
