@@ -1381,12 +1381,13 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   try { S.remoteAnalyser?.disconnect(); } catch (_) {}
   S.remoteAudioSource = null; S.remoteAnalyser = null;
 
-  if (sendCommand && S.wakeLock) {
-    try { await S.wakeLock.release(); } catch (_) {}
+  if (sendCommand && (S.wakeLock || S.keepAwakeWanted)) {
+    ++S.wakeLockRequestGeneration;
+    const lock = S.wakeLock;
     S.wakeLock = null;
     S.keepAwakeWanted = false;
-    $("keepAwake").classList.remove("active");
-    $("keepAwake").textContent = "画面スリープ防止 OFF";
+    if (lock) { try { await lock.release(); } catch (_) {} }
+    updateScreenWakeLockButton();
   }
 
   S.pc = null;
