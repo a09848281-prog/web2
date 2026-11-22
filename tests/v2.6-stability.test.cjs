@@ -143,5 +143,5 @@ test("v2.8.2 Web preview stays synchronized with compatible Android package", ()
   assert.match(config, /"appVersion": "2\.8\.2-preview"/);
   assert.match(sw, /v2-8-2/);
   assert.match(sw, /noise-suppressor-processor\.js/);
-  assert.equal(pwa.name, "Remote Camera Web2 v2.8.0 Preview"); // Android compatibility app identity is intentionally retained.
+  assert.equal(pwa.name, "Remote Camera Web2 v2.8.2 Preview");
 });
