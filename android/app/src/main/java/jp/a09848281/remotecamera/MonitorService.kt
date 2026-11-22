@@ -750,7 +750,11 @@ class MonitorService : Service() {
         } else {
             "ライトを消灯できませんでした。端末のライト状態を確認してください。"
         }
-        throw IllegalStateException(reason, lastError)
+        flashAvailableCache = null
+        throw IllegalStateException(
+            reason + " Androidのカメラ使用状態が落ち着いてから再試行してください。",
+            lastError
+        )
     }
 
     private fun sampleTrafficUsage() {
@@ -882,8 +886,10 @@ class MonitorService : Service() {
                     characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
             }.also { flashAvailableCache = it }
         } catch (error: Exception) {
-            Log.w("RemoteCameraService", "Could not query flash availability", error)
-            false.also { flashAvailableCache = it }
+            // A transient camera-service error is not proof that the phone lacks a flash.
+            // Leave the cache empty so the next telemetry cycle retries capability detection.
+            Log.w("RemoteCameraService", "Could not query flash availability; will retry", error)
+            false
         }
         val usage = getUsageTotals()
         val capture = rtc?.captureInfo() ?: JSONObject()
