@@ -48,8 +48,10 @@ const S = {
   videoWatchdogTimer: null, videoFrameCallbackId: null, videoUsesFrameCallback: false,
   viewportRestoreTimer: null,
   hasReceivedVideoFrame: false, lastVideoFrameAt: 0, videoWatchdogGraceUntil: 0, connectedAt: 0, sessionTimer: null,
-  statsLast: null, manualDisconnect: false, reconnectResetTimer: null,
-  connectionTimeoutTimer: null, connectionTimeoutPeer: null, cameraCapabilities: [],
+  statsLast: null, statsFrameLast: null, viewerReceiveFps: null,
+  manualDisconnect: false, reconnectResetTimer: null,
+  connectionTimeoutTimer: null, connectionTimeoutPeer: null,
+  connectionAttemptId: 0, connectionAttemptWatchdog: null, cameraCapabilities: [],
   settingsSaveQueue: Promise.resolve()
 };
 
@@ -502,6 +504,16 @@ function startVideoWatchdog(peer) {
   }, 2000);
 }
 
+function withTimeout(promise, timeoutMs, label = "処理") {
+  let timer = null;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(label + "がタイムアウトしました。")), timeoutMs);
+    })
+  ]).finally(() => { if (timer) clearTimeout(timer); });
+}
+
 function rid() {
   return (crypto.randomUUID && crypto.randomUUID()) ||
     (Date.now().toString(36) + Math.random().toString(36).slice(2));
@@ -857,7 +869,7 @@ async function loadConfig() {
  * GAS HTML response is returned through a hidden iframe.
  * Match both the request ID and the exact iframe window before accepting it.
  */
-function api(action, data = {}) {
+function api(action, data = {}, timeoutMs = null) {
   return new Promise((resolve, reject) => {
     const startedAt = performance.now();
     const id = rid();
@@ -882,9 +894,12 @@ function api(action, data = {}) {
     document.body.append(frame, form);
 
     let finished = false;
+    const requestTimeout = Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0
+      ? Math.max(2000, Math.min(30000, Number(timeoutMs)))
+      : (Number(S.cfg.requestTimeoutMs) || 30000);
     const timer = setTimeout(() => finish(
-      Error("GASから30秒以内に応答が届きませんでした。GASの再デプロイ状態と通信設定を確認してください。")
-    ), Number(S.cfg.requestTimeoutMs) || 30000);
+      Error("GASから" + Math.round(requestTimeout / 1000) + "秒以内に応答が届きませんでした。")
+    ), requestTimeout);
 
     function finish(error, value) {
       if (finished) return;
