@@ -108,6 +108,24 @@ assert.ok(rtc.includes("override fun onDataChannel(channel: DataChannel)"), "And
 assert.ok(rtc.includes("hasOpenControlChannel()"), "Android DataChannel state check missing");
 assert.ok(rtc.includes("peers.size < 3"), "Three-viewer limit missing");
 assert.ok(rtc.includes("requestedFps.coerceIn(10, 60)"), "FPS control missing");
+assert.ok(rtc.includes("private val captureFpsMonitor = object : VideoSink"), "Actual camera FPS monitor missing");
+assert.ok(rtc.includes(".addSink(captureFpsMonitor)") && rtc.includes(".removeSink(captureFpsMonitor)"), "Actual camera FPS monitor lifecycle missing");
+assert.ok(rtc.includes('.put("measuredFps",') && rtc.includes('.put("frameAgeMs",'), "Actual Android capture FPS telemetry missing");
+assert.ok(torchSession.includes("Selected target FPS range") &&
+  torchSession.includes("range.min == framerate && range.max == framerate"),
+  "Camera2 must prefer exact fixed frame-rate ranges before variable ranges");
+assert.ok(torchSession.includes("Electronic stabilization disabled to prioritize 30+ FPS"),
+  "Electronic stabilization should be disabled at high requested FPS");
+assert.ok(service.includes('.put("captureMeasuredFps", capture.optInt("measuredFps"') &&
+  service.includes('.put("captureFrameAgeMs", capture.optLong("frameAgeMs"'),
+  "Android measured camera FPS and frame-age telemetry missing");
+assert.ok(service.includes("currentQuality = if (criticalThermalProtection) \"360\" else \"480\"") &&
+  service.includes("minOf(currentFps, 30)") && service.includes("minOf(currentFps, 20)"),
+  "Thermal protection must reduce resolution first and retain 30 FPS outside critical temperature");
+assert.ok(service.includes("10000,\n                        12000") &&
+  apiClient.includes("connectTimeoutMs: Int = 15000") && apiClient.includes("readTimeoutMs: Int = 20000"),
+  "Android GAS signaling must use bounded network timeouts");
+
 assert.ok(rtc.includes("fun sendCameraCapabilities("), "Camera capability sender missing");
 assert.ok(rtc.includes("fun selectCamera(cameraId: String)"), "Selectable camera lens handler missing");
 assert.ok(js.includes("camera_capabilities"), "Web camera capability receiver missing");
@@ -179,12 +197,12 @@ assert.ok(gas.includes("Controllers:"), "Multi-controller storage sheet missing"
 assert.ok(gas.includes("activeControllerCount_(deviceId) >= 3"), "Three-controller pairing limit missing");
 assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi permission missing");
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
-assert.ok(androidBuild.includes('versionName = "2.8.0-preview"'), "Android app version must be v2.8.0");
-assert.ok(androidBuild.includes("versionCode = 431"), "Android version code must be 431");
+assert.ok(androidBuild.includes('versionName = "2.8.3-preview"'), "Android app version must be v2.8.3");
+assert.ok(androidBuild.includes("versionCode = 432"), "Android version code must be 431");
 assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v28"'), "v2.8 uses a separate package so v2.7 data and install remain intact");
-assert.ok(webConfig.includes('"appVersion": "2.8.2-preview"'), "Web config version must be v2.8.0");
-assert.ok(html.includes("v2.8.2 Preview"), "PWA display version must be v2.8.0");
-assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-2"'), "PWA cache key must be bumped to v2.8.0");
+assert.ok(webConfig.includes('"appVersion": "2.8.3-preview"'), "Web config version must be v2.8.3");
+assert.ok(html.includes("v2.8.3 Preview"), "PWA display version must be v2.8.3");
+assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-3"'), "PWA cache key must be bumped to v2.8.3");
 assert.ok(serviceWorker.includes("noise-suppressor-processor.js"), "Audio worklet must be precached");
 assert.ok(serviceWorker.includes("key.startsWith(CACHE_PREFIX)"), "Service worker must only delete its own cache namespace");
 assert.ok(!serviceWorker.includes("keys.filter(key => key !== CACHE)"), "Service worker must not delete unrelated origin caches");
@@ -209,8 +227,8 @@ assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from S
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.3.0"'), "GAS API version must be 1.3.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 431"), "Android version code must be 431 for v2.8.0");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.2 Preview", "PWA display name must match v2.8.2");
+assert.ok(androidBuild.includes("versionCode = 432"), "Android version code must be 431 for v2.8.3");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.3 Preview", "PWA display name must match v2.8.2");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 assert.ok(html.includes('id="reserveAt" type="datetime-local" step="1"'), "Web schedule must accept second precision");
 assert.ok(js.includes("S.reservationTimer = setInterval(checkConnectionReservation, 250)"), "Web reservation scheduler missing");
@@ -259,6 +277,14 @@ assert.ok(js.includes("function setWebMicEnabled(enabled)") && js.includes("navi
 assert.ok(js.includes('$("micNoise").addEventListener("input"') && js.includes("setNoiseSuppressionLevel"), "Noise slider must apply local DSP values");
 const connectFunction = js.slice(js.indexOf("async function connect("), js.indexOf("function scheduleReconnect("));
 assert.ok(connectFunction.includes("void setWebMicEnabled(true)"), "Browser microphone must start automatically during connection setup");
+assert.ok(js.includes("connectionAttemptWatchdog") && js.includes("abortStalledConnectAttempt(attemptId)"),
+  "A stuck WebRTC setup must be force-reset by a hard connection-attempt watchdog");
+assert.ok(js.includes("assertConnectAttempt(attemptId, device.deviceId)") &&
+  js.includes("withTimeout(pc.createOffer(), 8000"),
+  "Connection stages must have stale-attempt guards and bounded promise waits");
+assert.ok(js.includes("consecutiveFailures >= 3") && js.includes("if (S.connecting)"),
+  "Signal polling must trigger recovery after repeated failures without stacking reconnect timers");
+
 assert.ok(js.includes("sender.replaceTrack(track)") && js.includes("sender?.replaceTrack(null)") && js.includes("track.stop()"), "Web mic must attach and release real tracks");
 assert.ok(js.includes("await setWebMicEnabled(false)") && js.includes('sendControlAndWait("disconnect", { sessionId, keepRecovery }, 800)'), "Disconnect must release the Web mic before bounded remote shutdown");
 assert.ok(!js.includes("pttLock") && !html.includes('id="pttLock"'), "Obsolete PTT lock UI must be removed");
