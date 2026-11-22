@@ -15,6 +15,7 @@ const apiClient = fs.readFileSync("android/app/src/main/java/jp/a09848281/remote
 const gas = fs.readFileSync("gas/Code.gs", "utf8");
 const config = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/Config.kt", "utf8");
 const motionCore = fs.readFileSync("motion-core.js", "utf8");
+const recoveryCore = fs.readFileSync("recovery-core.js", "utf8");
 const motionTests = fs.readFileSync("tests/motion-core.test.cjs", "utf8");
 const audioUtils = fs.readFileSync("audio-utils.js", "utf8");
 const audioTests = fs.readFileSync("tests/audio-utils.test.cjs", "utf8");
@@ -269,7 +270,17 @@ assert.ok(service.includes("if (!prefs.getBoolean(\"monitoringEnabled\", false))
 assert.ok(service.includes("updateDisplayWakeLock(false)") && service.includes("PowerManager.SCREEN_BRIGHT_WAKE_LOCK") && service.includes("PowerManager.ACQUIRE_CAUSES_WAKEUP"), "Remote screen wake must turn the display on and release on stop");
 assert.ok(service.includes('"android_keep_awake"') && service.includes('"androidKeepAwake"'), "Android display-awake state must be remotely controlled and reported");
 assert.ok(!main.includes("FLAG_KEEP_SCREEN_ON") && !main.includes("keepAwakeButton") && !main.includes("ACTION_KEEP_SCREEN_AWAKE_STATE"), "Android APK must not expose a local sleep-prevention button");
-assert.ok(html.includes('id="androidKeepAwake"') && js.includes('sendControlAndWait("android_keep_awake"'), "Web must expose acknowledged Android display-awake toggle");
+assert.ok(html.includes('id="androidKeepAwake"') && html.includes("スリープ制御 無効") &&
+  !js.includes("android_keep_awake") && !js.includes("toggleAndroidKeepAwake"),
+  "Web must show a non-operational Android sleep status and must not send remote display-wake commands");
+assert.ok(js.includes("S.androidCameraEnabled === false") && js.includes("RemoteCameraRecovery.shouldRecoverVideo"),
+  "Video watchdog must not reconnect while the Android camera is intentionally OFF");
+assert.ok(recoveryCore.includes("function shouldRecoverVideo") && recoveryCore.includes("state.cameraEnabled === false"),
+  "Camera-aware video watchdog policy must be present");
+assert.ok(js.includes('sendControlAndWait("media_toggle"') && js.includes('dataset.pending === "true"'),
+  "Android media buttons must await acknowledgements and reject duplicate clicks");
+assert.ok(js.includes("prepareForVideoCommand(name, payload)") && js.includes("Math.min(12000, timeoutMs)"),
+  "Video-changing commands must receive recovery grace and bounded acknowledgement time");
 assert.ok(rtc.includes("torchRequested") && rtc.includes("setTorchEnabled") &&
   rtc.includes("TorchCaptureControl"), "Torch intent must be owned by the active RTC camera capturer");
 assert.ok(torchSession.includes("FLASH_MODE_TORCH") && torchSession.includes("torchState.attach"),
