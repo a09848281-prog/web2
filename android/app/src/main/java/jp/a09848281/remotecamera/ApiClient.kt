@@ -8,7 +8,12 @@ import java.net.URL
 import java.net.URLEncoder
 
 class ApiClient(private val gasUrl: String) {
-    fun call(action: String, values: JSONObject = JSONObject()): JSONObject {
+    fun call(
+        action: String,
+        values: JSONObject = JSONObject(),
+        connectTimeoutMs: Int = 15000,
+        readTimeoutMs: Int = 20000
+    ): JSONObject {
         require(
             gasUrl.startsWith("https://script.google.com/macros/s/") &&
                 gasUrl.endsWith("/exec") &&
@@ -20,8 +25,8 @@ class ApiClient(private val gasUrl: String) {
         val connection = URL(gasUrl).openConnection() as HttpURLConnection
         connection.requestMethod = "POST"
         connection.doOutput = true
-        connection.connectTimeout = 15000
-        connection.readTimeout = 20000
+        connection.connectTimeout = connectTimeoutMs.coerceIn(2000, 30000)
+        connection.readTimeout = readTimeoutMs.coerceIn(3000, 30000)
         connection.instanceFollowRedirects = false
         connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
         connection.setRequestProperty("Accept", "application/json")
@@ -40,8 +45,8 @@ class ApiClient(private val gasUrl: String) {
                 ) { "GASから許可されていないリダイレクト先が返されました。" }
                 connection.disconnect()
                 val redirected = redirectUrl.openConnection() as HttpURLConnection
-                redirected.connectTimeout = 15000
-                redirected.readTimeout = 20000
+                redirected.connectTimeout = connectTimeoutMs.coerceIn(2000, 30000)
+                redirected.readTimeout = readTimeoutMs.coerceIn(3000, 30000)
                 try {
                     val stream = if (redirected.responseCode >= 400) redirected.errorStream else redirected.inputStream
                     BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
