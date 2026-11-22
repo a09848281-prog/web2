@@ -1,6 +1,7 @@
 package jp.a09848281.remotecamera
 
 import android.Manifest
+import android.app.Activity
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -25,6 +26,7 @@ import android.os.PowerManager
 import android.os.Process
 import java.net.NetworkInterface
 import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
@@ -48,12 +50,17 @@ class MonitorService : Service() {
         const val ACTION_STOP = "jp.a09848281.remotecamera.STOP"
         const val ACTION_VIDEO_SETTINGS = "jp.a09848281.remotecamera.VIDEO_SETTINGS"
         const val ACTION_CODE = "jp.a09848281.remotecamera.CODE"
+        const val ACTION_SCREEN_PERMISSION_RESULT = "jp.a09848281.remotecamera.SCREEN_PERMISSION_RESULT"
+        const val EXTRA_REQUEST_SCREEN_PERMISSION = "request_screen_permission"
+        const val EXTRA_SCREEN_RESULT_CODE = "screen_result_code"
+        const val EXTRA_SCREEN_RESULT_DATA = "screen_result_data"
         const val EXTRA_GAS_URL = "gas_url"
         const val EXTRA_POLL_INTERVAL_SECONDS = "poll_interval_seconds"
         const val EXTRA_CODE = "registration_code"
         const val EXTRA_DEVICE_ID = "device_id"
         private const val CHANNEL = "remote_camera_monitor"
         private const val NOTIFICATION_ID = 7301
+        private const val SCREEN_NOTIFICATION_ID = 7302
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -91,6 +98,8 @@ class MonitorService : Service() {
     private var powerSaveActive = false
     private var torchEnabled = false
     @Volatile private var flashAvailableCache: Boolean? = null
+    private val screenRequesters = ConcurrentHashMap.newKeySet<String>()
+    @Volatile private var screenPermissionPending = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -116,6 +125,10 @@ class MonitorService : Service() {
         if (action == ACTION_STOP) {
             stopMonitoringNow(startId)
             return START_NOT_STICKY
+        }
+        if (action == ACTION_SCREEN_PERMISSION_RESULT) {
+            handleScreenPermissionResult(intent, startId)
+            return START_STICKY
         }
         if (intent != null && action != ACTION_START && action != ACTION_REFRESH_CODE && action != ACTION_VIDEO_SETTINGS) {
             stopSelf(startId)
@@ -174,16 +187,120 @@ class MonitorService : Service() {
     private fun startMonitoringForeground() {
         createChannel()
         prefs.edit().putBoolean("monitoringEnabled", true).apply()
-        val notification = notification("監視待機中（接続要求を確認しています）")
+        updateForegroundScreenProjection(false)
+    }
+
+    private fun updateForegroundScreenProjection(includeProjection: Boolean) {
+        val notificationText = if (includeProjection) "画面共有中（Webからの要求）" else "監視待機中（接続要求を確認しています）"
+        val foregroundNotification = notification(notificationText)
         if (Build.VERSION.SDK_INT >= 29) {
             var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             val hasLocation = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED ||
                 checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED
-            if(hasLocation) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            startForeground(NOTIFICATION_ID,notification,types)
+            if (hasLocation) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            if (includeProjection) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            startForeground(NOTIFICATION_ID, foregroundNotification, types)
         } else {
-            startForeground(NOTIFICATION_ID, notification)
+            startForeground(NOTIFICATION_ID, foregroundNotification)
         }
+    }
+
+    private fun screenPermissionPendingIntent(): PendingIntent {
+        val launch = Intent(this, MainActivity::class.java)
+            .putExtra(EXTRA_REQUEST_SCREEN_PERMISSION, true)
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        return PendingIntent.getActivity(this, SCREEN_NOTIFICATION_ID, launch,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    private fun notifyScreenPermissionNeeded() {
+        createChannel()
+        val notice = NotificationCompat.Builder(this, CHANNEL)
+            .setSmallIcon(android.R.drawable.ic_menu_view)
+            .setContentTitle("Remote Camera：画面共有要求")
+            .setContentText("タップしてAndroidの画面共有を許可してください。")
+            .setContentIntent(screenPermissionPendingIntent())
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .build()
+        getSystemService(NotificationManager::class.java).notify(SCREEN_NOTIFICATION_ID, notice)
+    }
+
+    private fun handleScreenPermissionResult(intent: Intent?, startId: Int) {
+        @Suppress("DEPRECATION")
+        val data: Intent? = if (Build.VERSION.SDK_INT >= 33) {
+            intent?.getParcelableExtra(EXTRA_SCREEN_RESULT_DATA, Intent::class.java)
+        } else {
+            intent?.getParcelableExtra(EXTRA_SCREEN_RESULT_DATA)
+        }
+        val resultCode = intent?.getIntExtra(EXTRA_SCREEN_RESULT_CODE, Activity.RESULT_CANCELED) ?: Activity.RESULT_CANCELED
+        scope.launch {
+            screenPermissionPending = false
+            getSystemService(NotificationManager::class.java).cancel(SCREEN_NOTIFICATION_ID)
+            if (screenRequesters.isEmpty()) {
+                notifyScreenShareState(false, "Web側の画面共有要求が取り消されたため開始しませんでした。", true)
+                return@launch
+            }
+            if (resultCode != Activity.RESULT_OK || data == null) {
+                screenRequesters.clear()
+                updateForegroundScreenProjection(false)
+                notifyScreenShareState(false, "Androidで画面共有が許可されませんでした。", true)
+                return@launch
+            }
+            try {
+                val engine = rtc ?: error("WebRTC接続が終了しています。")
+                updateForegroundScreenProjection(true)
+                engine.startScreenShare(resultCode, data)
+            } catch (error: Exception) {
+                screenRequesters.clear()
+                updateForegroundScreenProjection(false)
+                notifyScreenShareState(false, "画面共有の開始に失敗しました：" + (error.message ?: "不明"), true)
+                Log.e("RemoteCameraService", "MediaProjection start failed", error)
+            }
+        }
+    }
+
+    private fun requestScreenPermission(sessionId: String): String {
+        val engine = rtc ?: error("WebRTC接続が終了しています。")
+        screenRequesters.add(sessionId)
+        if (engine.isScreenSharing()) {
+            engine.sendControl(sessionId, JSONObject().put("type", "screen_state").put("active", true)
+                .put("message", "Android画面を共有中です。"))
+            return "画面共有中のストリームに接続しました。"
+        }
+        if (!screenPermissionPending) {
+            screenPermissionPending = true
+            notifyScreenPermissionNeeded()
+        }
+        return "Androidへ許可通知を送りました。端末の通知をタップして画面共有を許可してください。"
+    }
+
+    private fun stopScreenRequest(sessionId: String): String {
+        screenRequesters.remove(sessionId)
+        if (screenRequesters.isEmpty()) {
+            screenPermissionPending = false
+            getSystemService(NotificationManager::class.java).cancel(SCREEN_NOTIFICATION_ID)
+            rtc?.stopScreenShare("Web側の要求により画面共有を停止しました。")
+            updateForegroundScreenProjection(false)
+        }
+        return if (screenRequesters.isEmpty()) "画面共有を停止しました。" else "ほかのWeb端末が画面共有を使用中のため共有を継続します。"
+    }
+
+    private fun notifyScreenShareState(active: Boolean, message: String, denied: Boolean = false) {
+        if (!active) {
+            screenPermissionPending = false
+            if (denied) screenRequesters.clear()
+            getSystemService(NotificationManager::class.java).cancel(SCREEN_NOTIFICATION_ID)
+            if (prefs.getBoolean("monitoringEnabled", false)) {
+                try { updateForegroundScreenProjection(false) } catch (error: Exception) {
+                    Log.w("RemoteCameraService", "Could not update foreground service type after screen-share stop", error)
+                }
+            }
+        }
+        val payload = JSONObject().put("type", "screen_state").put("active", active)
+            .put("message", message).put("denied", denied)
+        rtc?.sendControlToOpenDataChannels(payload)
+        notifyState(message)
     }
 
     private fun createChannel() {
@@ -224,6 +341,9 @@ class MonitorService : Service() {
         pollJob = null
         locationJob?.cancel()
         locationJob = null
+        screenRequesters.clear()
+        screenPermissionPending = false
+        getSystemService(NotificationManager::class.java).cancel(SCREEN_NOTIFICATION_ID)
         rtc?.dispose()
         try { setTorch(false) } catch (_: Exception) {}
         rtc = null
@@ -334,7 +454,8 @@ class MonitorService : Service() {
                                                 onDataChannelMessage = ::handleDataChannelMessage,
                                                 onConnectionState = ::onRtcConnectionState,
                                                 microphoneMode = prefs.getString("micMode", "balanced") ?: "balanced",
-                                                captureAspectRatio = prefs.getString("aspectRatio", "original") ?: "16:9"
+                                                captureAspectRatio = prefs.getString("aspectRatio", "original") ?: "16:9",
+                                                onScreenShareState = { active, message -> notifyScreenShareState(active, message) }
                                             )
                                         }
                                         rtc?.setIceServers(response.optJSONArray("iceServers"))
@@ -435,6 +556,13 @@ class MonitorService : Service() {
         }
     }
     private fun closeRtcViewerSession(sessionId: String) {
+        screenRequesters.remove(sessionId)
+        if (screenRequesters.isEmpty()) {
+            screenPermissionPending = false
+            getSystemService(NotificationManager::class.java).cancel(SCREEN_NOTIFICATION_ID)
+            rtc?.stopScreenShare("画面共有を停止しました。")
+            try { updateForegroundScreenProjection(false) } catch (_: Exception) {}
+        }
         val engine = rtc ?: return
         engine.closeSession(sessionId)
         updateStreamWakeLock(engine.hasPeers())
@@ -500,6 +628,18 @@ class MonitorService : Service() {
     }
     private suspend fun executeDataChannelCommand(sessionId:String,name:String,payload:JSONObject):String {
         when(name) {
+            "screen_start" -> return requestScreenPermission(sessionId)
+            "screen_stop" -> return stopScreenRequest(sessionId)
+            "remote_tap", "remote_long_press", "remote_swipe", "remote_text",
+            "remote_back", "remote_home", "remote_recents", "remote_notifications",
+            "remote_quick_settings", "remote_open_app", "remote_open_url",
+            "remote_scroll_up", "remote_scroll_down" -> {
+                check(screenRequesters.contains(sessionId)) { "このWeb端末は画面共有を要求していません。" }
+                check(rtc?.isScreenSharing() == true) { "画面共有が開始されていません。" }
+                val accessibility = RemoteControlAccessibilityService.instance
+                    ?: error("Android設定で「Remote Camera操作サービス」を有効にしてください。")
+                return accessibility.executeRemoteCommand(name, payload)
+            }
             "camera" -> {
                 val engine = rtc ?: error("WebRTCが終了しています。")
                 val cameraId = payload.optString("cameraId", "")
@@ -806,6 +946,8 @@ class MonitorService : Service() {
             .put("cameraFacing",rtc?.currentCameraFacing() ?: "未接続")
             .put("cameraId",rtc?.currentCameraId() ?: "")
             .put("flashAvailable",flashAvailable).put("flashEnabled",torchEnabled)
+            .put("accessibilityEnabled", RemoteControlAccessibilityService.instance != null)
+            .put("screenSharing", rtc?.isScreenSharing() == true)
             .put("microphoneMode",prefs.getString("micMode","balanced") ?: "balanced")
             .put("network",networkInfo())
         rtc?.sendControlToOpenDataChannels(data)
@@ -1135,6 +1277,9 @@ class MonitorService : Service() {
     override fun onDestroy() {
         pollJob?.cancel()
         locationJob?.cancel()
+        screenRequesters.clear()
+        screenPermissionPending = false
+        try { getSystemService(NotificationManager::class.java).cancel(SCREEN_NOTIFICATION_ID) } catch (_: Exception) {}
         rtc?.dispose()
         try { setTorch(false) } catch (error: Exception) {
             Log.w("RemoteCameraService", "Could not turn off torch during service cleanup", error)
