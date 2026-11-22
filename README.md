@@ -13,36 +13,35 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 
 ## Current stability preview
 
-- App version: `2.6.0-preview`
-- Android versionCode: `427`
-- PWA preview: https://a09848281-prog.github.io/web2/v2.6/
-- Branch: `preview/v2.6-stability`
+- App version: `2.6.1-preview`
+- Android versionCode: `428`
+- PWA preview: https://a09848281-prog.github.io/web2/v2.6.1/
+- Branch: `preview/v2.6.1-stability`
+- Previous v2.6 preview remains available: https://a09848281-prog.github.io/web2/v2.6/
 - Previous v2.1 preview: https://a09848281-prog.github.io/web2/v2.1/
-- v2.6 prioritizes notification/foreground-service shutdown, Web PTT microphone release, camera/flashlight cleanup, and display-awake control.
 
 ## Setup
 
 1. Deploy `gas/Code.gs` as a Google Apps Script Web App.
 2. Confirm `gasUrl` in `config.json` points to the deployed `/exec` URL. Do not commit TURN credentials or other secrets.
-3. Publish the PWA with the `Deploy v2.6 Preview to GitHub Pages` workflow. The workflow preserves the root site and v2.1/v2.5 preview paths.
-4. Build the Android APK with the `Android APK Build` workflow. Download the `remote-camera-web2-preview-v2.6.0-apk` artifact.
-5. Follow `docs/WEB2-V2.1.0-CHECKLIST.md` for the Galaxy A22 5G / Android 13 and iPad Safari checks.
+3. Publish the PWA with the `Deploy v2.6 Preview to GitHub Pages` workflow. It publishes the v2.6.1 preview at `/v2.6.1/` without replacing the older preview folders.
+4. Build the Android APK with the `Android APK Build` workflow. Download the `remote-camera-web2-preview-v2.6.1-apk` artifact.
+5. Follow `docs/WEB2-V2.1.0-CHECKLIST.md` for Galaxy A22 5G / Android 13 and iPad Safari tests.
 
-## v2.6 Stability Preview
+## v2.6.1 Stability Preview
 
-- Branch: `preview/v2.6-stability`
-- Android package: `jp.a09848281.remotecamera.v26` / `2.6.0-preview` (versionCode 427). It installs alongside v2.5 and does not overwrite or erase it.
-- PWA: `https://a09848281-prog.github.io/web2/v2.6/`
-- Android APK artifact: `remote-camera-web2-preview-v2.6.0-apk`
-- Android screen sharing and its AccessibilityService controls have been removed from this release.
-- The Web microphone is not requested during page load or RTC connection. It is requested only after the user presses the PTT control; release, disconnect, page-background, and RTC failure paths stop the local microphone track.
-- The notification's **待機を停止** action uses a dedicated BroadcastReceiver and stops the foreground service without attempting to start another foreground service. Shutdown disposes RTC, camera/audio resources, torch state, Wi-Fi and power locks, and the notification.
-- Android display-awake can be toggled locally or from Web while connected. It prevents automatic display sleep while its wake lock is held, can increase battery use, and does not bypass the PIN/pattern/biometric lock screen.
-- Android's standard hardware NoiseSuppressor is an ON/OFF feature in this build: 0 = OFF; values 1–100 request the standard ON state. The number is retained as a UI value, not a measured cancellation-strength percentage; the standard hardware effect switches ON/OFF in real time during an active media session. The 1–100 number is a request/UI value, not a measured cancellation-strength percentage; the current Android WebRTC audio module does not expose continuous 0–100 DSP intensity.
-- Turning an already-off flashlight off is now a no-op. Turning the flash on can still be rejected by a device if its camera hardware resources are busy.
-- GitHub Actions compilation and automated tests do not replace physical tests on Galaxy A22 / Android 13 and iPad Safari.
+- Branch: `preview/v2.6.1-stability`
+- Android package: `jp.a09848281.remotecamera.v26` / `2.6.1-preview` (versionCode 428). The package ID is unchanged from v2.6, so Android can install it as an update to v2.6.
+- PWA: `https://a09848281-prog.github.io/web2/v2.6.1/`
+- APK artifact: `remote-camera-web2-preview-v2.6.1-apk`
+- **Web microphone:** starts automatically as the RTC connection is set up. The Web microphone button becomes an ON/OFF toggle. Permission denial does not intentionally block the camera-view setup; the user can retry from the button. Android receive audio remains active for full-duplex sound.
+- **Noise control:** the 0–100 slider is now applied in the Web Audio receive path using an adaptive noise gate. 0 bypasses the gate; larger values attenuate low-level background sound more strongly. This is software gating, not full spectral noise cancellation, and a high setting can also reduce quiet speech. The setting is stored locally in the Web viewer.
+- **Android sleep prevention:** the APK's local sleep toggle has been removed. The Web viewer is the only control surface. The Android foreground service applies a screen wake lock, reports whether the lock is actually held, and acknowledges ON/OFF changes. It does not bypass the PIN/pattern/biometric lock and can increase battery use.
+- **Zoom:** the viewer can be dragged to pan around the enlarged image; reset returns to the center.
+- **Flashlight:** the service now tracks the actual torch callback and no longer keeps a failed ON request pending until a later camera flip. Android's public `CameraManager.setTorchMode()` can reject the flash while the same camera resource is in use. On phones where the rear camera and flash cannot run simultaneously through this API, the light still cannot be forced on while that rear camera is actively streaming. The Web UI reports actual state rather than claiming it is on. See the platform note below.
+- Android screen sharing and AccessibilityService controls remain excluded. Recording and image saving remain excluded.
 
-See [V2.6-STABILITY.md](V2.6-STABILITY.md) for the revised lifecycle and known platform limits.
+See [V2.6.1-STABILITY.md](V2.6.1-STABILITY.md) for implementation details, checks and known hardware limits.
 
 ## Location delivery
 
