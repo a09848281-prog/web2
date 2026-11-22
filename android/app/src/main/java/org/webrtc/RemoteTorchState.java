@@ -15,10 +15,11 @@ final class RemoteTorchState {
   private Handler cameraHandler;
   private CameraCaptureSession captureSession;
   private CaptureRequest.Builder requestBuilder;
-  private final CountDownLatch ready = new CountDownLatch(1);
+  private volatile CountDownLatch ready = new CountDownLatch(1);
 
   void attach(CameraCaptureSession session, CaptureRequest.Builder builder,
       Handler handler, boolean available) {
+    ready = new CountDownLatch(1);
     cameraHandler = handler;
     captureSession = session;
     requestBuilder = builder;
@@ -42,7 +43,9 @@ final class RemoteTorchState {
     cameraHandler = null;
     captureSession = null;
     requestBuilder = null;
-    ready.countDown();
+    CountDownLatch previous = ready;
+    previous.countDown();
+    ready = new CountDownLatch(1);
   }
 
   void setEnabled(boolean enabled) throws Exception {
@@ -51,7 +54,8 @@ final class RemoteTorchState {
       appliedEnabled = false;
       return;
     }
-    if (!ready.await(8, TimeUnit.SECONDS)) {
+    final CountDownLatch sessionReady = ready;
+    if (!sessionReady.await(8, TimeUnit.SECONDS)) {
       desiredEnabled = false;
       throw new IllegalStateException("Camera2撮影セッションの準備がタイムアウトしました。");
     }

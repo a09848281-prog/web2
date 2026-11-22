@@ -501,9 +501,6 @@ class MonitorService : Service() {
                     } else if (engine != null && !engine.hasPeers()) {
                         engine.dispose()
                         if (rtc === engine) rtc = null
-                        try { setTorch(false) } catch (error: Exception) {
-                            Log.w("RemoteCameraService", "Could not turn off torch after disconnected viewer cleanup", error)
-                        }
                         updateForegroundNotification()
                     }
                     updateStreamWakeLock(rtc?.hasPeers() == true)
@@ -521,9 +518,6 @@ class MonitorService : Service() {
         if (!engine.hasPeers()) {
             engine.dispose()
             if (rtc === engine) rtc = null
-            try { setTorch(false) } catch (error: Exception) {
-                Log.w("RemoteCameraService", "Could not switch off flashlight after final viewer disconnected", error)
-            }
             updateStreamWakeLock(false)
             updateForegroundNotification()
         }

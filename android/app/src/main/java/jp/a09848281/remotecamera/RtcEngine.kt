@@ -632,23 +632,36 @@ class RtcEngine(
     fun setNightMode(enabled:Boolean){nightModeEnabled=enabled;onState(if(enabled)"夜間モード要求ON（露出制御は端末依存）" else "夜間モードOFF")}
 
     @Synchronized
+    @Synchronized
     fun setCameraEnabled(enabled: Boolean) {
         if (cameraEnabled == enabled) return
-        val camera = capturer ?: error("カメラが起動していません。")
+        val oldCamera = capturer ?: error("カメラが起動していません。")
         val track = videoTrack ?: error("映像トラックがありません。")
         if (enabled) {
-            camera.startCapture(captureWidth, captureHeight, captureFps)
+            val currentHelper = helper ?: error("カメラ初期化情報がありません。")
+            val currentSource = videoSource ?: error("映像ソースがありません。")
+            val profile = profileFor(currentQuality, currentDataMode, currentFps, selectedCameraId)
+            val started = startCaptureWithFallback(
+                Camera2Enumerator(context), selectedCameraId, currentHelper, currentSource, profile
+            )
+            capturer = started.capturer
+            captureWidth = started.width
+            captureHeight = started.height
+            captureFps = started.fps
+            try { oldCamera.dispose() } catch (error: Exception) {
+                Log.w("RemoteCameraRTC", "Stopped camera capturer disposal failed", error)
+            }
             track.setEnabled(true)
             cameraEnabled = true
         } else {
             if (torchRequested) {
-                try { (camera as? TorchCaptureControl)?.setTorchEnabled(false) } catch (error: Exception) {
+                try { (oldCamera as? TorchCaptureControl)?.setTorchEnabled(false) } catch (error: Exception) {
                     Log.w("RemoteCameraRTC", "Torch OFF before camera pause failed", error)
                 }
                 torchRequested = false
             }
             track.setEnabled(false)
-            camera.stopCapture()
+            oldCamera.stopCapture()
             cameraEnabled = false
         }
     }
@@ -753,13 +766,15 @@ class RtcEngine(
         val previousDataMode = currentDataMode
         val previousFps = currentFps
         val previousRatio = currentAspectRatio
-        currentAspectRatio = aspectRatio.takeIf {
+        val nextRatio = aspectRatio.takeIf {
             it in setOf("16:9", "4:3", "1:1", "9:16", "original")
         } ?: "original"
         val requestedFps = fps.coerceIn(10, 60)
+        val captureChanged = quality != previousQuality || dataMode != previousDataMode ||
+            requestedFps != previousFps || nextRatio != previousRatio
+        currentAspectRatio = nextRatio
         val profile = profileFor(quality, dataMode, requestedFps, selectedCameraId)
         val camera = capturer
-        val captureChanged = profile.width != captureWidth || profile.height != captureHeight || profile.fps != captureFps
         if (camera != null && captureChanged && cameraEnabled) {
             val currentHelper = helper ?: error("カメラ初期化情報がありません。")
             val currentSource = videoSource ?: error("映像ソースがありません。")
@@ -799,10 +814,6 @@ class RtcEngine(
                 onState("画質変更に失敗しました。以前の撮影形式へ戻しました。")
                 throw IllegalStateException("端末が指定した画質に対応していません。以前の画質を維持します。", error)
             }
-        } else if (camera != null && captureChanged && !cameraEnabled) {
-            captureWidth = profile.width
-            captureHeight = profile.height
-            captureFps = profile.fps
         }
         currentQuality = quality
         currentDataMode = dataMode
@@ -812,7 +823,7 @@ class RtcEngine(
                 val params = sender.parameters
                 params.encodings.forEach {
                     it.maxBitrateBps = profile.bitrate
-                    it.maxFramerate = profile.fps
+                    it.maxFramerate = if (cameraEnabled) captureFps else requestedFps
                 }
                 if (!sender.setParameters(params)) {
                     Log.w("RemoteCameraRTC", "Video sender rejected quality parameters")

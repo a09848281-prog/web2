@@ -874,7 +874,7 @@ function renderDevices() {
   });
 }
 function setControlsEnabled(enabled) {
-  ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair", "reserveConnection", "motionHistory", "motionExport", "motionClear", "remoteMute", "cameraToggle", "micToggle", "androidKeepAwake", "deviceInfo"].forEach(id => {
+  ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair", "reserveConnection", "refreshAndroidSchedule", "motionHistory", "motionExport", "motionClear", "remoteMute", "cameraToggle", "micToggle", "androidKeepAwake", "deviceInfo"].forEach(id => {
     $(id).disabled = !enabled;
   });
   $("keepAwake").disabled = !enabled || !S.pc;
@@ -1108,7 +1108,7 @@ async function connect(automatic = false) {
       if (S.pttActive || S.pttRequested) setWebMicEnabled(false);
       stopRtcStats();
       status("制御チャネル切断・自動復旧中");
-      if (S.pc === pc && S.everConnected && !S.manualDisconnect) scheduleReconnect(pc, true, 450, "datachannel");
+      if (S.pc === pc && (S.everConnected || S.autoConnectWanted) && !S.manualDisconnect) scheduleReconnect(pc, true, 450, "datachannel");
     };
     control.onmessage = event => { if (S.pc === pc) handleControlMessage(event.data); };
     control.onerror = () => {
@@ -1173,7 +1173,7 @@ async function connect(automatic = false) {
         startSessionClock();
         startRtcStats();
         startVideoWatchdog(pc);
-      } else if ((state === "failed" || state === "disconnected" || state === "closed") && S.everConnected && !S.manualDisconnect) {
+      } else if ((state === "failed" || state === "disconnected" || state === "closed") && (S.everConnected || S.autoConnectWanted) && !S.manualDisconnect) {
         if (S.reconnectResetTimer) clearTimeout(S.reconnectResetTimer);
         S.reconnectResetTimer = null;
         stopSessionClock();
@@ -2108,6 +2108,7 @@ function renderAndroidSchedule(schedule){
  $("androidScheduleStart").textContent="開始："+(start?new Date(start).toLocaleString():"未設定");
  $("androidScheduleEnd").textContent="終了："+(end?new Date(end).toLocaleString():"未設定");
  $("androidScheduleStatus").textContent=enabled?(end>Date.now()?"APKに予約保存済み（Android側のアラームで動作）":"登録済みの予約時刻を経過しています"):(schedule&&schedule.updatedAt?"APK側の予約は解除されています":"APK側の予約情報は未同期です");
+ $("refreshAndroidSchedule").disabled=!S.device;
 }
 async function refreshAndroidSchedule(){
  const device=S.device;

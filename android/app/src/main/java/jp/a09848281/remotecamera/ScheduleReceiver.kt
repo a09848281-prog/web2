@@ -1,5 +1,6 @@
 package jp.a09848281.remotecamera
 
+import android.app.AlarmManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -40,6 +41,7 @@ class ScheduleReceiver : BroadcastReceiver() {
                     else context.startService(start)
                     Log.i("RemoteCameraSchedule", "Scheduled monitoring start requested.")
                 } catch (error: Exception) {
+                    prefs.edit().putBoolean("monitoringEnabled", false).apply()
                     Log.e("RemoteCameraSchedule", "Android rejected scheduled foreground-service start.", error)
                 }
             }
