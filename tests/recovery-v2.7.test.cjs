@@ -68,3 +68,31 @@ test("Web UI exposes synchronized APK schedule timestamps", () => {
   for (const id of ["androidScheduleStart", "androidScheduleEnd", "androidScheduleStatus", "refreshAndroidSchedule"]) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(web, /function renderAndroidSchedule\(/);
 });
+
+
+test("first ICE/DataChannel failure retries even before the first successful connection", () => {
+  assert.match(web, /S\.everConnected \|\| S\.autoConnectWanted/);
+  assert.match(web, /S\.autoConnectWanted: S\.autoConnectWanted/);
+});
+
+test("second precision Web and APK schedule sync path exists", () => {
+  assert.match(html, /datetime-local" step="1"/);
+  assert.match(web, /setInterval\(checkConnectionReservation, 250\)/);
+  assert.match(web, /api\("get_settings"/);
+  assert.match(service, /save_device_schedule/);
+});
+
+test("Camera2 flashlight is integrated into the active video capture request", () => {
+  const torchState = fs.readFileSync("android/app/src/main/java/org/webrtc/RemoteTorchState.java", "utf8");
+  const torchSession = fs.readFileSync("android/app/src/main/java/org/webrtc/RemoteTorchCamera2Session.java", "utf8");
+  assert.match(rtc, /RemoteTorchCamera2Capturer/);
+  assert.match(torchSession, /FLASH_MODE_TORCH/);
+  assert.match(torchState, /ready = new CountDownLatch\(1\)/);
+});
+
+test("requested FPS choices 40, 45, 50 and 55 are present in Web and APK settings", () => {
+  for (const fps of ["40", "45", "50", "55"]) {
+    assert.match(html, new RegExp(`option value="${fps}"`));
+    assert.match(fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MainActivity.kt", "utf8"), new RegExp(`${fps} FPS`));
+  }
+});
