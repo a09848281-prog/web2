@@ -3,6 +3,7 @@
 const $ = id => document.getElementById(id);
 const STORAGE_KEY = "rc_paired_devices_v1";
 const SELECTED_KEY = "rc_selected_device_v1";
+const AUTO_RECONNECT_PREFIX = "rc_auto_reconnect_v1_";
 let settingsChangeTimer = null;
 let micNoiseLiveTimer = null;
 const S = {
@@ -43,7 +44,7 @@ const S = {
   flashAvailable: false,
   androidCameraEnabled: true, androidMicEnabled: true, androidKeepAwake: false,
   audioMeterFrame: null, receiveVolume: 70, remoteAudioMuted: false,
-  wakeLock: null, keepAwakeWanted: false,
+  wakeLock: null, keepAwakeWanted: false, keepAwakeTogglePending: false, wakeLockRequestGeneration: 0,
   videoWatchdogTimer: null, videoFrameCallbackId: null, videoUsesFrameCallback: false,
   viewportRestoreTimer: null,
   hasReceivedVideoFrame: false, lastVideoFrameAt: 0, connectedAt: 0, sessionTimer: null,
@@ -52,6 +53,34 @@ const S = {
   settingsSaveQueue: Promise.resolve()
 };
 
+function autoReconnectKey(deviceOrId) {
+  const id = typeof deviceOrId === "string" ? deviceOrId : deviceOrId?.deviceId;
+  return id ? AUTO_RECONNECT_PREFIX + id : "";
+}
+function setAutoReconnectIntent(deviceOrId, enabled) {
+  const key = autoReconnectKey(deviceOrId);
+  if (!key) return;
+  try {
+    if (enabled) localStorage.setItem(key, "1");
+    else localStorage.removeItem(key);
+  } catch (error) {
+    console.warn("Could not persist auto-reconnect intent", error);
+  }
+}
+function hasAutoReconnectIntent(deviceOrId) {
+  const key = autoReconnectKey(deviceOrId);
+  if (!key) return false;
+  try { return localStorage.getItem(key) === "1"; } catch (_) { return false; }
+}
+function resumeSavedConnectionIntent() {
+  const device = S.device;
+  if (!device || !hasAutoReconnectIntent(device) || S.manualDisconnect) return false;
+  S.manualDisconnect = false;
+  S.autoConnectWanted = true;
+  if (S.pc?.connectionState === "connected" && S.control?.readyState === "open") return true;
+  if (!S.connecting && !S.reconnectTimer) scheduleReconnect(S.pc, true, null, "resume");
+  return true;
+}
 
 function prepareAudioOutput() {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -285,45 +314,76 @@ async function setWebMicEnabled(enabled) {
   return true;
 }
 
-async function enableScreenWakeLock() {
+function updateScreenWakeLockButton() {
+  const button = $("keepAwake");
+  if (!button) return;
+  const held = !!S.wakeLock;
+  button.textContent = held ? "画面スリープ防止 ON" :
+    (S.keepAwakeWanted ? "画面スリープ防止 再開待ち" : "画面スリープ防止 OFF");
+  button.classList.toggle("active", S.keepAwakeWanted || held);
+  button.disabled = S.keepAwakeTogglePending || !S.pc;
+}
+
+async function enableScreenWakeLock(generation = S.wakeLockRequestGeneration) {
   if (!navigator.wakeLock || typeof navigator.wakeLock.request !== "function") {
     toast("このブラウザーは画面スリープ防止に対応していません。");
     return false;
   }
+  if (!S.keepAwakeWanted || document.hidden || generation !== S.wakeLockRequestGeneration) return false;
   try {
-    S.wakeLock = await navigator.wakeLock.request("screen");
-    S.wakeLock.addEventListener("release", () => {
-      S.wakeLock = null;
-      $("keepAwake").classList.remove("active");
-      $("keepAwake").textContent = "画面スリープ防止 OFF";
+    const lock = await navigator.wakeLock.request("screen");
+    if (!S.keepAwakeWanted || document.hidden || generation !== S.wakeLockRequestGeneration) {
+      try { await lock.release(); } catch (_) {}
+      return false;
+    }
+    if (S.wakeLock && S.wakeLock !== lock) {
+      try { await S.wakeLock.release(); } catch (_) {}
+    }
+    S.wakeLock = lock;
+    lock.addEventListener("release", () => {
+      if (S.wakeLock === lock) {
+        S.wakeLock = null;
+        updateScreenWakeLockButton();
+      }
     }, { once: true });
-    $("keepAwake").classList.add("active");
-    $("keepAwake").textContent = "画面スリープ防止 ON";
+    updateScreenWakeLockButton();
     return true;
   } catch (error) {
-    S.wakeLock = null;
-    toast("画面スリープ防止を開始できません: " + (error.message || "ブラウザー制限"));
+    if (generation === S.wakeLockRequestGeneration) {
+      S.wakeLock = null;
+      updateScreenWakeLockButton();
+      toast("画面スリープ防止を開始できません: " + (error.message || "ブラウザー制限"));
+    }
     return false;
   }
 }
 
 async function toggleScreenWakeLock() {
-  S.keepAwakeWanted = !S.keepAwakeWanted;
-  if (!S.keepAwakeWanted) {
-    if (S.wakeLock) {
-      try { await S.wakeLock.release(); } catch (_) {}
+  if (S.keepAwakeTogglePending) return;
+  S.keepAwakeTogglePending = true;
+  updateScreenWakeLockButton();
+  try {
+    if (S.keepAwakeWanted) {
+      S.keepAwakeWanted = false;
+      ++S.wakeLockRequestGeneration;
+      const lock = S.wakeLock;
       S.wakeLock = null;
+      if (lock) { try { await lock.release(); } catch (_) {} }
+      return;
     }
-    $("keepAwake").classList.remove("active");
-    $("keepAwake").textContent = "画面スリープ防止 OFF";
-    return;
+    if (!S.pc || S.pc.connectionState !== "connected") {
+      toast("画面スリープ防止は接続中に有効にできます。");
+      return;
+    }
+    S.keepAwakeWanted = true;
+    const generation = ++S.wakeLockRequestGeneration;
+    if (!await enableScreenWakeLock(generation) && generation === S.wakeLockRequestGeneration) {
+      S.keepAwakeWanted = false;
+    }
+  } finally {
+    S.keepAwakeTogglePending = false;
+    updateScreenWakeLockButton();
   }
-  if (!S.pc || S.pc.connectionState !== "connected") {
-    S.keepAwakeWanted = false;
-    toast("画面スリープ防止は接続中に有効にできます。");
-    return;
-  }
-  if (!await enableScreenWakeLock()) S.keepAwakeWanted = false;
 }
 
 function formatDuration(milliseconds) {
@@ -897,6 +957,7 @@ function selectDevice(device) {
   const previousId = S.device && S.device.deviceId;
   S.device = device;
   if (previousId !== device.deviceId) {
+    if (previousId) setAutoReconnectIntent(previousId, false);
     S.autoConnectWanted = false;
     if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
     S.reconnectTimer = null;
@@ -1044,6 +1105,7 @@ async function connect(automatic = false) {
   if (!automatic) {
     S.manualDisconnect = false;
     S.autoConnectWanted = true;
+    setAutoReconnectIntent(device, true);
     S.reconnectAttempts = 0;
   }
   if (S.reconnectTimer) {
@@ -1222,8 +1284,7 @@ function scheduleReconnect(expectedPc, forceReconnect = false, initialWait = nul
     return;
   }
   const attempt = S.reconnectAttempts + 1;
-  const wait = initialWait === null ? RemoteCameraRecovery.retryDelay(attempt, reason)
-    : Math.max(150, Math.min(15000, Number(initialWait) || 300));
+  const wait = RemoteCameraRecovery.retryDelay(attempt, reason);
   status("自動復旧を準備中");
   $("streamState").textContent = "自動復旧 " + attempt + "回目・" + (wait / 1000).toFixed(1) + "秒後";
   S.reconnectTimer = setTimeout(async () => {
@@ -1268,6 +1329,7 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   if (sendCommand) {
     S.manualDisconnect = true;
     S.autoConnectWanted = false;
+    setAutoReconnectIntent(S.device, false);
     S.everConnected = false;
     S.reconnectAttempts = 0;
     if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
@@ -1581,6 +1643,10 @@ function renderDeviceInfo() {
     cameraId: telemetry.cameraId || "取得不可",
     flashAvailable: telemetry.flashAvailable === true,
     flashEnabled: telemetry.flashEnabled === true,
+    requestedFps: telemetry.requestedFps ?? "取得不可",
+    cameraProfileFps: telemetry.captureFps ?? "取得不可",
+    captureWidth: telemetry.captureWidth ?? "取得不可",
+    captureHeight: telemetry.captureHeight ?? "取得不可",
     microphoneMode: telemetry.microphoneMode || "取得不可",
     networkTransport: network.transport || "取得不可",
     networkValidated: network.validated ?? "取得不可",
@@ -1695,8 +1761,11 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
   S.androidKeepAwake = d.androidKeepAwake === true;
   updateAndroidMediaButtons();
   updateAndroidKeepAwakeButton();
-  const width=Number(d.captureWidth)||0,height=Number(d.captureHeight)||0,actualFps=Number(d.captureFps)||0;
-  $("actualVideoFormat").textContent = width>0&&height>0 ? "撮影形式 "+width+"×"+height+" @ "+(actualFps||"--")+"FPS" : "撮影形式 取得待ち";
+  const width=Number(d.captureWidth)||0,height=Number(d.captureHeight)||0,profileFps=Number(d.captureFps)||0;
+  const requestedFps=Number(d.requestedFps)||Number($("fps").value)||0;
+  $("actualVideoFormat").textContent = width>0&&height>0
+    ? "Android撮影プロファイル "+width+"×"+height+" / 希望 "+(requestedFps||"--")+"FPS・選択形式 "+(profileFps||"--")+"FPS"
+    : "Android撮影プロファイル 取得待ち";
   if(Number.isFinite(Number(d.speakerVolumePercent))) $("androidSpeakerVolume").value=String(Math.max(0,Math.min(100,Number(d.speakerVolumePercent))));
   updateSliderLabels();
   $("androidMediaState").textContent = "カメラ "+(S.androidCameraEnabled?"ON":"OFF")+" / マイク "+(S.androidMicEnabled?"ON":"OFF")+" / Androidスピーカー "+$("androidSpeakerVolume").value+"%";
@@ -1803,7 +1872,7 @@ function startRtcStats() {
         " / RTT " + (rtt === null ? "--" : Math.round(rtt * 1000) + "ms") +
         " / 損失 " + (lossPercent === null ? "--" : lossPercent.toFixed(1) + "%");
       const metricParts = [];
-      metricParts.push("FPS " + (fps === null ? "--" : fps.toFixed(0)));
+      metricParts.push("受信FPS " + (fps === null ? "--" : fps.toFixed(0)));
       metricParts.push("速度 " + (bitrateKbps === null ? "--" : bitrateKbps + "kbps"));
       metricParts.push("RTT " + (rtt === null ? "--" : Math.round(rtt * 1000) + "ms"));
       metricParts.push("損失 " + (lossPercent === null ? "--" : lossPercent.toFixed(1) + "%"));
@@ -2255,16 +2324,20 @@ document.addEventListener("DOMContentLoaded", async () => {
         // resolution must not attach a microphone while this page is hidden.
         setWebMicEnabled(false);
       }
+      ++S.wakeLockRequestGeneration;
       if (S.wakeLock) {
-        S.wakeLock.release().catch(() => {});
+        const lock = S.wakeLock;
         S.wakeLock = null;
+        lock.release().catch(() => {});
       }
+      updateScreenWakeLockButton();
     } else {
       restoreRemotePlayback();
       if (S.motion.enabled) startMotionDetection();
       if (S.keepAwakeWanted && S.pc && S.pc.connectionState === "connected") {
-        enableScreenWakeLock().catch(() => {});
+        enableScreenWakeLock(S.wakeLockRequestGeneration).catch(() => {});
       }
+      updateScreenWakeLockButton();
       if (S.pc) startVideoWatchdog(S.pc);
     }
   });
@@ -2345,6 +2418,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         refreshDeviceList();
         status(S.device ? "ペアリング済み" : "GAS接続済み・端末未登録", true);
         handleQuickLaunch();
+        resumeSavedConnectionIntent();
       }
     } catch (healthError) {
       $("pair").disabled = true;
@@ -2382,13 +2456,10 @@ document.addEventListener("visibilitychange", () => {
   scheduleReconnect(S.pc, true, 250, "resume");
 });
 
-window.addEventListener("pageshow", () => { checkConnectionReservation(); });
-window.addEventListener("pagehide", () => {
-  if (!S.control || S.control.readyState !== "open") return;
-  try {
-    S.control.send(JSON.stringify({ type: "command", command: "disconnect", requestId: rid(), payload: { sessionId: S.session } }));
-  } catch (error) {
-    console.warn("Could not send remote shutdown during pagehide", error);
-  }
+window.addEventListener("pageshow", () => {
+  checkConnectionReservation();
+  resumeSavedConnectionIntent();
 });
+// Never send an explicit Android disconnect on pagehide: iPad Safari can fire
+// this event when the user switches apps or backgrounds the PWA.
 
