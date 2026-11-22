@@ -20,6 +20,6 @@ test("classifies taps, long presses and swipes", () => {
 });
 
 test("limits remote text and removes control characters", () => {
-  assert.equal(Screen.sanitizeText("A\\u0000B"), "AB");
+  assert.equal(Screen.sanitizeText("A\u0000B"), "AB");
   assert.equal(Screen.sanitizeText("x".repeat(500)).length, 300);
 });
