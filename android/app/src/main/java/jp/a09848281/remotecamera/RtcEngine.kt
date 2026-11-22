@@ -632,7 +632,6 @@ class RtcEngine(
     fun setNightMode(enabled:Boolean){nightModeEnabled=enabled;onState(if(enabled)"夜間モード要求ON（露出制御は端末依存）" else "夜間モードOFF")}
 
     @Synchronized
-    @Synchronized
     fun setCameraEnabled(enabled: Boolean) {
         if (cameraEnabled == enabled) return
         val oldCamera = capturer ?: error("カメラが起動していません。")
