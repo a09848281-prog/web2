@@ -1439,14 +1439,13 @@ function syncScreenStageAspectRatio() {
   const width = Number(video.videoWidth) || 0;
   const height = Number(video.videoHeight) || 0;
   if (!(width > 0 && height > 0)) return;
-  const ratio = width / height;
   const containerWidth = stage.parentElement?.clientWidth || window.innerWidth - 32;
   const maxHeight = Math.max(200, window.innerHeight * 0.68);
-  const stageWidth = Math.max(120, Math.min(containerWidth, maxHeight * ratio));
-  const stageHeight = stageWidth / ratio;
-  stage.style.aspectRatio = width + " / " + height;
-  stage.style.width = Math.round(stageWidth) + "px";
-  stage.style.height = Math.round(stageHeight) + "px";
+  const fitted = RemoteScreenUtils.fitStageSize(containerWidth, maxHeight, width, height);
+  if (!fitted) return;
+  stage.style.aspectRatio = fitted.aspectRatio;
+  stage.style.width = fitted.width + "px";
+  stage.style.height = fitted.height + "px";
   stage.dataset.videoWidth = String(width);
   stage.dataset.videoHeight = String(height);
 }
