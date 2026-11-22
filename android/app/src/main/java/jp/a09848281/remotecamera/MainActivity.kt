@@ -193,7 +193,7 @@ class MainActivity : Activity() {
         root.addView(stopButton, LinearLayout.LayoutParams(-1, -2))
         root.addView(keepAwakeButton, LinearLayout.LayoutParams(-1, -2))
         root.addView(TextView(this).apply {
-            text = "自動消灯防止はこのアプリ画面が前面にある間だけ有効です。AndroidのPIN・パターン・生体認証ロックを無効化する機能ではありません。"
+            text = "画面の自動消灯を抑制します。Webからも切替できますが、電池消費が増えます。AndroidのPIN・パターン・生体認証ロックを無効化する機能ではありません。"
             textSize = 12f
             setTextColor(0xFF66758B.toInt())
             setPadding(0, 4, 0, 10)
