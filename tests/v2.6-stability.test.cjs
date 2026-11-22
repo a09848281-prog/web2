@@ -133,16 +133,16 @@ test("zoomed video can be dragged in both directions and reset", () => {
   assert.match(html, /ドラッグして表示位置を移動できます/);
 });
 
-test("v2.6.1 Android, PWA and service-worker versions stay synchronized", () => {
+test("v2.7 Android, PWA and service-worker versions stay synchronized", () => {
   const build = read("android/app/build.gradle.kts");
   const config = read("config.json");
   const sw = read("sw.js");
   const pwa = JSON.parse(read("manifest.webmanifest"));
-  assert.match(build, /versionCode = 428/);
-  assert.match(build, /versionName = "2\.6\.1-preview"/);
+  assert.match(build, /versionCode = 429/);
+  assert.match(build, /versionName = "2\.7\.0-preview"/);
   assert.match(build, /applicationId = "jp\.a09848281\.remotecamera\.v26"/);
-  assert.match(config, /"appVersion": "2\.6\.1-preview"/);
-  assert.match(sw, /v2-6-1/);
+  assert.match(config, /"appVersion": "2\.7\.0-preview"/);
+  assert.match(sw, /v2-7/);
   assert.match(sw, /noise-suppressor-processor\.js/);
-  assert.equal(pwa.name, "Remote Camera Web2 v2.6.1 Preview");
+  assert.equal(pwa.name, "Remote Camera Web2 v2.7.0 Preview");
 });
