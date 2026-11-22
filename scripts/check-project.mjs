@@ -109,7 +109,7 @@ assert.ok(rtc.includes("hasOpenControlChannel()"), "Android DataChannel state ch
 assert.ok(rtc.includes("peers.size < 3"), "Three-viewer limit missing");
 assert.ok(rtc.includes("requestedFps.coerceIn(10, 60)"), "FPS control missing");
 assert.ok(rtc.includes("private val captureFpsMonitor = object : VideoSink"), "Actual camera FPS monitor missing");
-assert.ok(rtc.includes(".addSink(captureFpsMonitor)") && rtc.includes(".removeSink(captureFpsMonitor)"), "Actual camera FPS monitor lifecycle missing");
+assert.ok(rtc.includes("addSink(captureFpsMonitor)") && rtc.includes("removeSink(captureFpsMonitor)"), "Actual camera FPS monitor lifecycle missing");
 assert.ok(rtc.includes('.put("measuredFps",') && rtc.includes('.put("frameAgeMs",'), "Actual Android capture FPS telemetry missing");
 assert.ok(torchSession.includes("Selected target FPS range") &&
   torchSession.includes("range.min == framerate && range.max == framerate"),
