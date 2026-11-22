@@ -7,6 +7,7 @@ on:
       - preview/v2.6.1-stability
       - preview/v2.7-auto-recovery
       - preview/v2.7.1-fixes
+      - preview/v2.8.0-stable-reconnect
     paths:
       - "index.html"
       - "app.js"
@@ -22,6 +23,7 @@ on:
       - "recovery-core.js"
       - "V2.7-AUTO-RECOVERY.md"
       - "V2.7.1-FIXES.md"
+      - "V2.8.0-STABLE-RECOVERY.md"
       - "android/**"
       - "tests/**"
       - "scripts/**"
@@ -81,9 +83,14 @@ jobs:
         with:
           ref: preview/v2.7.1-fixes
           path: v271-source
+      - name: Checkout v2.8.0 stable reconnect preview
+        uses: actions/checkout@v4
+        with:
+          ref: preview/v2.8.0-stable-reconnect
+          path: v280-source
       - name: Assemble site without replacing the homepage
         run: |
-          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6 _site/v2.6.1 _site/v2.7 _site/v2.7.1
+          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6 _site/v2.6.1 _site/v2.7 _site/v2.7.1 _site/v2.8.0
           rsync -a --exclude='.git' base-site/ _site/
           rsync -a --exclude='.git' --exclude='.github' v21-source/ _site/v2.1/
           rsync -a --exclude='.git' --exclude='.github' v25-source/ _site/v2.5/
@@ -91,13 +98,14 @@ jobs:
           rsync -a --exclude='.git' --exclude='.github' v261-source/ _site/v2.6.1/
           rsync -a --exclude='.git' --exclude='.github' v27-source/ _site/v2.7/
           rsync -a --exclude='.git' --exclude='.github' v271-source/ _site/v2.7.1/
+          rsync -a --exclude='.git' --exclude='.github' v280-source/ _site/v2.8.0/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          name: github-pages-v2.7.1
+          name: github-pages-v2.8.0
           path: _site
-      - name: Deploy v2.7.1 fixes preview
+      - name: Deploy v2.8.0 stable reconnect preview
         id: deployment
         uses: actions/deploy-pages@v4
         with:
-          artifact_name: github-pages-v2.7.1
+          artifact_name: github-pages-v2.8.0
