@@ -1,0 +1,71 @@
+name: Deploy v2.6 Preview to GitHub Pages
+
+on:
+  push:
+    branches:
+      - preview/v2.6-stability
+    paths:
+      - "index.html"
+      - "app.js"
+      - "app.css"
+      - "location-utils.js"
+      - "audio-utils.js"
+      - "motion-core.js"
+      - "gas/**"
+      - "manifest.webmanifest"
+      - "sw.js"
+      - "config.json"
+      - ".github/workflows/deploy-v2.6-preview.yml"
+      - "V2.6-STABILITY.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-v2.6-preview
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout published homepage (main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: base-site
+      - name: Checkout existing v2.1.2 preview
+        uses: actions/checkout@v4
+        with:
+          ref: preview/v2.1.2-stability
+          path: v21-source
+      - name: Checkout existing v2.5 preview
+        uses: actions/checkout@v4
+        with:
+          ref: preview/v2.5-remote-screen
+          path: v25-source
+      - name: Checkout v2.6 stability preview
+        uses: actions/checkout@v4
+        with:
+          ref: preview/v2.6-stability
+          path: v26-source
+      - name: Assemble site without replacing the homepage
+        run: |
+          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6
+          rsync -a --exclude='.git' base-site/ _site/
+          rsync -a --exclude='.git' --exclude='.github' v21-source/ _site/v2.1/
+          rsync -a --exclude='.git' --exclude='.github' v25-source/ _site/v2.5/
+          rsync -a --exclude='.git' --exclude='.github' v26-source/ _site/v2.6/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - name: Deploy v2.6 stability preview
+        id: deployment
+        uses: actions/deploy-pages@v4
