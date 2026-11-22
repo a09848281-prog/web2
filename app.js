@@ -1117,7 +1117,7 @@ async function connect(automatic = false) {
   // Resume/create Web Audio while the Connect click still has user activation on iPad Safari.
   prepareAudioOutput();
   try {
-    if (S.pc) await disconnect(false, automatic, true);
+    if (S.pc) await disconnect(false, automatic, true, automatic);
     if (!S.device || S.device.deviceId !== device.deviceId) {
       throw Error("接続先端末が変更されました。もう一度選択してください。");
     }
@@ -1262,7 +1262,7 @@ async function connect(automatic = false) {
     pollAnswers(pc, S.session, device);
     return true;
   } catch (error) {
-    await disconnect(false, false, true);
+    await disconnect(false, false, true, true);
     toast("接続開始失敗: " + error.message);
     if (RemoteCameraRecovery.shouldRetry({ manualDisconnect: S.manualDisconnect, hasDevice: !!S.device, everConnected: S.everConnected, autoConnectWanted: S.autoConnectWanted })) {
       scheduleReconnect(null, "connect-error");
@@ -1324,7 +1324,7 @@ async function pollAnswers(peer, sessionId, device) {
     await new Promise(resolve => setTimeout(resolve, Number(S.cfg.pollIntervalMs) || 2500));
   }
 }
-async function disconnect(sendCommand = true, preserveMic = false, notifyRemote = sendCommand) {
+async function disconnect(sendCommand = true, preserveMic = false, notifyRemote = sendCommand, keepRecovery = false) {
   if (sendCommand) {
     S.manualDisconnect = true;
     S.autoConnectWanted = false;
@@ -1343,27 +1343,29 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   if (notifyRemote && old && device && sessionId) {
     const channelOpen = S.control?.readyState === "open";
     if (channelOpen) {
-      const disconnectResult = await sendControlAndWait("disconnect", { sessionId }, 800);
+      const disconnectResult = await sendControlAndWait("disconnect", { sessionId, keepRecovery }, 800);
       if (!disconnectResult.ok) console.warn("Remote disconnect was not acknowledged", disconnectResult.message);
     }
-    // DataChannel acknowledgement is the fast path. The GAS bye is only a fallback,
-    // so do not hold the local UI or camera/microphone release while waiting for HTTP.
-    void api("send_signal", {
-      controllerToken:device.controllerToken, deviceId:device.deviceId,
-      sessionId:sessionId, recipient:"device", kind:"bye"
-    }).catch(async error => {
-      console.warn("Session bye signal failed", error);
-      if (!channelOpen) {
-        try {
-          await api("send_command", {
-            controllerToken:device.controllerToken, deviceId:device.deviceId,
-            command:"disconnect", payload:{sessionId:sessionId}
-          });
-        } catch (commandError) {
-          console.warn("Session disconnect fallback failed", commandError);
+    // During automatic recovery, keep Android's rapid signaling poll armed.
+    // A bye signal is sent only for an explicit manual disconnect.
+    if (!keepRecovery) {
+      void api("send_signal", {
+        controllerToken:device.controllerToken, deviceId:device.deviceId,
+        sessionId:sessionId, recipient:"device", kind:"bye"
+      }).catch(async error => {
+        console.warn("Session bye signal failed", error);
+        if (!channelOpen) {
+          try {
+            await api("send_command", {
+              controllerToken:device.controllerToken, deviceId:device.deviceId,
+              command:"disconnect", payload:{sessionId:sessionId}
+            });
+          } catch (commandError) {
+            console.warn("Session disconnect fallback failed", commandError);
+          }
         }
-      }
-    });
+      });
+    }
   }
   clearConnectionTimeout(old);
   stopRtcStats();
