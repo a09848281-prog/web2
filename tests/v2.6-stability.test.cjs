@@ -10,32 +10,51 @@ const rtc = read("android/app/src/main/java/jp/a09848281/remotecamera/RtcEngine.
 const main = read("android/app/src/main/java/jp/a09848281/remotecamera/MainActivity.kt");
 const manifest = read("android/app/src/main/AndroidManifest.xml");
 const stopReceiver = read("android/app/src/main/java/jp/a09848281/remotecamera/StopMonitoringReceiver.kt");
+const worklet = read("noise-suppressor-processor.js");
 
-test("RTC connect does not request a browser microphone", () => {
-  const connect = web.slice(web.indexOf("async function connect("), web.indexOf("function scheduleReconnect("));
+test("browser microphone starts automatically when RTC connection is created", () => {
+  const connectStart = web.indexOf("async function connect(");
+  const connectEnd = web.indexOf("function scheduleReconnect(", connectStart);
+  const connect = web.slice(connectStart, connectEnd);
   assert.ok(connect.length > 0);
-  assert.equal(connect.includes("getUserMedia"), false);
+  assert.match(connect, /await setWebMicEnabled\(true\)/);
   assert.match(connect, /addTransceiver\("audio", \{ direction: "sendrecv" \}\)/);
 });
 
-test("PTT obtains a track only after press and stops it after release", () => {
-  const ptt = web.slice(web.indexOf("async function ptt(enabled)"), web.indexOf("function togglePttLock("));
-  assert.match(ptt, /navigator\.mediaDevices\.getUserMedia/);
-  assert.match(ptt, /S\.micSender\.replaceTrack\(track\)/);
-  assert.match(ptt, /S\.micSender\?\.replaceTrack\(null\)/);
-  assert.match(ptt, /stream\?\.getTracks\(\)\.forEach\(track => track\.stop\(\)\)/);
-  assert.match(ptt, /pttRequestId/);
+test("Web microphone toggle acquires, attaches and releases the browser audio track", () => {
+  const start = web.indexOf("async function setWebMicEnabled(enabled)");
+  const end = web.indexOf("async function enableScreenWakeLock()", start);
+  const mic = web.slice(start, end);
+  assert.ok(mic.length > 0);
+  assert.match(mic, /navigator\.mediaDevices\.getUserMedia/);
+  assert.match(mic, /sender\.replaceTrack\(track\)/);
+  assert.match(mic, /sender\?\.replaceTrack\(null\)/);
+  assert.match(mic, /stream\?\.getTracks\(\)\.forEach\(track => track\.stop\(\)\)/);
+  assert.match(mic, /requestId !== S\.pttRequestId/);
+  assert.equal(html.includes('id="pttLock"'), false);
+  assert.equal(web.includes("pttLock"), false);
 });
 
-test("disconnect releases PTT before a bounded Android acknowledgement and does not wait for GAS", () => {
-  const disconnect = web.slice(web.indexOf("async function disconnect("), web.indexOf("async function loadSettings("));
-  assert.ok(disconnect.indexOf("await ptt(false)") < disconnect.indexOf('sendControlAndWait("disconnect"'));
+test("full-duplex audio keeps Android receive enabled while Web microphone transmits", () => {
+  assert.match(web, /track\.enabled = !S\.remoteAudioMuted/);
+  const meterStart = web.indexOf("function startAudioMeter()");
+  const meterEnd = web.indexOf("function stopAudioMeter()", meterStart);
+  const meter = web.slice(meterStart, meterEnd);
+  assert.ok(meter.length > 0);
+  assert.doesNotMatch(meter, /S\.pttActive/);
+});
+
+test("disconnect releases browser microphone before bounded remote acknowledgement and GAS fallback", () => {
+  const start = web.indexOf("async function disconnect(");
+  const end = web.indexOf("async function loadSettings(", start);
+  const disconnect = web.slice(start, end);
+  assert.ok(disconnect.indexOf("await setWebMicEnabled(false)") < disconnect.indexOf('sendControlAndWait("disconnect"'));
   assert.match(disconnect, /sendControlAndWait\("disconnect", \{ sessionId \}, 800\)/);
   assert.match(disconnect, /void api\("send_signal"/);
-  assert.equal(disconnect.includes("await api(\"send_signal\""), false);
+  assert.equal(disconnect.includes('await api("send_signal"'), false);
 });
 
-test("screen capture and remote screen control are absent", () => {
+test("screen capture and remote screen control remain absent", () => {
   assert.equal(html.includes('id="screenPane"'), false);
   assert.equal(html.includes('id="screenTab"'), false);
   assert.equal(web.includes("screen_start"), false);
@@ -46,7 +65,7 @@ test("screen capture and remote screen control are absent", () => {
   assert.equal(manifest.includes("RemoteControlAccessibilityService"), false);
 });
 
-test("notification stop action uses a receiver and never restarts the foreground service", () => {
+test("notification stop action uses a receiver and does not restart the foreground service", () => {
   assert.match(service, /getBroadcast\(/);
   assert.match(service, /待機を停止/);
   assert.match(service, /StopMonitoringReceiver::class\.java/);
@@ -63,36 +82,62 @@ test("cancelled polling cannot repost the initial startup failure notification",
   assert.match(notifyState, /cancel\(NOTIFICATION_ID\)/);
 });
 
-test("Android display-awake control is reversible and service-owned", () => {
-  assert.match(service, /PowerManager\.SCREEN_DIM_WAKE_LOCK/);
-  assert.match(service, /ACTION_DISPLAY_AWAKE/);
+test("Android display-awake is controlled only from Web and confirms successful application", () => {
+  assert.match(service, /PowerManager\.SCREEN_BRIGHT_WAKE_LOCK\s+or\s+PowerManager\.ACQUIRE_CAUSES_WAKEUP/);
   assert.match(service, /updateDisplayWakeLock\(false\)/);
-  assert.match(main, /FLAG_KEEP_SCREEN_ON/);
-  assert.match(main, /ACTION_KEEP_SCREEN_AWAKE_STATE/);
-  assert.match(web, /sendControl\("android_keep_awake"/);
+  assert.match(service, /\.put\("androidKeepAwake", prefs\.getBoolean\("androidKeepScreenAwake", false\)\)/);
+  assert.match(service, /if \(!updateDisplayWakeLock\(enabled\)\)/);
+  assert.match(web, /sendControlAndWait\("android_keep_awake", \{ enabled: next \}, 2200\)/);
+  assert.match(web, /typeof v\.androidKeepAwake === "boolean"/);
   assert.match(html, /id="androidKeepAwake"/);
+  assert.doesNotMatch(main, /keepAwakeButton|FLAG_KEEP_SCREEN_ON|ACTION_KEEP_SCREEN_AWAKE_STATE/);
+  assert.equal(manifest.includes("android.permission.WAKE_LOCK"), true);
 });
 
-test("noise suppression slider maps 0 to off and sends live 0-100 values", () => {
+test("noise suppression uses a real adjustable Web Audio gate from 0 to 100", () => {
   assert.match(html, /id="micNoise"[^>]*min="0"[^>]*max="100"/);
-  assert.match(web, /sendControl\("mic_noise", \{ strength: Number\(\$\("micNoise"\)\.value\) \}\)/);
-  assert.match(service, /setNoiseSuppressionLevel\(strength\)/);
-  assert.match(rtc, /noiseSuppressionLevel > 0/);
-  assert.match(rtc, /module\.setNoiseSuppressorEnabled\(enabled\)/);
+  assert.match(web, /function setNoiseSuppressionLevel\(value, persist = false\)/);
+  assert.match(web, /remote-camera-noise-gate/);
+  assert.match(web, /noiseSuppressorNode\.connect\(S\.remoteAnalyser\)/);
+  assert.match(worklet, /registerProcessor\("remote-camera-noise-gate"/);
+  assert.match(worklet, /if \(this\.strength <= 0\)/);
+  assert.match(worklet, /this\.strength = Number\.isFinite\(value\) \? Math\.max\(0, Math\.min\(100, value\)\) : 0/);
+  assert.match(rtc, /\.setUseHardwareNoiseSuppressor\(false\)/);
+  assert.doesNotMatch(service, /"mic_noise"|setNoiseSuppressionLevel/);
+  assert.match(html, /適応ノイズゲート/);
 });
 
-test("flashlight OFF is idempotent and transient capability errors are retried", () => {
-  assert.match(service, /if \(!enabled && !torchEnabled\)/);
+test("flashlight requests are tracked and restored after camera switching", () => {
+  assert.match(service, /torchRequested/);
+  assert.match(service, /registerTorchCallback/);
+  assert.match(service, /onTorchModeChanged\(cameraId: String, enabled: Boolean\)/);
+  assert.match(service, /sortedByDescending \{ it == selectedId \}/);
+  assert.match(service, /Torch restore after camera switch/);
   assert.match(service, /activeTorchCameraId/);
-  assert.match(service, /flashAvailableCache = null/);
   assert.match(service, /CameraAccessException\.CAMERA_IN_USE/);
+  assert.match(service, /\.put\("flashEnabled",torchEnabled\)/);
 });
 
-test("Android version, PWA version and fresh cache stay synchronized", () => {
-  assert.match(read("android/app/build.gradle.kts"), /versionCode = 427/);
-  assert.ok(read("android/app/build.gradle.kts").includes('applicationId = "jp.a09848281.remotecamera.v26"'));
-  assert.match(read("android/app/build.gradle.kts"), /versionName = "2\.6\.0-preview"/);
-  assert.match(read("config.json"), /"appVersion": "2\.6\.0-preview"/);
-  assert.match(read("sw.js"), /v2-6-0/);
-  assert.match(read("manifest.webmanifest"), /Remote Camera Web2 v2\.6 Preview/);
+test("zoomed video can be dragged in both directions and reset", () => {
+  assert.match(web, /function startViewerPan\(/);
+  assert.match(web, /function moveViewerPan\(/);
+  assert.match(web, /translate\(" \+ S\.zoomPanX/);
+  assert.match(web, /pointerdown", startViewerPan/);
+  assert.match(web, /pointermove", moveViewerPan/);
+  assert.match(web, /S\.zoomPanX = 0; S\.zoomPanY = 0/);
+  assert.match(html, /ドラッグして表示位置を移動できます/);
+});
+
+test("v2.6.1 Android, PWA and service-worker versions stay synchronized", () => {
+  const build = read("android/app/build.gradle.kts");
+  const config = read("config.json");
+  const sw = read("sw.js");
+  const pwa = JSON.parse(read("manifest.webmanifest"));
+  assert.match(build, /versionCode = 428/);
+  assert.match(build, /versionName = "2\.6\.1-preview"/);
+  assert.match(build, /applicationId = "jp\.a09848281\.remotecamera\.v26"/);
+  assert.match(config, /"appVersion": "2\.6\.1-preview"/);
+  assert.match(sw, /v2-6-1/);
+  assert.match(sw, /noise-suppressor-processor\.js/);
+  assert.equal(pwa.name, "Remote Camera Web2 v2.6.1 Preview");
 });
