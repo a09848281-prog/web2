@@ -3,7 +3,7 @@
 Android・iPad・PC対応の個人利用向け遠隔監視カメラシステムです。
 旧web v3.8〜v4.1の画面構成とWeb2の機能を統合した独立プレビューです。
 
-- Current stability preview: `preview/v2.8.0-stable-reconnect`
+- Current Web stability preview: `preview/v2.8.2-command-stability`
 - PWA: GitHub Pages（iPad Safari / PC browser）
 - Android: Kotlin / Foreground Service / WebRTC
 - Signaling and history: Google Apps Script + Google Sheets
@@ -13,13 +13,26 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 
 ## Current stability preview
 
-- App version: `2.8.0-preview`
-- Android versionCode: `431`
-- PWA preview: https://a09848281-prog.github.io/web2/v2.8.0/
-- Branch: `preview/v2.8.0-stable-reconnect`
-- APK artifact: `remote-camera-web2-preview-v2.8.0-apk`
+- Web version: `2.8.2-preview`
+- PWA preview: https://a09848281-prog.github.io/web2/v2.8.2/
+- Web branch: `preview/v2.8.2-command-stability`
+- Android compatibility APK: v2.8.0-preview / versionCode 431 / package `jp.a09848281.remotecamera.v28`
+- No new APK is required for this Web-only change.
 - Previous v2.6 preview remains available: https://a09848281-prog.github.io/web2/v2.6/
 - Previous v2.1 preview: https://a09848281-prog.github.io/web2/v2.1/
+
+## v2.8.2 Command Stability Preview
+
+- Branch: `preview/v2.8.2-command-stability`
+- PWA: `https://a09848281-prog.github.io/web2/v2.8.2/`
+- Web styles: `app.css` is unchanged from v2.8.1. Existing page structure and control positions are preserved.
+- Android sleep control: removed as a Web command. Its original visual slot remains as a non-operational status so the page layout does not shift.
+- Video watchdog: intentional camera OFF is ignored; camera, torch and profile changes receive a recovery grace period.
+- Remote controls: camera/microphone toggles wait for Android acknowledgement and prevent repeated taps while pending. Other direct commands also check acknowledgement.
+- Reconnect waits: 8s, 15s, 25s, 40s, 55s, then up to 60s between retries, while automatic reconnect remains enabled.
+- GAS URL and API 1.3.0 are unchanged. No GAS redeploy is required.
+- Android source/APK is unchanged; v2.8.0 Android APK remains the compatible camera-side app.
+- See [V2.8.2-COMMAND-STABILITY.md](V2.8.2-COMMAND-STABILITY.md) for checks and device-test limitations.
 
 ## v2.8.0 Stable Reconnect Preview
 
@@ -34,7 +47,7 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 
 1. Deploy `gas/Code.gs` as a Google Apps Script Web App.
 2. Confirm `gasUrl` in `config.json` points to the deployed `/exec` URL. Do not commit TURN credentials or other secrets.
-3. Publish the PWA with the `Deploy Remote Camera Web2 Previews to GitHub Pages` workflow. It publishes versioned preview folders `/v2.7/`, `/v2.7.1/`, and `/v2.8.0/` alongside older versions without replacing them.
+3. Publish the PWA with the `Deploy Remote Camera Web2 Previews to GitHub Pages` workflow. It publishes versioned preview folders including `/v2.8.2/` alongside older versions without replacing them.
 4. Build the Android APK with the `Android APK Build` workflow. Download the `remote-camera-web2-preview-v2.8.0-apk` artifact.
 5. Follow `docs/WEB2-V2.1.0-CHECKLIST.md` for Galaxy A22 5G / Android 13 and iPad Safari tests.
 
