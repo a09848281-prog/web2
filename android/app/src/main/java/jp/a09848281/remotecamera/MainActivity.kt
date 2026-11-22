@@ -127,7 +127,7 @@ class MainActivity : Activity() {
         })
 
         root.addView(TextView(this).apply {
-            text = "待機中の撮影設定"
+            text = "Web接続時の撮影設定"
             textSize = 14f
             setTextColor(0xFF586980.toInt())
             setPadding(0, 18, 0, 4)
@@ -145,13 +145,13 @@ class MainActivity : Activity() {
         fpsSpinner.setSelection(listOf(10, 15, 20, 24, 30, 60).indexOf(savedFps).coerceAtLeast(0))
         root.addView(fpsSpinner, LinearLayout.LayoutParams(-1, -2))
         root.addView(TextView(this).apply {
-            text = "画角は16:9です。1080p・60FPSは端末カメラが対応する場合のみ実際に反映されます。通信量は画質・FPSに応じて増減します。"
+            text = "これは待機中に撮影する設定ではありません。Webから接続され、Androidカメラが起動したときに使う画質とFPSです。待機中は撮影・録画しません。1080p・60FPSは端末対応時のみ反映されます。"
             textSize = 12f
             setTextColor(0xFF66758B.toInt())
             setPadding(0, 4, 0, 10)
         })
         root.addView(Button(this).apply {
-            text = "待機画質・FPSを保存"
+            text = "接続時の画質・FPSを保存"
             setOnClickListener { saveNativeVideoSettings() }
         }, LinearLayout.LayoutParams(-1, -2))
         root.addView(TextView(this).apply {
@@ -259,7 +259,7 @@ class MainActivity : Activity() {
                     action = MonitorService.ACTION_VIDEO_SETTINGS
                     putExtra("quality", quality)
                     putExtra("fps", fps)
-                    putExtra("aspectRatio", "16:9")
+                    putExtra("aspectRatio", "original")
                 }
                 ContextCompat.startForegroundService(this, update)
                 status.text = "撮影設定を保存し、待機サービスへ送信しました。"
@@ -514,6 +514,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        prefs.edit().putBoolean("mainActivityVisible", true).apply()
         val filter = android.content.IntentFilter(MonitorService.ACTION_CODE).apply {
             addAction(MonitorService.ACTION_SCREEN_PERMISSION_NEEDED)
         }
@@ -567,6 +568,7 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        prefs.edit().putBoolean("mainActivityVisible", false).apply()
         try { unregisterReceiver(codeReceiver) } catch (_: Exception) {}
         super.onPause()
     }
