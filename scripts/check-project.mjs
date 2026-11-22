@@ -66,7 +66,7 @@ assert.ok(locationTests.includes("supports Unix timestamps in seconds"), "Locati
 assert.equal([...js.matchAll(/function\s+setWebMicEnabled\s*\(/g)].length, 1, "Only one browser microphone toggle must exist");
 assert.ok(js.includes("setWebMicEnabled(false)") && js.includes("visibilitychange"), "Web microphone must stop on background or RTC failure");
 assert.ok(js.includes("function updateWebMicrophoneButton("), "Persistent Web microphone button missing");
-assert.ok(js.includes("disconnect(false, automatic, true)"), "Automatic reconnect must end the previous remote RTC session");
+assert.ok(js.includes("disconnect(false, automatic, true, automatic)"), "Automatic reconnect must replace the previous RTC session");
 assert.ok(js.includes("notifyRemote = sendCommand"), "Disconnect must support remote session cleanup independently from manual stop");
 assert.ok(js.includes("function showVideo()") && js.includes("restoreRemotePlayback();"), "Returning from map must restore video playback");
 assert.ok(js.includes("setWebMicEnabled(false)") && js.includes("visibilitychange") && js.includes("S.pttActive || S.pttRequested || S.pttStarting"), "Web microphone and pending permission prompts must stop when the page is backgrounded");
