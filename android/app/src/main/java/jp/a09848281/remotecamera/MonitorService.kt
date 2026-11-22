@@ -263,6 +263,7 @@ class MonitorService : Service() {
 
     private fun requestScreenPermission(sessionId: String): String {
         val engine = rtc ?: error("WebRTC接続が終了しています。")
+        engine.setScreenShareRecipient(sessionId, true)
         screenRequesters.add(sessionId)
         if (engine.isScreenSharing()) {
             engine.sendControl(sessionId, JSONObject().put("type", "screen_state").put("active", true)
@@ -280,6 +281,7 @@ class MonitorService : Service() {
 
     private fun stopScreenRequest(sessionId: String): String {
         screenRequesters.remove(sessionId)
+        try { rtc?.setScreenShareRecipient(sessionId, false) } catch (_: Exception) {}
         if (screenRequesters.isEmpty()) {
             screenPermissionPending = false
             prefs.edit().putBoolean("pendingScreenPermission", false).apply()
@@ -291,9 +293,13 @@ class MonitorService : Service() {
     }
 
     private fun notifyScreenShareState(active: Boolean, message: String, denied: Boolean = false) {
+        val recipients = screenRequesters.toList()
         if (!active) {
             screenPermissionPending = false
             prefs.edit().putBoolean("pendingScreenPermission", false).apply()
+            recipients.forEach { id ->
+                try { rtc?.setScreenShareRecipient(id, false) } catch (_: Exception) {}
+            }
             if (denied) screenRequesters.clear()
             getSystemService(NotificationManager::class.java).cancel(SCREEN_NOTIFICATION_ID)
             if (prefs.getBoolean("monitoringEnabled", false)) {
@@ -304,7 +310,7 @@ class MonitorService : Service() {
         }
         val payload = JSONObject().put("type", "screen_state").put("active", active)
             .put("message", message).put("denied", denied)
-        rtc?.sendControlToOpenDataChannels(payload)
+        recipients.forEach { id -> rtc?.sendControl(id, payload) }
         notifyState(message)
     }
 
@@ -575,6 +581,7 @@ class MonitorService : Service() {
 
     private fun releaseScreenRequester(sessionId: String) {
         screenRequesters.remove(sessionId)
+        try { rtc?.setScreenShareRecipient(sessionId, false) } catch (_: Exception) {}
         if (screenRequesters.isEmpty()) {
             screenPermissionPending = false
             prefs.edit().putBoolean("pendingScreenPermission", false).apply()
@@ -584,13 +591,7 @@ class MonitorService : Service() {
         }
     }
     private fun closeRtcViewerSession(sessionId: String) {
-        screenRequesters.remove(sessionId)
-        if (screenRequesters.isEmpty()) {
-            screenPermissionPending = false
-            getSystemService(NotificationManager::class.java).cancel(SCREEN_NOTIFICATION_ID)
-            rtc?.stopScreenShare("画面共有を停止しました。")
-            try { updateForegroundScreenProjection(false) } catch (_: Exception) {}
-        }
+        releaseScreenRequester(sessionId)
         val engine = rtc ?: return
         engine.closeSession(sessionId)
         updateStreamWakeLock(engine.hasPeers())
