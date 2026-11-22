@@ -67,7 +67,7 @@ assert.ok(js.includes("function updateWebMicrophoneButton("), "Persistent Web mi
 assert.ok(js.includes("disconnect(false, automatic, true)"), "Automatic reconnect must end the previous remote RTC session");
 assert.ok(js.includes("notifyRemote = sendCommand"), "Disconnect must support remote session cleanup independently from manual stop");
 assert.ok(js.includes("function showVideo()") && js.includes("restoreRemotePlayback();"), "Returning from map must restore video playback");
-assert.ok(js.includes("setWebMicEnabled(false)") && js.includes("visibilitychange"), "Web microphone must stop when the page is backgrounded or RTC fails");
+assert.ok(js.includes("setWebMicEnabled(false)") && js.includes("visibilitychange") && js.includes("S.pttActive || S.pttRequested || S.pttStarting"), "Web microphone and pending permission prompts must stop when the page is backgrounded");
 assert.ok(!js.includes("togglePttLock") && !js.includes("180000"), "Old push-to-talk lock and timeout must be removed");
 assert.ok(js.includes("function startVideoWatchdog("), "Video frame watchdog missing");
 assert.ok(js.includes("function restoreRemotePlayback("), "Fullscreen playback recovery missing");
