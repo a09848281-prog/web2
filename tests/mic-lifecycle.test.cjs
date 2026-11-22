@@ -2,13 +2,15 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 
-const web = fs.readFileSync("app.js", "utf8");
-const html = fs.readFileSync("index.html", "utf8");
-const service = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MonitorService.kt", "utf8");
-const rtc = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/RtcEngine.kt", "utf8");
-const main = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MainActivity.kt", "utf8");
-const manifest = fs.readFileSync("android/app/src/main/AndroidManifest.xml", "utf8");
-const stopReceiver = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/StopMonitoringReceiver.kt", "utf8");
+const read = path => fs.readFileSync(path, "utf8");
+const web = read("app.js");
+const html = read("index.html");
+const service = read("android/app/src/main/java/jp/a09848281/remotecamera/MonitorService.kt");
+const rtc = read("android/app/src/main/java/jp/a09848281/remotecamera/RtcEngine.kt");
+const main = read("android/app/src/main/java/jp/a09848281/remotecamera/MainActivity.kt");
+const manifest = read("android/app/src/main/AndroidManifest.xml");
+const stopReceiver = read("android/app/src/main/java/jp/a09848281/remotecamera/StopMonitoringReceiver.kt");
+const worklet = read("noise-suppressor-processor.js");
 
 function section(source, start, end) {
   const from = source.indexOf(start);
@@ -18,41 +20,59 @@ function section(source, start, end) {
   return source.slice(from, to);
 }
 
-test("WebRTC connection never opens a browser microphone while idle", () => {
+test("RTC connection starts the Web microphone without blocking video setup", () => {
   const connect = section(web, "async function connect(", "function scheduleReconnect(");
-  assert.equal(connect.includes("getUserMedia"), false);
   assert.match(connect, /addTransceiver\("audio", \{ direction: "sendrecv" \}\)/);
   assert.match(connect, /S\.micSender = audioTransceiver\.sender/);
+  assert.match(connect, /void setWebMicEnabled\(true\)/);
 });
 
-test("PTT requests a microphone only after the talk action", () => {
-  const ptt = section(web, "async function ptt(enabled)", "function togglePttLock(");
-  assert.match(ptt, /navigator\.mediaDevices\.getUserMedia/);
-  assert.match(ptt, /S\.micSender\.replaceTrack\(track\)/);
-  assert.match(ptt, /S\.micSender\?\.replaceTrack\(null\)/);
-  assert.match(ptt, /stream\?\.getTracks\(\)\.forEach\(track => track\.stop\(\)\)/);
-  assert.match(ptt, /180000/);
+test("Web microphone toggle requests, attaches, detaches and stops tracks", () => {
+  const mic = section(web, "async function setWebMicEnabled(enabled)", "async function enableScreenWakeLock()");
+  assert.match(mic, /navigator\.mediaDevices\.getUserMedia/);
+  assert.match(mic, /sender\.replaceTrack\(track\)/);
+  assert.match(mic, /sender\?\.replaceTrack\(null\)/);
+  assert.match(mic, /stream\?\.getTracks\(\)\.forEach\(track => track\.stop\(\)\)/);
+  assert.match(mic, /requestId !== S\.pttRequestId/);
+  assert.equal(html.includes('id="pttLock"'), false);
+  assert.equal(web.includes("pttLock"), false);
 });
 
-test("Connection reservation and page initialisation never request a microphone", () => {
+test("incoming Android audio stays enabled during Web microphone transmission", () => {
+  assert.match(web, /track\.enabled = !S\.remoteAudioMuted/);
+  const meter = section(web, "function startAudioMeter()", "function stopAudioMeter()");
+  assert.doesNotMatch(meter, /S\.pttActive/);
+});
+
+test("disconnect releases the Web microphone before bounded remote shutdown", () => {
+  const disconnect = section(web, "async function disconnect(", "async function loadSettings(");
+  assert.ok(disconnect.indexOf("await setWebMicEnabled(false)") < disconnect.indexOf('sendControlAndWait("disconnect"'));
+  assert.match(disconnect, /sendControlAndWait\("disconnect", \{ sessionId \}, 800\)/);
+  assert.match(disconnect, /void api\("send_signal"/);
+  assert.equal(disconnect.includes('await api("send_signal"'), false);
+});
+
+test("reservation and page initialisation do not pre-open the microphone", () => {
   const reservation = section(web, "async function reserveConnection()", "function cancelConnectionReservation()");
   assert.equal(reservation.includes("getUserMedia"), false);
-  assert.equal(web.includes("DOMContentLoaded") && section(web, 'document.addEventListener("DOMContentLoaded"', "});").includes("getUserMedia"), false);
+  const initStart = web.indexOf('document.addEventListener("DOMContentLoaded"');
+  assert.notEqual(initStart, -1);
+  const init = web.slice(initStart, initStart + 4000);
+  assert.equal(init.includes("getUserMedia"), false);
 });
 
-test("Android screen sharing, projection and remote accessibility controls are removed", () => {
-  assert.equal(html.includes("screenPane"), false);
-  assert.equal(html.includes("screenTab"), false);
+test("screen capture and remote screen control remain absent", () => {
+  assert.equal(html.includes('id="screenPane"'), false);
+  assert.equal(html.includes('id="screenTab"'), false);
   assert.equal(web.includes("screen_start"), false);
-  assert.equal(web.includes("screen_stop"), false);
+  assert.equal(web.includes("remoteScreen"), false);
   assert.equal(rtc.includes("MediaProjection"), false);
   assert.equal(rtc.includes("ScreenCapturer"), false);
   assert.equal(service.includes("screenRequesters"), false);
   assert.equal(manifest.includes("RemoteControlAccessibilityService"), false);
-  assert.equal(manifest.includes("mediaProjection"), false);
 });
 
-test("Notification and app stop paths share direct foreground-service shutdown", () => {
+test("notification and Android app stop paths use direct foreground-service shutdown", () => {
   assert.match(service, /getBroadcast\(/);
   assert.match(service, /待機を停止/);
   assert.match(main, /StopMonitoringReceiver\.stop\(this\)/);
@@ -61,17 +81,33 @@ test("Notification and app stop paths share direct foreground-service shutdown",
   assert.match(service, /override fun onDestroy\(\)[\s\S]*?rtc\?\.dispose\(\)[\s\S]*?updateStreamWakeLock\(false\)[\s\S]*?updateDisplayWakeLock\(false\)/);
 });
 
-test("Android display awake can be switched remotely and is released on shutdown", () => {
+test("Android sleep prevention is Web-only, acknowledged and reports actual state", () => {
   assert.match(html, /id="androidKeepAwake"/);
-  assert.match(web, /sendControl\("android_keep_awake"/);
+  assert.match(web, /sendControlAndWait\("android_keep_awake", \{ enabled: next \}, 2200\)/);
   assert.match(service, /"android_keep_awake"/);
-  assert.match(service, /PowerManager\.SCREEN_DIM_WAKE_LOCK/);
+  assert.match(service, /PowerManager\.SCREEN_BRIGHT_WAKE_LOCK/);
+  assert.match(service, /PowerManager\.ACQUIRE_CAUSES_WAKEUP/);
+  assert.match(service, /if \(!updateDisplayWakeLock\(enabled\)\)/);
+  assert.match(service, /displayWakeLock\?\.isHeld == true/);
   assert.match(service, /updateDisplayWakeLock\(false\)/);
+  assert.doesNotMatch(main, /keepAwakeButton|FLAG_KEEP_SCREEN_ON|ACTION_KEEP_SCREEN_AWAKE_STATE/);
 });
 
-test("Android noise suppression is bounded and uses zero as hardware suppression off", () => {
-  assert.match(rtc, /noiseSuppressionLevel > 0/);
-  assert.match(rtc, /setUseHardwareNoiseSuppressor\(hardwareNoiseSuppression\)/);
-  assert.match(rtc, /level\.coerceIn\(0,100\)/);
-  assert.match(html, /min="0" max="100"/);
+test("0-100 noise slider uses adjustable Web Audio DSP", () => {
+  assert.match(html, /id="micNoise"[^>]*min="0"[^>]*max="100"/);
+  assert.match(web, /function setNoiseSuppressionLevel\(value, persist = false\)/);
+  assert.match(web, /remote-camera-noise-gate/);
+  assert.match(worklet, /registerProcessor\("remote-camera-noise-gate"/);
+  assert.match(worklet, /if \(this\.strength <= 0\)/);
+  assert.match(rtc, /setUseHardwareNoiseSuppressor\(false\)/);
+  assert.match(html, /適応ノイズゲート/);
+});
+
+test("zoom can be panned across the image and reset", () => {
+  assert.match(web, /function startViewerPan\(/);
+  assert.match(web, /function moveViewerPan\(/);
+  assert.match(web, /translate\(" \+ S\.zoomPanX/);
+  assert.match(web, /pointerdown", startViewerPan/);
+  assert.match(web, /pointermove", moveViewerPan/);
+  assert.match(html, /ドラッグして表示位置を移動できます/);
 });
