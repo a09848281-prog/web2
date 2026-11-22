@@ -217,7 +217,7 @@ assert.ok(serviceWorker.includes("remote-screen-utils.js"), "Screen gesture help
 assert.ok(screenUtils.includes("function mapPoint(") && screenUtils.includes("function classifyGesture("), "Screen coordinate and gesture helpers missing");
 assert.ok(screenTests.includes("maps points through object-fit contain") && screenTests.includes("classifies taps, long presses and swipes"), "Screen gesture unit tests missing");
 assert.equal([...js.matchAll(/pc\.addTransceiver\("video", \{ direction: "recvonly" \}\);/g)].length, 2, "WebRTC must pre-negotiate separate camera and screen video tracks");
-assert.ok(js.includes('sendControl("screen_start"') && js.includes('sendControl("screen_stop"'), "Screen capture must start on web request and stop when leaving the tab");
+assert.ok(js.includes('sendControl("screen_start"') && js.includes('sendControlAndWait("screen_stop"'), "Screen capture must start on web request and stop with an Android acknowledgement");
 assert.ok(js.includes('else if(d.type==="screen_state")'), "Screen share state receiver missing");
 assert.ok(rtc.includes('listOf("remote-screen")') && rtc.includes("fun startScreenShare(") && rtc.includes("fun stopScreenShare("), "Android screen track and on-demand capture lifecycle missing");
 assert.ok(rtc.includes("setEnabled(false)") && rtc.includes("ScreenCapturerAndroid"), "Screen capture must stay disabled until explicit grant");
