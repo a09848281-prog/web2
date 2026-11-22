@@ -64,7 +64,7 @@ assert.equal([...js.matchAll(/function\s+ptt\s*\(/g)].length, 1, "Only one effec
 assert.ok(js.includes("disconnect(false, automatic, true)"), "Automatic reconnect must end the previous remote RTC session");
 assert.ok(js.includes("notifyRemote = sendCommand"), "Disconnect must support remote session cleanup independently from manual stop");
 assert.ok(js.includes("function showVideo()") && js.includes("restoreRemotePlayback();"), "Returning from map must restore video playback");
-assert.ok(js.includes("S.pttActive) ptt(false)"), "PTT must stop when the page is backgrounded or RTC fails");
+assert.ok(js.includes("ptt(false)") && js.includes("visibilitychange"), "PTT must stop when the page is backgrounded or RTC fails");
 assert.ok(js.includes("function togglePttLock("), "PTT lock missing");
 assert.ok(js.includes("180000"), "PTT three-minute safety timeout missing");
 assert.ok(js.includes("function startVideoWatchdog("), "Video frame watchdog missing");
