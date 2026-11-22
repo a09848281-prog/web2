@@ -167,8 +167,9 @@ class MonitorService : Service() {
 
         if (action == ACTION_DISPLAY_AWAKE) {
             val enabled = intent?.getBooleanExtra("enabled", false) == true
-            prefs.edit().putBoolean("androidKeepScreenAwake", enabled).apply()
-            updateDisplayWakeLock(enabled)
+            val applied = updateDisplayWakeLock(enabled)
+            prefs.edit().putBoolean("androidKeepScreenAwake", enabled && applied).apply()
+            if (enabled && !applied) notifyState("Androidの画面スリープ防止を開始できませんでした。省電力設定と画面制御の制限を確認してください。")
             sendTelemetry()
             return START_STICKY
         }
@@ -583,26 +584,9 @@ class MonitorService : Service() {
                 } else {
                     engine.switchCamera(payload.optString("facing", cameraId.ifBlank { "back" }))
                 }
-                if (torchRequested) {
-                    var restored = false
-                    var restoreError: Exception? = null
-                    for (attempt in 0..1) {
-                        if (!torchRequested) break
-                        delay(if (attempt == 0) 500L else 750L)
-                        try {
-                            setTorch(true)
-                            restored = torchEnabled
-                            if (restored) break
-                        } catch (error: Exception) {
-                            restoreError = error
-                            Log.w("RemoteCameraService", "Torch restore after camera switch attempt " + (attempt + 1) + " failed", error)
-                        }
-                    }
-                    if (!restored && torchRequested) {
-                        notifyState("カメラ切替は完了しましたが、Androidがライトの同時使用を拒否しました。" +
-                            (restoreError?.message?.let { " " + it } ?: ""))
-                    }
-                }
+                // Never defer a rejected torch request until after a camera switch.
+                // Android can free the rear flash when switching away from the rear camera;
+                // a delayed retry made the light turn on at an unexpected time.
             }
             "torch" -> setTorch(payload.optBoolean("enabled",false))
             "media_toggle" -> {
@@ -831,6 +815,9 @@ class MonitorService : Service() {
 
         torchEnabled = false
         activeTorchCameraId = null
+        // Do not carry a rejected ON request across camera changes; it could
+        // unexpectedly turn on later when Android releases the rear camera.
+        if (enabled) torchRequested = false
         sendTelemetry()
         val cameraReason = when ((lastError as? CameraAccessException)?.reason) {
             CameraAccessException.CAMERA_IN_USE -> "背面カメラが撮影中のためAndroidがライトを拒否しました。"
@@ -913,7 +900,7 @@ class MonitorService : Service() {
             .put("fps", prefs.getInt("fps", 24))
             .put("aspectRatio", prefs.getString("aspectRatio", "original") ?: "16:9")
             .put("micNoise", prefs.getInt("micNoise", 70))
-            .put("androidKeepAwake", prefs.getBoolean("androidKeepScreenAwake", false))
+            .put("androidKeepAwake", displayWakeLock?.isHeld == true)
             .put("speakerVolume", prefs.getInt("speakerVolume", 70))
             .put("dataMode", "standard")
         rtc?.sendControl(sessionId, JSONObject().put("type", "device_settings").put("settings", settings))
@@ -997,7 +984,7 @@ class MonitorService : Service() {
             .put("microphoneEnabled", capture.optBoolean("microphoneEnabled", true))
             .put("speakerVolumePercent", speakerPercent)
             .put("micNoise", prefs.getInt("micNoise", 70))
-            .put("androidKeepAwake", prefs.getBoolean("androidKeepScreenAwake", false))
+            .put("androidKeepAwake", displayWakeLock?.isHeld == true)
             .put("batteryPercent",percent)
             .put("batteryCharging",charging).put("batteryTempC",temp).put("thermalStatus",thermal)
             .put("androidVersion",Build.VERSION.RELEASE).put("deviceModel",Build.MODEL ?: "Android")
