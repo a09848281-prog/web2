@@ -114,7 +114,7 @@ test("flashlight is controlled by the active Camera2 video capture request", () 
   assert.match(rtc, /TorchCaptureControl/);
   assert.match(rtc, /setTorchEnabled\(false\)/);
   assert.match(service, /engine\.setTorchEnabled\(enabled\)/);
-  assert.match(torchState, /FLASH_MODE_TORCH/);
+  assert.match(torchState, /setRepeatingRequest/);
   assert.match(torchSession, /FLASH_MODE_TORCH/);
   assert.match(service, /\.put\("flashEnabled",torchEnabled\)/);
   const cameraStart = service.indexOf('"camera" -> {');
