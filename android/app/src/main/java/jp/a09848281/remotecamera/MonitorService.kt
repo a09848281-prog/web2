@@ -860,6 +860,9 @@ class MonitorService : Service() {
             "ライトを消灯できませんでした。端末のライト状態を確認してください。"
         }
         flashAvailableCache = null
+        // Do not leave a rejected request queued: a later camera switch must not
+        // unexpectedly turn the light on after the user has moved on.
+        if (enabled) torchRequested = false
         throw IllegalStateException(reason + " カメラ状態が落ち着いてから再試行してください。", lastError)
     }
 
