@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - preview/v2.6-stability
+      - preview/v2.6.1-stability
     paths:
       - "index.html"
       - "app.js"
@@ -15,6 +16,7 @@ on:
       - "manifest.webmanifest"
       - "sw.js"
       - "config.json"
+      - "noise-suppressor-processor.js"
       - ".github/workflows/deploy-v2.6-preview.yml"
       - "V2.6-STABILITY.md"
   workflow_dispatch:
@@ -55,13 +57,19 @@ jobs:
         with:
           ref: preview/v2.6-stability
           path: v26-source
+      - name: Checkout v2.6.1 stability preview
+        uses: actions/checkout@v4
+        with:
+          ref: preview/v2.6.1-stability
+          path: v261-source
       - name: Assemble site without replacing the homepage
         run: |
-          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6
+          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6 _site/v2.6.1
           rsync -a --exclude='.git' base-site/ _site/
           rsync -a --exclude='.git' --exclude='.github' v21-source/ _site/v2.1/
           rsync -a --exclude='.git' --exclude='.github' v25-source/ _site/v2.5/
           rsync -a --exclude='.git' --exclude='.github' v26-source/ _site/v2.6/
+          rsync -a --exclude='.git' --exclude='.github' v261-source/ _site/v2.6.1/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
