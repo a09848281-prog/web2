@@ -296,6 +296,9 @@ class MonitorService : Service() {
                 sampleTrafficUsage()
                 val controlOpen = rtc?.hasOpenControlChannel() == true
                 val recoveryActive = prefs.getBoolean("rtcRecoveryArmed", false) || (rtc?.peerCount() ?: 0) > 0
+                // Hold partial CPU + Wi-Fi locks during recovery polling too; otherwise
+                // Doze may suspend GAS offer checks before the next viewer can reconnect.
+                updateStreamWakeLock(recoveryActive)
                 if (!controlOpen && (rtc?.peerCount() ?: 0) == 0) {
                     // Reset the app-wide traffic baseline only after the last
                     // viewer leaves, not whenever another viewer connects.
@@ -339,7 +342,8 @@ class MonitorService : Service() {
                     )
                     rtc?.setIceServers(response.optJSONArray("iceServers"))
                     if (!response.optBoolean("registered", false)) {
-                        prefs.edit().putBoolean("serverPaired", false).apply()
+                        prefs.edit().putBoolean("serverPaired", false)
+                            .putBoolean("rtcRecoveryArmed", false).apply()
                         // A controller can revoke pairing remotely. Stop media immediately on the next poll.
                         rtc?.dispose()
                         rtc = null
@@ -351,7 +355,8 @@ class MonitorService : Service() {
                         notifyState("Android端末の登録待ち：Webに8桁コードを入力")
                     } else {
                         val needsPairing = response.optBoolean("needsPairing", false)
-                        prefs.edit().putBoolean("serverPaired", !needsPairing).apply()
+                        prefs.edit().putBoolean("serverPaired", !needsPairing)
+                            .putBoolean("rtcRecoveryArmed", false).apply()
                         val codeActive = response.optBoolean("pairingCodeActive", false)
                         if (needsPairing) {
                             // No authenticated Web controller remains. Close any
@@ -499,7 +504,7 @@ class MonitorService : Service() {
                     delay(120L)
                     closeRtcViewerSession(sessionId)
                     updateForegroundNotification()
-                    updateStreamWakeLock(rtc?.hasPeers() == true)
+                    updateStreamWakeLock(prefs.getBoolean("rtcRecoveryArmed", false) || rtc?.hasPeers() == true)
                     notifyState(if (rtc?.hasPeers() == true) "ほかのWeb端末は監視を継続中" else "監視待機中")
                 }
             }
@@ -518,7 +523,7 @@ class MonitorService : Service() {
                         if (rtc === engine) rtc = null
                         updateForegroundNotification()
                     }
-                    updateStreamWakeLock(rtc?.hasPeers() == true)
+                    updateStreamWakeLock(prefs.getBoolean("rtcRecoveryArmed", false) || rtc?.hasPeers() == true)
                 }
             }
         }
@@ -527,13 +532,13 @@ class MonitorService : Service() {
     private fun closeRtcViewerSession(sessionId: String) {
         val engine = rtc ?: return
         engine.closeSession(sessionId)
-        updateStreamWakeLock(engine.hasPeers())
+        updateStreamWakeLock(prefs.getBoolean("rtcRecoveryArmed", false) || engine.hasPeers())
         // AudioDeviceModule presets are fixed at PeerConnectionFactory creation.
         // Dispose the empty engine so the next viewer receives the selected preset.
         if (!engine.hasPeers()) {
             engine.dispose()
             if (rtc === engine) rtc = null
-            updateStreamWakeLock(false)
+            updateStreamWakeLock(prefs.getBoolean("rtcRecoveryArmed", false))
             updateForegroundNotification()
         }
     }
@@ -1140,7 +1145,7 @@ class MonitorService : Service() {
                         rtc = null
                         updateStreamWakeLock(false)
                     }
-                    updateStreamWakeLock(rtc?.hasPeers() == true)
+                    updateStreamWakeLock(prefs.getBoolean("rtcRecoveryArmed", false) || rtc?.hasPeers() == true)
                     notifyState(if (rtc?.hasPeers() == true) "ほかのWeb端末は監視を継続中" else "監視待機中")
                 }
             }
