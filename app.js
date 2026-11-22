@@ -486,6 +486,7 @@ function startVideoWatchdog(peer) {
     if (RemoteCameraRecovery.shouldRecoverVideo({
       now,
       cameraEnabled: S.androidCameraEnabled,
+      videoVisible: !$("videoPane").classList.contains("hidden"),
       manualDisconnect: S.manualDisconnect,
       graceUntil: S.videoWatchdogGraceUntil,
       lastFrameAt: S.lastVideoFrameAt,
