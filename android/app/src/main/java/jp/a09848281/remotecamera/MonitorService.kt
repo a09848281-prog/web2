@@ -92,6 +92,7 @@ class MonitorService : Service() {
     private var displayWakeLock: PowerManager.WakeLock? = null
     private var lastUsageSampleAt = 0L
     private var powerSaveActive = false
+    private var criticalThermalProtection = false
     private var torchEnabled = false
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -876,13 +877,24 @@ class MonitorService : Service() {
             ?: BatteryManager.BATTERY_STATUS_UNKNOWN
         val charging=batteryStatus==BatteryManager.BATTERY_STATUS_CHARGING || batteryStatus==BatteryManager.BATTERY_STATUS_FULL
         val thermal=if(Build.VERSION.SDK_INT>=29)(getSystemService(POWER_SERVICE) as PowerManager).currentThermalStatus else -1
-        val shouldReduceLoad = (percent in 0..15) || (thermal >= PowerManager.THERMAL_STATUS_SEVERE)
-        if (shouldReduceLoad && rtc != null && !powerSaveActive) {
+        // Protect the device without dropping a normal 30 FPS request to 10 FPS.
+        // Low battery and SEVERE thermal status reduce resolution/bitrate first;
+        // only CRITICAL thermal status lowers the frame-rate ceiling.
+        val lowBattery = percent in 0..10 && !charging
+        val shouldReduceLoad = lowBattery || thermal >= PowerManager.THERMAL_STATUS_SEVERE
+        val criticalThermal = thermal >= PowerManager.THERMAL_STATUS_CRITICAL
+        if (shouldReduceLoad && rtc != null &&
+            (!powerSaveActive || criticalThermalProtection != criticalThermal)) {
             powerSaveActive = true
+            criticalThermalProtection = criticalThermal
             applyVideoSettings(JSONObject())
-            notifyState("バッテリー・温度保護：映像を低負荷設定にしました")
+            notifyState(
+                if (criticalThermalProtection) "高温保護：映像を360p・最大20FPSに制限しました"
+                else "負荷保護：映像解像度を480pへ下げ、FPSは最大30を維持します"
+            )
         } else if (!shouldReduceLoad && powerSaveActive) {
             powerSaveActive = false
+            criticalThermalProtection = false
             applyVideoSettings(JSONObject())
             notifyState("端末温度・バッテリーが回復したため映像設定を戻しました")
         }
@@ -901,6 +913,13 @@ class MonitorService : Service() {
             .put("captureHeight", capture.optInt("height", 0))
             .put("requestedFps", prefs.getInt("fps", 24).coerceIn(10, 60))
             .put("captureFps", capture.optInt("fps", 0))
+            .put("captureMeasuredFps", capture.optInt("measuredFps", 0))
+            .put("captureFrameAgeMs", capture.optLong("frameAgeMs", -1L))
+            .put("videoProtection", when {
+                criticalThermalProtection -> "critical-thermal"
+                powerSaveActive -> "reduced-resolution"
+                else -> "normal"
+            })
             .put("cameraEnabled", capture.optBoolean("cameraEnabled", true))
             .put("microphoneEnabled", capture.optBoolean("microphoneEnabled", true))
             .put("speakerVolumePercent", speakerPercent)
@@ -1019,9 +1038,10 @@ class MonitorService : Service() {
             prefs.getInt("adaptiveFps", requestedFps).coerceIn(10, 60)
         } else requestedFps
         if (powerSaveActive) {
-            currentQuality = "360"
-            currentDataMode = "ultra"
-            currentFps = 10
+            currentQuality = if (criticalThermalProtection) "360" else "480"
+            currentDataMode = "standard"
+            currentFps = if (criticalThermalProtection) minOf(currentFps, 20)
+                else minOf(currentFps, 30)
         }
         rtc?.setQuality(currentQuality, currentDataMode, currentFps, prefs.getString("aspectRatio", "original") ?: "16:9")
     }
