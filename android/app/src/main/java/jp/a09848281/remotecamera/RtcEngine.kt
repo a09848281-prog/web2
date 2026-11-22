@@ -1,6 +1,7 @@
 package jp.a09848281.remotecamera
 
 import android.content.Context
+import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.media.AudioManager
@@ -18,6 +19,7 @@ import org.webrtc.audio.JavaAudioDeviceModule
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.nio.ByteBuffer
+import kotlin.math.roundToInt
 
 class RtcEngine(
     private val context: Context,
@@ -70,7 +72,7 @@ class RtcEngine(
     private var currentQuality = "720"
     private var currentDataMode = "standard"
     private var currentFps = 24
-    private var currentAspectRatio = captureAspectRatio.takeIf { it in setOf("16:9", "4:3", "1:1", "9:16") } ?: "16:9"
+    private var currentAspectRatio = captureAspectRatio.takeIf { it in setOf("16:9", "4:3", "1:1", "9:16", "original") } ?: "original"
     private var captureWidth = 1280
     private var captureHeight = 720
     private var captureFps = 24
@@ -176,27 +178,48 @@ class RtcEngine(
             .put("selectedCameraId", selectedCameraId))
     }
 
-    private fun profileFor(quality: String, dataMode: String, requestedFps: Int = currentFps): VideoProfile {
-        // Apply the selected aspect ratio to the active capturer without rebuilding PeerConnections.
+    private fun cameraNativeAspectRatio(cameraId: String): Double {
+        return try {
+            val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val characteristics = manager.getCameraCharacteristics(cameraId)
+            val map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            val largest = map?.getOutputSizes(SurfaceTexture::class.java)
+                ?.maxByOrNull { it.width.toLong() * it.height.toLong() }
+            val sensorSize = characteristics.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
+            val width = largest?.width ?: sensorSize?.width ?: 4
+            val height = largest?.height ?: sensorSize?.height ?: 3
+            val ratio = maxOf(width, height).toDouble() / minOf(width, height).coerceAtLeast(1)
+            if (ratio.isFinite() && ratio in 1.0..2.5) ratio else 4.0 / 3.0
+        } catch (error: Exception) {
+            Log.w("RemoteCameraRTC", "Could not read native camera aspect ratio", error)
+            4.0 / 3.0
+        }
+    }
+
+    private fun profileFor(
+        quality: String,
+        dataMode: String,
+        requestedFps: Int = currentFps,
+        cameraId: String = selectedCameraId
+    ): VideoProfile {
         val tier = when (quality) { "360" -> 360; "480" -> 480; "1080" -> 1080; else -> 720 }
         val dimensions = when (currentAspectRatio) {
             "4:3" -> when (tier) {
                 360 -> 640 to 480
-                480 -> 854 to 640
+                480 -> 640 to 480
                 1080 -> 1440 to 1080
-                else -> 1280 to 960
+                else -> 960 to 720
             }
-            "1:1" -> when (tier) {
-                360 -> 360 to 360
-                480 -> 480 to 480
-                1080 -> 1080 to 1080
-                else -> 720 to 720
-            }
+            "1:1" -> tier to tier
             "9:16" -> when (tier) {
                 360 -> 360 to 640
                 480 -> 480 to 854
                 1080 -> 1080 to 1920
                 else -> 720 to 1280
+            }
+            "original" -> {
+                val ratio = cameraNativeAspectRatio(cameraId)
+                (tier * ratio).roundToInt().coerceAtLeast(tier) to tier
             }
             else -> when (tier) {
                 360 -> 640 to 360
@@ -212,14 +235,13 @@ class RtcEngine(
             else -> 1900000
         }
         val base = VideoProfile(dimensions.first, dimensions.second, requestedFps.coerceIn(10, 60), baseBitrate)
-        val modeProfile = when (dataMode) {
+        return when (dataMode) {
             "ultra" -> base.copy(fps = minOf(base.fps, 10), bitrate = 350000)
             "save" -> base.copy(fps = minOf(base.fps, 15), bitrate = 650000)
             "high" -> base.copy(bitrate = minOf(3500000, (base.bitrate * 1.25).toInt()))
             "auto" -> base.copy(fps = minOf(base.fps, 20), bitrate = minOf(base.bitrate, 1200000))
             else -> base
         }
-        return modeProfile
     }
 
     private data class StartedCapture(
@@ -229,11 +251,31 @@ class RtcEngine(
         val fps: Int
     )
 
-    private fun fallbackCaptureSizes(): List<Pair<Int, Int>> = when (currentAspectRatio) {
-        "4:3" -> listOf(1920 to 1440, 1600 to 1200, 1280 to 960, 960 to 720, 640 to 480)
-        "1:1" -> listOf(1440 to 1440, 1080 to 1080, 720 to 720, 480 to 480, 360 to 360)
-        "9:16" -> listOf(1080 to 1920, 720 to 1280, 480 to 854, 360 to 640)
-        else -> listOf(1920 to 1080, 1600 to 900, 1280 to 720, 960 to 540, 640 to 360)
+    private fun fallbackCaptureSizes(cameraId: String): List<Pair<Int, Int>> {
+        val staticSizes = when (currentAspectRatio) {
+            "4:3" -> listOf(1920 to 1440, 1600 to 1200, 1280 to 960, 960 to 720, 640 to 480)
+            "1:1" -> listOf(1440 to 1440, 1080 to 1080, 720 to 720, 480 to 480, 360 to 360)
+            "9:16" -> listOf(1080 to 1920, 720 to 1280, 480 to 854, 360 to 640)
+            "original" -> {
+                val ratio = cameraNativeAspectRatio(cameraId)
+                listOf(1440, 1080, 960, 720, 640, 480, 360).map { height ->
+                    (height * ratio).roundToInt() to height
+                }
+            }
+            else -> listOf(1920 to 1080, 1600 to 900, 1280 to 720, 960 to 540, 640 to 360)
+        }
+        val supported = try {
+            val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            manager.getCameraCharacteristics(cameraId)
+                .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                ?.getOutputSizes(SurfaceTexture::class.java)
+                ?.map { it.width to it.height }
+                ?: emptyList()
+        } catch (error: Exception) {
+            Log.w("RemoteCameraRTC", "Could not list camera output sizes", error)
+            emptyList()
+        }
+        return (supported + staticSizes).distinct()
     }
 
     private fun startCaptureWithFallback(
@@ -246,7 +288,7 @@ class RtcEngine(
         val requestedSize = requested.width to requested.height
         val requestedPixels = requested.width.toLong() * requested.height.toLong()
         val requestedRatio = requested.width.toDouble() / requested.height.toDouble()
-        val alternativeSizes = fallbackCaptureSizes()
+        val alternativeSizes = fallbackCaptureSizes(cameraId)
             .filter { size ->
                 size != requestedSize &&
                     size.first.toLong() * size.second.toLong() <= requestedPixels &&
@@ -619,33 +661,64 @@ class RtcEngine(
 
     @Synchronized
     fun setQuality(quality: String, dataMode: String, fps: Int = currentFps, aspectRatio: String = currentAspectRatio) {
+        val previousQuality = currentQuality
+        val previousDataMode = currentDataMode
+        val previousFps = currentFps
+        val previousRatio = currentAspectRatio
+        currentAspectRatio = aspectRatio.takeIf {
+            it in setOf("16:9", "4:3", "1:1", "9:16", "original")
+        } ?: "original"
+        val requestedFps = fps.coerceIn(10, 60)
+        val profile = profileFor(quality, dataMode, requestedFps, selectedCameraId)
+        val camera = capturer
+        val captureChanged = profile.width != captureWidth || profile.height != captureHeight || profile.fps != captureFps
+        if (camera != null && captureChanged && cameraEnabled) {
+            val currentHelper = helper ?: error("カメラ初期化情報がありません。")
+            val currentSource = videoSource ?: error("映像ソースがありません。")
+            val oldProfile = VideoProfile(captureWidth, captureHeight, captureFps, profile.bitrate)
+            try {
+                // Recreate only the capturer; keep PeerConnections, audio and control channels alive.
+                try { camera.stopCapture() } catch (_: Exception) {}
+                try { camera.dispose() } catch (_: Exception) {}
+                capturer = null
+                val started = startCaptureWithFallback(
+                    Camera2Enumerator(context), selectedCameraId, currentHelper, currentSource, profile
+                )
+                capturer = started.capturer
+                captureWidth = started.width
+                captureHeight = started.height
+                captureFps = started.fps
+            } catch (error: Exception) {
+                Log.w("RemoteCameraRTC", "Requested camera format failed; restoring previous format", error)
+                try {
+                    val restored = startCaptureWithFallback(
+                        Camera2Enumerator(context), selectedCameraId, currentHelper, currentSource, oldProfile
+                    )
+                    capturer = restored.capturer
+                    captureWidth = restored.width
+                    captureHeight = restored.height
+                    captureFps = restored.fps
+                } catch (restoreError: Exception) {
+                    Log.e("RemoteCameraRTC", "Previous camera format could not be restored", restoreError)
+                    capturer = null
+                    cameraEnabled = false
+                    videoTrack?.setEnabled(false)
+                }
+                currentQuality = previousQuality
+                currentDataMode = previousDataMode
+                currentFps = previousFps
+                currentAspectRatio = previousRatio
+                onState("画質変更に失敗しました。以前の撮影形式へ戻しました。")
+                throw IllegalStateException("端末が指定した画質に対応していません。以前の画質を維持します。", error)
+            }
+        } else if (camera != null && captureChanged && !cameraEnabled) {
+            captureWidth = profile.width
+            captureHeight = profile.height
+            captureFps = profile.fps
+        }
         currentQuality = quality
         currentDataMode = dataMode
-        currentFps = fps.coerceIn(10, 60)
-        val safeRatio = aspectRatio.takeIf { it in setOf("16:9", "4:3", "1:1", "9:16") } ?: "16:9"
-        currentAspectRatio = safeRatio
-        val profile = profileFor(currentQuality, currentDataMode, currentFps)
-        val camera = capturer
-        if (camera != null &&
-            (profile.width != captureWidth || profile.height != captureHeight || profile.fps != captureFps)
-        ) {
-            if (!cameraEnabled) {
-                captureWidth = profile.width
-                captureHeight = profile.height
-                captureFps = profile.fps
-            } else {
-                try {
-                    camera.changeCaptureFormat(profile.width, profile.height, profile.fps)
-                    captureWidth = profile.width
-                    captureHeight = profile.height
-                    captureFps = profile.fps
-                    onState("撮影設定を反映しました：${captureWidth}×${captureHeight} @ ${captureFps}FPS")
-                } catch (e: Exception) {
-                    Log.w("RemoteCameraRTC", "Could not change camera capture format", e)
-                    onState("画質変更に失敗しました。現在の撮影形式を維持します。")
-                }
-            }
-        }
+        currentFps = requestedFps
         videoSenders.values.forEach { sender ->
             try {
                 val params = sender.parameters
@@ -655,10 +728,15 @@ class RtcEngine(
                 }
                 if (!sender.setParameters(params)) {
                     Log.w("RemoteCameraRTC", "Video sender rejected quality parameters")
+                    onState("画質の送信設定を反映できませんでした。")
                 }
-            } catch (e: Exception) {
-                Log.w("RemoteCameraRTC", "Could not change video bitrate", e)
+            } catch (error: Exception) {
+                Log.w("RemoteCameraRTC", "Could not change video bitrate", error)
+                onState("画質の送信設定を変更できませんでした。")
             }
+        }
+        if (captureChanged && capturer != null) {
+            onState("撮影設定を適用しました：${captureWidth}×${captureHeight} @ ${captureFps}FPS")
         }
     }
 
