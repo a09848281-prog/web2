@@ -14,6 +14,10 @@ const config = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecam
 const motionCore = fs.readFileSync("motion-core.js", "utf8");
 const motionTests = fs.readFileSync("tests/motion-core.test.cjs", "utf8");
 const audioUtils = fs.readFileSync("audio-utils.js", "utf8");
+const screenUtils = fs.readFileSync("remote-screen-utils.js", "utf8");
+const screenTests = fs.readFileSync("tests/remote-screen.test.cjs", "utf8");
+const accessibility = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/RemoteControlAccessibilityService.kt", "utf8");
+const accessibilityConfig = fs.readFileSync("android/app/src/main/res/xml/remote_control_accessibility.xml", "utf8");
 const audioTests = fs.readFileSync("tests/audio-utils.test.cjs", "utf8");
 const locationUtils = fs.readFileSync("location-utils.js", "utf8");
 const locationTests = fs.readFileSync("tests/location-utils.test.cjs", "utf8");
@@ -170,11 +174,11 @@ assert.ok(gas.includes("Controllers:"), "Multi-controller storage sheet missing"
 assert.ok(gas.includes("activeControllerCount_(deviceId) >= 3"), "Three-controller pairing limit missing");
 assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi permission missing");
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
-assert.ok(androidBuild.includes('versionName = "2.1.2-preview"'), "Android app version must be v2.1.1");
-assert.ok(androidBuild.includes("versionCode = 424"), "Android version code must be 423");
-assert.ok(webConfig.includes('"appVersion": "2.1.2-preview"'), "Web config version must be v2.1.1");
-assert.ok(html.includes("v2.1.2"), "PWA display version must be v2.1.1");
-assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-1-2"'), "PWA cache key must be bumped to v2.1.1");
+assert.ok(androidBuild.includes('versionName = "2.5.0-preview"'), "Android app version must be v2.1.1");
+assert.ok(androidBuild.includes("versionCode = 425"), "Android version code must be 423");
+assert.ok(webConfig.includes('"appVersion": "2.5.0-preview"'), "Web config version must be v2.1.1");
+assert.ok(html.includes("v2.5"), "PWA display version must be v2.1.1");
+assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-5"'), "PWA cache key must be bumped to v2.1.1");
 assert.ok(serviceWorker.includes("key.startsWith(CACHE_PREFIX)"), "Service worker must only delete its own cache namespace");
 assert.ok(!serviceWorker.includes("keys.filter(key => key !== CACHE)"), "Service worker must not delete unrelated origin caches");
 assert.ok(serviceWorker.includes("caches.open(CACHE).then(cache => cache.match(event.request))"), "Offline fallback must only read this PWA cache");
@@ -198,10 +202,32 @@ assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from S
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.2.0"'), "GAS API version must be 1.2.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 424"), "Android version code must be 423 for v2.1.1");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.1.2 Preview", "PWA display name must match v2.1.1");
+assert.ok(androidBuild.includes("versionCode = 425"), "Android version code must be 423 for v2.1.1");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.5 Preview", "PWA display name must match v2.1.1");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 console.log("Web2 source checks passed.");
+
+
+for (const id of ["screenTab", "screenPane", "remoteScreenVideo", "screenTouchLayer", "screenStatus", "screenPlaceholder", "screenStop", "screenBack", "screenHome", "screenRecent", "screenNotifications", "screenQuickSettings", "screenTextInput", "screenSendText", "screenAppInput", "screenOpenApp", "screenUrlInput", "screenOpenUrl"]) {
+  assert.ok(html.includes('id="' + id + '"'), "Missing v2.5 screen element: " + id);
+  assert.ok(js.includes('$("' + id + '")'), "Missing v2.5 screen handler: " + id);
+}
+assert.ok(html.includes("./remote-screen-utils.js?v=2.5-preview"), "Screen gesture helper must be loaded before app.js");
+assert.ok(serviceWorker.includes("remote-screen-utils.js"), "Screen gesture helper must be precached");
+assert.ok(screenUtils.includes("function mapPoint(") && screenUtils.includes("function classifyGesture("), "Screen coordinate and gesture helpers missing");
+assert.ok(screenTests.includes("maps points through object-fit contain") && screenTests.includes("classifies taps, long presses and swipes"), "Screen gesture unit tests missing");
+assert.equal([...js.matchAll(/pc\.addTransceiver\("video", \{ direction: "recvonly" \}\);/g)].length, 2, "WebRTC must pre-negotiate separate camera and screen video tracks");
+assert.ok(js.includes('sendControl("screen_start"') && js.includes('sendControl("screen_stop"'), "Screen capture must start on web request and stop when leaving the tab");
+assert.ok(js.includes('else if(d.type==="screen_state")'), "Screen share state receiver missing");
+assert.ok(rtc.includes('listOf("remote-screen")') && rtc.includes("fun startScreenShare(") && rtc.includes("fun stopScreenShare("), "Android screen track and on-demand capture lifecycle missing");
+assert.ok(rtc.includes("setEnabled(false)") && rtc.includes("ScreenCapturerAndroid"), "Screen capture must stay disabled until explicit grant");
+assert.ok(service.includes('"screen_start"') && service.includes('"screen_stop"') && service.includes("notifyScreenPermissionNeeded"), "Android screen request and consent notification flow missing");
+assert.ok(service.includes("FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION") && service.includes("EXTRA_SCREEN_RESULT_DATA"), "MediaProjection foreground-service consent flow missing");
+assert.ok(main.includes("createScreenCaptureIntent()") && main.includes("ACTION_SCREEN_PERMISSION_RESULT"), "Android Activity must relay per-session screen consent result");
+assert.ok(manifest.includes("FOREGROUND_SERVICE_MEDIA_PROJECTION") && manifest.includes("mediaProjection"), "MediaProjection foreground service declarations missing");
+assert.ok(manifest.includes("RemoteControlAccessibilityService"), "Android accessibility service must be declared");
+assert.ok(accessibility.includes("dispatchGesture") && accessibility.includes("GLOBAL_ACTION_BACK") && accessibility.includes("ACTION_SET_TEXT"), "Remote touch, system navigation and text input actions missing");
+assert.ok(accessibility.includes("node.isPassword") && accessibilityConfig.includes("canPerformGestures"), "Remote input must protect password fields and require opt-in gesture permission");
 
 assert.ok(html.includes('class="settingsGroup"'), "Legacy v4.1 collapsible settings groups must be restored");
 assert.ok(html.includes('class="viewerControls"'), "Legacy v4.1 viewer toolbar must be restored");
