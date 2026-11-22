@@ -494,7 +494,16 @@ class RtcEngine(
             peers[sessionId] = peer
             videoSenders[sessionId] = peer.addTrack(videoTrack, listOf("remote-camera"))
             val screenTrack = screenVideoTrack ?: error("画面共有用の映像トラックを作成できません。")
-            screenSenders[sessionId] = peer.addTrack(screenTrack, listOf("remote-screen"))
+            val screenSender = peer.addTrack(screenTrack, listOf("remote-screen"))
+            screenSenders[sessionId] = screenSender
+            try {
+                val params = screenSender.parameters
+                params.encodings.forEach { it.active = false }
+                check(screenSender.setParameters(params)) { "画面共有の宛先制御を初期化できません。" }
+            } catch (error: Exception) {
+                Log.e("RemoteCameraRTC", "Could not initialize per-viewer screen sender", error)
+                throw error
+            }
             peer.addTrack(audioTrack, listOf("remote-camera"))
             peer.setRemoteDescription(object : SdpObserver {
                 override fun onSetSuccess() {
@@ -581,6 +590,21 @@ class RtcEngine(
     fun isScreenSharing(): Boolean = screenSharing
 
     @Synchronized
+    fun setScreenShareRecipient(sessionId: String, enabled: Boolean) {
+        val sender = screenSenders[sessionId] ?: error("このWebセッションの画面送信先がありません。")
+        val params = sender.parameters
+        check(params.encodings.isNotEmpty()) { "画面送信エンコード設定を取得できません。" }
+        params.encodings.forEach { encoding ->
+            encoding.active = enabled
+            if (enabled) {
+                encoding.maxBitrateBps = 1800000
+                encoding.maxFramerate = 15
+            }
+        }
+        check(sender.setParameters(params)) { "画面共有の送信先を切り替えられませんでした。" }
+    }
+
+    @Synchronized
     fun startScreenShare(resultCode: Int, permissionData: Intent) {
         check(!disposed.get()) { "RTCエンジンが終了しています。" }
         check(peers.isNotEmpty()) { "Web端末が接続されていません。" }
@@ -634,6 +658,11 @@ class RtcEngine(
         if (!screenSharing && screenCapturer == null) return
         screenStopping = true
         screenSharing = false
+        screenSenders.keys.toList().forEach { id ->
+            try { setScreenShareRecipient(id, false) } catch (error: Exception) {
+                Log.w("RemoteCameraRTC", "Could not disable screen sender for $id", error)
+            }
+        }
         try { screenVideoTrack?.setEnabled(false) } catch (_: Exception) {}
         try { screenCapturer?.stopCapture() } catch (error: Exception) {
             Log.w("RemoteCameraRTC", "Screen capture stop failed", error)
