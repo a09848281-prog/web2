@@ -27,27 +27,21 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 4. Build the Android APK with the `Android APK Build` workflow. Download the `remote-camera-web2-preview-v2.1.1-apk` artifact.
 5. Follow `docs/WEB2-V2.1.0-CHECKLIST.md` for the Galaxy A22 5G / Android 13 and iPad Safari checks.
 
-## v2.5 Remote Screen Preview
+## v2.6 Stability Preview
 
-- Preview branch: `preview/v2.5-remote-screen`
-- PWA: `https://a09848281-prog.github.io/web2/v2.5/` (published by `Deploy v2.5 Preview to GitHub Pages`)
-- Android APK artifact: `remote-camera-web2-preview-v2.5.1-apk` (versionCode 426 / versionName 2.5.1-preview)
-- The new **画面** tab requests Android screen sharing only when opened while connected. Normal camera monitoring does not start screen capture.
-- Android's system screen-capture permission is required for every new sharing session. If Android is in the background, tap the Remote Camera screen-share notification, then confirm the system dialog.
-- Remote tap/swipe/navigation/text/app launch commands require the user to enable the optional `Remote Camera操作サービス` in Android Accessibility settings.
-- Screen video is carried on a second WebRTC video track, separate from the existing camera video. Only Web sessions that requested screen sharing are enabled as recipients.
-- The screen stream stops when the request is cancelled, the viewer leaves the screen tab, or its RTC session ends. Protected/secure Android views remain subject to OS restrictions.
+- Branch: `preview/v2.6-stability`
+- Android package: `2.6.0-preview` (versionCode 427)
+- PWA: `https://a09848281-prog.github.io/web2/v2.6/`
+- Android APK artifact: `remote-camera-web2-preview-v2.6.0-apk`
+- Android screen sharing and its AccessibilityService controls have been removed from this release.
+- The Web microphone is not requested during page load or RTC connection. It is requested only after the user presses the PTT control; release, disconnect, page-background, and RTC failure paths stop the local microphone track.
+- The notification's **待機を停止** action uses a dedicated BroadcastReceiver and stops the foreground service without attempting to start another foreground service. Shutdown disposes RTC, camera/audio resources, torch state, Wi-Fi and power locks, and the notification.
+- Android display-awake can be toggled locally or from Web while connected. It prevents automatic display sleep while its wake lock is held, can increase battery use, and does not bypass the PIN/pattern/biometric lock screen.
+- Android's standard hardware NoiseSuppressor is an ON/OFF feature in this build: 0 = OFF; values 1–100 request the standard ON state. The number is retained as a UI value, not a measured cancellation-strength percentage; changes apply after the next RTC media initialization. Continuous 0–100 DSP intensity is not exposed by the current Android WebRTC audio module.
+- Turning an already-off flashlight off is now a no-op. Turning the flash on can still be rejected by a device if its camera hardware resources are busy.
+- GitHub Actions compilation and automated tests do not replace physical tests on Galaxy A22 / Android 13 and iPad Safari.
 
-## v2.5.1 Stability corrections
-
-- When the Android app is already in the foreground, a Web screen-share request automatically opens the Android system consent screen. When Android is in the background, the notification still needs to be tapped; Android's per-session screen-capture consent cannot be suppressed.
-- The screen viewer now matches the received Android display aspect ratio in portrait and landscape orientations and caps the longest capture edge at 1440 pixels / 20 FPS to reduce load on mid-range devices.
-- Web disconnect waits for Android DataChannel acknowledgements before closing the local PeerConnection, then sends the existing GAS/WebRTC bye fallback. Android also removes failed/closed ICE sessions and disposes the last viewer's camera/audio resources.
-- Flashlight-off cleanup is a no-op when this app did not turn the torch on. If the active camera owns the only rear flash, Android may still reject a request to turn the light on while camera capture is active.
-- Android's **Web接続時の撮影設定** is a saved profile for the next Web camera session; it does not capture or record while waiting.
-- Added regression checks for RTC shutdown, torch cleanup and portrait/landscape screen sizing. GitHub Actions compilation does not replace Galaxy A22 / Android 13 and iPad Safari physical-device testing.
-
-See [V2.5-REMOTE-SCREEN.md](V2.5-REMOTE-SCREEN.md) for the feature and platform limitation details.
+See [V2.6-STABILITY.md](V2.6-STABILITY.md) for the revised lifecycle and known platform limits.
 
 ## Location delivery
 
