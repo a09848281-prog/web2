@@ -1518,6 +1518,7 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
  else if(d.type==="telemetry"){
   S.deviceTelemetry = d;
   S.accessibilityEnabled = d.accessibilityEnabled === true;
+  if (S.screenActive && !S.accessibilityEnabled) $("screenStatus").textContent = "画面共有中です。操作するにはAndroid設定で「Remote Camera操作サービス」を有効にしてください。";
   S.androidCameraEnabled = d.cameraEnabled !== false;
   S.androidMicEnabled = d.microphoneEnabled !== false;
   updateAndroidMediaButtons();
