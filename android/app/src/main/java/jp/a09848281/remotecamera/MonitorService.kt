@@ -51,6 +51,7 @@ class MonitorService : Service() {
         const val ACTION_VIDEO_SETTINGS = "jp.a09848281.remotecamera.VIDEO_SETTINGS"
         const val ACTION_CODE = "jp.a09848281.remotecamera.CODE"
         const val ACTION_SCREEN_PERMISSION_RESULT = "jp.a09848281.remotecamera.SCREEN_PERMISSION_RESULT"
+        const val ACTION_SCREEN_PERMISSION_NEEDED = "jp.a09848281.remotecamera.SCREEN_PERMISSION_NEEDED"
         const val EXTRA_REQUEST_SCREEN_PERMISSION = "request_screen_permission"
         const val EXTRA_SCREEN_RESULT_CODE = "screen_result_code"
         const val EXTRA_SCREEN_RESULT_DATA = "screen_result_data"
@@ -263,6 +264,8 @@ class MonitorService : Service() {
     private fun requestScreenPermission(sessionId: String): String {
         val engine = rtc ?: error("WebRTC接続が終了しています。")
         screenRequesters.add(sessionId)
+        prefs.edit().putBoolean("pendingScreenPermission", true).apply()
+        sendBroadcast(Intent(ACTION_SCREEN_PERMISSION_NEEDED).setPackage(packageName))
         if (engine.isScreenSharing()) {
             engine.sendControl(sessionId, JSONObject().put("type", "screen_state").put("active", true)
                 .put("message", "Android画面を共有中です。"))
@@ -279,6 +282,7 @@ class MonitorService : Service() {
         screenRequesters.remove(sessionId)
         if (screenRequesters.isEmpty()) {
             screenPermissionPending = false
+            prefs.edit().putBoolean("pendingScreenPermission", false).apply()
             getSystemService(NotificationManager::class.java).cancel(SCREEN_NOTIFICATION_ID)
             rtc?.stopScreenShare("Web側の要求により画面共有を停止しました。")
             updateForegroundScreenProjection(false)
@@ -289,6 +293,7 @@ class MonitorService : Service() {
     private fun notifyScreenShareState(active: Boolean, message: String, denied: Boolean = false) {
         if (!active) {
             screenPermissionPending = false
+            prefs.edit().putBoolean("pendingScreenPermission", false).apply()
             if (denied) screenRequesters.clear()
             getSystemService(NotificationManager::class.java).cancel(SCREEN_NOTIFICATION_ID)
             if (prefs.getBoolean("monitoringEnabled", false)) {
