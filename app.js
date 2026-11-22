@@ -1440,7 +1440,7 @@ function syncScreenStageAspectRatio() {
   const height = Number(video.videoHeight) || 0;
   if (!(width > 0 && height > 0)) return;
   const containerWidth = stage.parentElement?.clientWidth || window.innerWidth - 32;
-  const maxHeight = Math.max(200, window.innerHeight * 0.68);
+  const maxHeight = Math.max(160, window.innerHeight * (window.matchMedia("(max-width: 650px)").matches ? 0.58 : 0.68));
   const fitted = RemoteScreenUtils.fitStageSize(containerWidth, maxHeight, width, height);
   if (!fitted) return;
   stage.style.aspectRatio = fitted.aspectRatio;
@@ -1895,7 +1895,17 @@ function startLocationRefresh() {
   }, 30000);
 }
 function stopScreenShareRequest(showMessage = false) {
-  if (S.screenRequested && S.control?.readyState === "open") sendControl("screen_stop", {});
+  const shouldStop = S.screenRequested || S.screenActive;
+  if (shouldStop && S.control?.readyState === "open") {
+    sendControlAndWait("screen_stop", {}, 1400).then(result => {
+      if (!result.ok) {
+        console.warn("Screen-stop acknowledgement missing", result.message);
+        if (showMessage) $("screenStatus").textContent = "停止要求は送信しました。Androidの停止応答を確認できませんでした。";
+      } else if (showMessage) {
+        $("screenStatus").textContent = result.message || "画面共有を停止しました。";
+      }
+    });
+  }
   S.screenRequested = false;
   S.screenActive = false;
   $("screenPlaceholder").classList.remove("hidden");
