@@ -1486,6 +1486,11 @@ async function pollAnswers(peer, sessionId, device) {
 }
 async function disconnect(sendCommand = true, preserveMic = false, notifyRemote = sendCommand, keepRecovery = false) {
   if (sendCommand) {
+    // Invalidate an unfinished attempt before any asynchronous microphone or RTC cleanup.
+    ++S.connectionAttemptId;
+    if (S.connectionAttemptWatchdog) clearTimeout(S.connectionAttemptWatchdog);
+    S.connectionAttemptWatchdog = null;
+    S.connecting = false;
     S.manualDisconnect = true;
     ++S.wakeLockRequestGeneration;
     S.keepAwakeWanted = false;
