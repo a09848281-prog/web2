@@ -3,7 +3,7 @@
 Android・iPad・PC対応の個人利用向け遠隔監視カメラシステムです。
 旧web v3.8〜v4.1の画面構成とWeb2の機能を統合した独立プレビューです。
 
-- Current Web stability preview: `preview/v2.8.2-command-stability`
+- Current Web / Android stability preview: `preview/v2.8.3-fps-reconnect-stability`
 - PWA: GitHub Pages（iPad Safari / PC browser）
 - Android: Kotlin / Foreground Service / WebRTC
 - Signaling and history: Google Apps Script + Google Sheets
@@ -13,13 +13,27 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 
 ## Current stability preview
 
-- Web version: `2.8.2-preview`
-- PWA preview: https://a09848281-prog.github.io/web2/v2.8.2/
-- Web branch: `preview/v2.8.2-command-stability`
-- Android compatibility APK: v2.8.0-preview / versionCode 431 / package `jp.a09848281.remotecamera.v28`
-- No new APK is required for this Web-only change.
-- Previous v2.6 preview remains available: https://a09848281-prog.github.io/web2/v2.6/
-- Previous v2.1 preview: https://a09848281-prog.github.io/web2/v2.1/
+- Version: `2.8.3-preview`
+- PWA preview: https://a09848281-prog.github.io/web2/v2.8.3/
+- Branch: `preview/v2.8.3-fps-reconnect-stability`
+- Android package: `jp.a09848281.remotecamera.v28` / versionCode 432
+- Existing v2.8.0 APK can be updated in place by installing v2.8.3.
+- Previous versions remain available; this branch does not overwrite main.
+
+## v2.8.3 FPS and Reconnect Stability Preview
+
+- Branch: `preview/v2.8.3-fps-reconnect-stability`
+- PWA: `https://a09848281-prog.github.io/web2/v2.8.3/`
+- Android: `2.8.3-preview` / versionCode 432 / existing v28 package ID.
+- **Actual FPS measurement:** Android counts frames delivered from the camera into the WebRTC video track; Web shows camera measured FPS separately from Web receiver decoded FPS. Selected camera FPS is no longer mistaken for actual output.
+- **Camera capture:** Camera2 tries a fixed 30 FPS range first when the device advertises it. At 30 FPS and above, electronic stabilization is disabled to reduce processing overhead; optical stabilization remains available.
+- **Load protection:** low battery / severe thermal protection reduces resolution first and keeps up to 30 FPS. Only critical thermal state limits FPS to 20 for device safety.
+- **Adaptive quality:** automatic quality lowers resolution while preserving the chosen FPS.
+- **Reconnect hardening:** connection attempts have stage-specific deadlines and a 45-second hard watchdog; stale attempt results are ignored. Signal polling reconnects after three consecutive errors. Reconnect timers do not stack behind a stalled connection attempt.
+- **GAS polling:** Android signaling poll uses bounded connect/read timeouts so it cannot block the service poll loop indefinitely.
+- Web design: app.css unchanged from v2.8.2.
+- GAS URL and API 1.3.0 are unchanged; no GAS redeployment is required.
+- See [V2.8.3-FPS-RECONNECT-STABILITY.md](V2.8.3-FPS-RECONNECT-STABILITY.md) for implementation and device test limits.
 
 ## v2.8.2 Command Stability Preview
 
@@ -47,8 +61,8 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 
 1. Deploy `gas/Code.gs` as a Google Apps Script Web App.
 2. Confirm `gasUrl` in `config.json` points to the deployed `/exec` URL. Do not commit TURN credentials or other secrets.
-3. Publish the PWA with the `Deploy Remote Camera Web2 Previews to GitHub Pages` workflow. It publishes versioned preview folders including `/v2.8.2/` alongside older versions without replacing them.
-4. Build the Android APK with the `Android APK Build` workflow. Download the `remote-camera-web2-preview-v2.8.0-apk` artifact.
+3. Publish the PWA with the `Deploy Remote Camera Web2 Previews to GitHub Pages` workflow. It publishes versioned preview folders including `/v2.8.3/` alongside older versions without replacing them.
+4. Build the Android APK with the `Android APK Build` workflow. Download the `remote-camera-web2-preview-v2.8.3-apk` artifact.
 5. Follow `docs/WEB2-V2.1.0-CHECKLIST.md` for Galaxy A22 5G / Android 13 and iPad Safari tests.
 
 ## v2.7.1 Fixes Preview
