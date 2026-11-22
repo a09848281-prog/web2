@@ -355,8 +355,12 @@ class MonitorService : Service() {
                         notifyState("Android端末の登録待ち：Webに8桁コードを入力")
                     } else {
                         val needsPairing = response.optBoolean("needsPairing", false)
-                        prefs.edit().putBoolean("serverPaired", !needsPairing)
-                            .putBoolean("rtcRecoveryArmed", false).apply()
+                        prefs.edit().putBoolean("serverPaired", !needsPairing).apply()
+                        // A normal registered response must not clear recovery. Only a
+                        // completed DataChannel reconnect or a revoked/unpaired device does.
+                        if (needsPairing) {
+                            prefs.edit().putBoolean("rtcRecoveryArmed", false).apply()
+                        }
                         val codeActive = response.optBoolean("pairingCodeActive", false)
                         if (needsPairing) {
                             // No authenticated Web controller remains. Close any
