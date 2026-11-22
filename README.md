@@ -31,12 +31,21 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 
 - Preview branch: `preview/v2.5-remote-screen`
 - PWA: `https://a09848281-prog.github.io/web2/v2.5/` (published by `Deploy v2.5 Preview to GitHub Pages`)
-- Android APK artifact: `remote-camera-web2-preview-v2.5-apk`
+- Android APK artifact: `remote-camera-web2-preview-v2.5.1-apk` (versionCode 426 / versionName 2.5.1-preview)
 - The new **画面** tab requests Android screen sharing only when opened while connected. Normal camera monitoring does not start screen capture.
 - Android's system screen-capture permission is required for every new sharing session. If Android is in the background, tap the Remote Camera screen-share notification, then confirm the system dialog.
 - Remote tap/swipe/navigation/text/app launch commands require the user to enable the optional `Remote Camera操作サービス` in Android Accessibility settings.
 - Screen video is carried on a second WebRTC video track, separate from the existing camera video. Only Web sessions that requested screen sharing are enabled as recipients.
 - The screen stream stops when the request is cancelled, the viewer leaves the screen tab, or its RTC session ends. Protected/secure Android views remain subject to OS restrictions.
+
+## v2.5.1 Stability corrections
+
+- When the Android app is already in the foreground, a Web screen-share request automatically opens the Android system consent screen. When Android is in the background, the notification still needs to be tapped; Android's per-session screen-capture consent cannot be suppressed.
+- The screen viewer now matches the received Android display aspect ratio in portrait and landscape orientations and caps the longest capture edge at 1440 pixels / 20 FPS to reduce load on mid-range devices.
+- Web disconnect waits for Android DataChannel acknowledgements before closing the local PeerConnection, then sends the existing GAS/WebRTC bye fallback. Android also removes failed/closed ICE sessions and disposes the last viewer's camera/audio resources.
+- Flashlight-off cleanup is a no-op when this app did not turn the torch on. If the active camera owns the only rear flash, Android may still reject a request to turn the light on while camera capture is active.
+- Android's **Web接続時の撮影設定** is a saved profile for the next Web camera session; it does not capture or record while waiting.
+- Added regression checks for RTC shutdown, torch cleanup and portrait/landscape screen sizing. GitHub Actions compilation does not replace Galaxy A22 / Android 13 and iPad Safari physical-device testing.
 
 See [V2.5-REMOTE-SCREEN.md](V2.5-REMOTE-SCREEN.md) for the feature and platform limitation details.
 
