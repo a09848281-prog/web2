@@ -220,8 +220,8 @@ class MonitorService : Service() {
         locationJob?.cancel()
         locationJob = null
         rtc?.dispose()
-        rtc = null
         try { setTorch(false) } catch (_: Exception) {}
+        rtc = null
         updateStreamWakeLock(false)
         prefs.edit().putBoolean("monitoringEnabled", false).apply()
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -1083,10 +1083,10 @@ class MonitorService : Service() {
         pollJob?.cancel()
         locationJob?.cancel()
         rtc?.dispose()
-        rtc = null
         try { setTorch(false) } catch (error: Exception) {
             Log.w("RemoteCameraService", "Could not turn off torch during service cleanup", error)
         }
+        rtc = null
         try { updateStreamWakeLock(false) } catch (_: Exception) {}
         try { streamWifiLock?.let { if (it.isHeld) it.release() } } catch (_: Exception) {}
         streamWifiLock = null

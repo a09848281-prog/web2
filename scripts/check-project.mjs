@@ -149,6 +149,13 @@ assert.ok(main.includes("1～50秒"), "1-50 second polling interval UI missing")
 assert.ok(main.includes("MonitorService.ACTION_STOP"), "Android stop button must call the service cleanup action");
 assert.ok(service.includes("override fun onDestroy()") && service.includes("rtc?.dispose()"), "Service destruction must dispose RTC resources");
 assert.ok(service.includes("updateStreamWakeLock(false)"), "Service shutdown must release its wake lock");
+const stopShutdown = service.slice(service.indexOf("private fun stopMonitoringNow"), service.indexOf("private fun notifyState"));
+const destroyShutdown = service.slice(service.indexOf("override fun onDestroy()"));
+for (const shutdown of [stopShutdown, destroyShutdown]) {
+  assert.ok(shutdown.indexOf("rtc?.dispose()") < shutdown.indexOf("setTorch(false)") &&
+    shutdown.indexOf("setTorch(false)") < shutdown.indexOf("rtc = null"),
+    "Camera ID must remain available until the torch is switched off after RTC disposal");
+}
 assert.ok(service.includes("if (needsPairing)") && service.includes("rtc?.dispose()"), "No-controller state must close orphan camera sessions");
 assert.ok(service.includes('val signals = if (needsPairing) JSONArray()'), "No-controller state must ignore stale offers");
 assert.ok(service.includes('val sessionId = payload.optString("sessionId", "")'), "Disconnect commands must be viewer-session scoped");
