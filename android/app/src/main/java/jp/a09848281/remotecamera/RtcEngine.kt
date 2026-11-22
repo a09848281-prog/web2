@@ -74,6 +74,7 @@ class RtcEngine(
     private var captureWidth = 1280
     private var captureHeight = 720
     private var captureFps = 24
+    @Volatile private var torchRequested = false
     @Volatile private var cameraEnabled = true
     @Volatile private var microphoneEnabled = true
     @Volatile private var iceServerConfig = JSONArray()
@@ -234,12 +235,14 @@ class RtcEngine(
                 else -> 1280 to 720
             }
         }
-        val baseBitrate = when (tier) {
+        val resolutionBitrate = when (tier) {
             360 -> 650000
             480 -> 1000000
-            1080 -> if (requestedFps >= 50) 6000000 else 3800000
+            1080 -> 3800000
             else -> 1900000
         }
+        val fpsScale = (requestedFps.coerceIn(10, 60) / 30.0).coerceAtLeast(0.65)
+        val baseBitrate = (resolutionBitrate * fpsScale).toInt().coerceIn(350000, 6500000)
         val base = VideoProfile(dimensions.first, dimensions.second, requestedFps.coerceIn(10, 60), baseBitrate)
         return when (dataMode) {
             "ultra" -> base.copy(fps = minOf(base.fps, 10), bitrate = 350000)
@@ -281,7 +284,31 @@ class RtcEngine(
             Log.w("RemoteCameraRTC", "Could not list camera output sizes", error)
             emptyList()
         }
-        return (supported + staticSizes).distinct()
+        return if (supported.isNotEmpty()) supported.distinct() else staticSizes
+    }
+
+    private fun chooseSupportedFps(cameraId: String, requestedFps: Int): Int {
+        val ranges = try {
+            val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            manager.getCameraCharacteristics(cameraId)
+                .get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+                ?.toList().orEmpty()
+        } catch (error: Exception) {
+            Log.w("RemoteCameraRTC", "Could not list camera FPS ranges", error)
+            emptyList()
+        }
+        if (ranges.isEmpty()) return requestedFps
+        val unit = if (ranges.any { it.upper > 1000 || it.lower > 1000 }) 1000 else 1
+        val normalized = ranges.map { (it.lower / unit).coerceAtLeast(1) to (it.upper / unit).coerceAtLeast(1) }
+            .filter { it.second >= 10 }
+        if (normalized.isEmpty()) return requestedFps
+        val exact = normalized.firstOrNull { it.first == requestedFps && it.second == requestedFps }
+        if (exact != null) return requestedFps
+        val containing = normalized.filter { requestedFps in it.first..it.second }
+        if (containing.isNotEmpty()) return requestedFps
+        return normalized.map { maxOf(it.first, it.second) }
+            .filter { it in 10..requestedFps }
+            .maxOrNull() ?: normalized.minOf { minOf(it.first, it.second) }
     }
 
     private fun startCaptureWithFallback(
@@ -294,28 +321,45 @@ class RtcEngine(
         val requestedSize = requested.width to requested.height
         val requestedPixels = requested.width.toLong() * requested.height.toLong()
         val requestedRatio = requested.width.toDouble() / requested.height.toDouble()
-        val alternativeSizes = fallbackCaptureSizes(cameraId)
-            .filter { size ->
-                size != requestedSize &&
-                    size.first.toLong() * size.second.toLong() <= requestedPixels &&
-                    kotlin.math.abs(size.first.toDouble() / size.second.toDouble() - requestedRatio) < 0.035
+        val supportedSizes = fallbackCaptureSizes(cameraId)
+        val sameRatioSizes = supportedSizes.filter { size ->
+            kotlin.math.abs(size.first.toDouble() / size.second.toDouble() - requestedRatio) < 0.035
+        }
+        val underRequested = sameRatioSizes.filter { size ->
+            size.first.toLong() * size.second.toLong() <= requestedPixels
+        }.sortedByDescending { it.first.toLong() * it.second.toLong() }
+        val selectedSize = when {
+            requestedSize in supportedSizes -> requestedSize
+            underRequested.isNotEmpty() -> underRequested.first()
+            sameRatioSizes.isNotEmpty() -> sameRatioSizes.minBy {
+                kotlin.math.abs(it.first.toLong() * it.second.toLong() - requestedPixels)
             }
-            .sortedByDescending { it.first.toLong() * it.second.toLong() }
-        val sizes = listOf(requestedSize) + alternativeSizes
-        val fpsOptions = listOf(requested.fps, 30, 24, 20, 15, 10)
-            .distinct()
-            .filter { it in 10..requested.fps }
-            .sortedDescending()
+            supportedSizes.isNotEmpty() -> supportedSizes.minBy {
+                kotlin.math.abs(it.first.toLong() * it.second.toLong() - requestedPixels)
+            }
+            else -> requestedSize
+        }
+        val sizes = (listOf(selectedSize) + underRequested.filter { it != selectedSize }).distinct()
+        val effectiveFps = chooseSupportedFps(cameraId, requested.fps)
+        val fpsOptions = (listOf(effectiveFps, 60, 55, 50, 45, 40, 30, 24, 20, 15, 10))
+            .distinct().filter { it in 10..effectiveFps }.sortedDescending()
         var lastError: Exception? = null
         for ((width, height) in sizes) {
             for (fps in fpsOptions) {
                 var candidate: CameraVideoCapturer? = null
                 try {
-                    candidate = enumerator.createCapturer(cameraId, null)
-                        ?: throw IllegalStateException("カメラを開けません。")
+                    candidate = RemoteTorchCamera2Capturer(context, cameraId, null)
                     candidate.initialize(surfaceHelper, context.applicationContext, source.capturerObserver)
                     candidate.startCapture(width, height, fps)
-                    Log.i("RemoteCameraRTC", "Camera capture started: ${width}x${height}@${fps}")
+                    if (torchRequested) {
+                        try {
+                            (candidate as? TorchCaptureControl)?.setTorchEnabled(true)
+                        } catch (torchError: Exception) {
+                            torchRequested = false
+                            Log.w("RemoteCameraRTC", "Torch could not be restored on the selected camera", torchError)
+                        }
+                    }
+                    Log.i("RemoteCameraRTC", "Camera capture requested: ${width}x${height}@${fps}; supported output selected.")
                     return StartedCapture(candidate, width, height, fps)
                 } catch (error: Exception) {
                     lastError = error
@@ -597,6 +641,12 @@ class RtcEngine(
             track.setEnabled(true)
             cameraEnabled = true
         } else {
+            if (torchRequested) {
+                try { (camera as? TorchCaptureControl)?.setTorchEnabled(false) } catch (error: Exception) {
+                    Log.w("RemoteCameraRTC", "Torch OFF before camera pause failed", error)
+                }
+                torchRequested = false
+            }
             track.setEnabled(false)
             camera.stopCapture()
             cameraEnabled = false
@@ -612,18 +662,41 @@ class RtcEngine(
 
     fun isCameraEnabled(): Boolean = cameraEnabled
     fun isMicrophoneEnabled(): Boolean = microphoneEnabled
+    @Synchronized
+    fun setTorchEnabled(enabled: Boolean) {
+        val camera = capturer ?: error("カメラ映像が起動していません。")
+        if (!cameraEnabled) error("カメラがOFFの間はライトを操作できません。")
+        if (enabled && frontCamera) error("ライトは背面カメラ使用中のみ利用できます。")
+        val control = camera as? TorchCaptureControl
+            ?: error("このカメラはCamera2ライト制御に対応していません。")
+        control.setTorchEnabled(enabled)
+        torchRequested = enabled
+        onState(if (enabled) "Androidライト ON（映像と同じCamera2セッション）" else "Androidライト OFF")
+    }
+
+    fun isTorchEnabled(): Boolean = (capturer as? TorchCaptureControl)?.isTorchEnabled() == true
+    fun hasTorchSupport(): Boolean = cameraEnabled && (capturer as? TorchCaptureControl)?.hasTorchSupport() == true
+
     fun captureInfo(): JSONObject = JSONObject()
         .put("width", captureWidth)
         .put("height", captureHeight)
         .put("fps", captureFps)
         .put("cameraEnabled", cameraEnabled)
         .put("microphoneEnabled", microphoneEnabled)
+        .put("flashAvailable", hasTorchSupport())
+        .put("flashEnabled", isTorchEnabled())
 
     fun switchCamera(facing: String) {
         check(cameraEnabled) { "カメラがOFFの間は切り替えできません。先にカメラをONにしてください。" }
         val camera = capturer ?: return
         val wantFront = facing == "front"
         if (wantFront == frontCamera) return
+        if (wantFront && torchRequested) {
+            try { setTorchEnabled(false) } catch (error: Exception) {
+                Log.w("RemoteCameraRTC", "Torch OFF before front-camera switch failed", error)
+                torchRequested = false
+            }
+        }
         camera.switchCamera(object : CameraVideoCapturer.CameraSwitchHandler {
             override fun onCameraSwitchDone(isFrontCamera: Boolean) {
                 frontCamera = isFrontCamera
@@ -757,6 +830,12 @@ class RtcEngine(
 
     @Synchronized
     private fun stopMedia() {
+        try {
+            if (torchRequested) (capturer as? TorchCaptureControl)?.setTorchEnabled(false)
+        } catch (error: Exception) {
+            Log.w("RemoteCameraRTC", "Could not switch off in-stream torch during media cleanup", error)
+        }
+        torchRequested = false
         try { capturer?.stopCapture() } catch (_: Exception) {}
         try { capturer?.dispose() } catch (_: Exception) {}
         capturer = null

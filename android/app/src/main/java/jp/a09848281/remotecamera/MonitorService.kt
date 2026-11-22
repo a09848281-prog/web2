@@ -13,16 +13,12 @@ import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
-import android.hardware.camera2.CameraAccessException
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.TrafficStats
 import android.net.wifi.WifiManager
 import android.os.BatteryManager
-import android.os.Handler
 import android.os.PowerManager
 import android.os.Process
 import java.net.NetworkInterface
@@ -95,11 +91,6 @@ class MonitorService : Service() {
     private var lastUsageSampleAt = 0L
     private var powerSaveActive = false
     private var torchEnabled = false
-    @Volatile private var torchRequested = false
-    @Volatile private var flashAvailableCache: Boolean? = null
-    @Volatile private var activeTorchCameraId: String? = null
-    private var torchCallback: CameraManager.TorchCallback? = null
-    private var torchCallbackRegistered = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -260,11 +251,12 @@ class MonitorService : Service() {
         pollJob = null
         locationJob?.cancel()
         locationJob = null
+        try { rtc?.setTorchEnabled(false) } catch (error: Exception) {
+            Log.w("RemoteCameraService", "In-stream torch cleanup failed during explicit stop", error)
+        }
+        torchEnabled = false
         try { rtc?.dispose() } catch (error: Exception) {
             Log.e("RemoteCameraService", "RTC cleanup failed during explicit stop", error)
-        }
-        try { setTorch(false) } catch (error: Exception) {
-            Log.w("RemoteCameraService", "Torch cleanup failed during explicit stop", error)
         }
         rtc = null
         updateStreamWakeLock(false)
@@ -746,116 +738,12 @@ class MonitorService : Service() {
         }
     }
 
-    private fun ensureTorchCallback(manager: CameraManager) {
-        if (torchCallbackRegistered) return
-        val callback = object : CameraManager.TorchCallback() {
-            override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
-                if (cameraId != activeTorchCameraId) return
-                torchEnabled = enabled
-                if (!enabled && !torchRequested) activeTorchCameraId = null
-                scope.launch { sendTelemetry() }
-            }
-            override fun onTorchModeUnavailable(cameraId: String) {
-                if (cameraId != activeTorchCameraId) return
-                torchEnabled = false
-                torchRequested = false
-                activeTorchCameraId = null
-                scope.launch {
-                    sendTelemetry()
-                    notifyState("Androidが背面カメラのライトを利用不可にしました。カメラ撮影中は同時点灯できない端末があります。")
-                }
-            }
-        }
-        try {
-            manager.registerTorchCallback(callback, Handler(Looper.getMainLooper()))
-            torchCallback = callback
-            torchCallbackRegistered = true
-        } catch (error: Exception) {
-            Log.w("RemoteCameraService", "Torch status callback registration failed", error)
-        }
-    }
-
     private fun setTorch(enabled: Boolean) {
-        torchRequested = enabled
-        if (!enabled && !torchEnabled && activeTorchCameraId == null) {
-            sendTelemetry()
-            return
-        }
-        val manager = getSystemService(CAMERA_SERVICE) as CameraManager
-        ensureTorchCallback(manager)
-        if (!enabled && !activeTorchCameraId.isNullOrBlank()) {
-            val activeId = activeTorchCameraId!!
-            try {
-                manager.setTorchMode(activeId, false)
-            } catch (error: Exception) {
-                Log.w("RemoteCameraService", "Torch OFF request returned an error; clearing cached state", error)
-            }
-            activeTorchCameraId = null
-            torchEnabled = false
-            sendTelemetry()
-            return
-        }
-
-        val selectedId = rtc?.currentCameraId().orEmpty()
-        val candidates = manager.cameraIdList.filter { id ->
-            try {
-                val chars = manager.getCameraCharacteristics(id)
-                chars.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK &&
-                    chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-            } catch (error: Exception) {
-                Log.w("RemoteCameraService", "Could not inspect rear flashlight camera " + id, error)
-                false
-            }
-        }.sortedByDescending { it == selectedId }
-
-        if (candidates.isEmpty()) {
-            torchEnabled = false
-            activeTorchCameraId = null
-            if (enabled) torchRequested = false
-            sendTelemetry()
-            if (enabled) error("この端末にライト対応の背面カメラがありません。")
-            return
-        }
-
-        var lastError: Exception? = null
-        for (torchId in candidates) {
-            activeTorchCameraId = torchId
-            try {
-                manager.setTorchMode(torchId, enabled)
-                torchEnabled = enabled
-                if (!enabled) activeTorchCameraId = null
-                sendTelemetry()
-                Log.i("RemoteCameraService", "Flashlight changed: camera=" + torchId + " enabled=" + enabled)
-                return
-            } catch (error: Exception) {
-                if (activeTorchCameraId == torchId) activeTorchCameraId = null
-                lastError = error
-                Log.w("RemoteCameraService", "Flashlight camera " + torchId + " unavailable; trying another rear flash", error)
-            }
-        }
-
-        torchEnabled = false
-        activeTorchCameraId = null
-        // Do not carry a rejected ON request across camera changes; it could
-        // unexpectedly turn on later when Android releases the rear camera.
-        if (enabled) torchRequested = false
+        val engine = rtc ?: error("Androidカメラが接続されていません。")
+        engine.setTorchEnabled(enabled)
+        torchEnabled = engine.isTorchEnabled()
         sendTelemetry()
-        val cameraReason = when ((lastError as? CameraAccessException)?.reason) {
-            CameraAccessException.CAMERA_IN_USE -> "背面カメラが撮影中のためAndroidがライトを拒否しました。"
-            CameraAccessException.MAX_CAMERAS_IN_USE -> "Androidのカメラ資源が上限に達しているためライトを使えません。"
-            CameraAccessException.CAMERA_DISCONNECTED -> "Androidカメラサービスが一時的に切断されています。"
-            else -> "カメラまたはライト資源を取得できませんでした。"
-        }
-        val reason = if (enabled) {
-            "ライトを点灯できません。$cameraReason 端末によっては映像撮影とライトの同時使用に制限があります。"
-        } else {
-            "ライトを消灯できませんでした。端末のライト状態を確認してください。"
-        }
-        flashAvailableCache = null
-        // Do not leave a rejected request queued: a later camera switch must not
-        // unexpectedly turn the light on after the user has moved on.
-        if (enabled) torchRequested = false
-        throw IllegalStateException(reason + " カメラ状態が落ち着いてから再試行してください。", lastError)
+        notifyState(if (torchEnabled) "ライト ON（映像撮影中）" else "ライト OFF")
     }
 
     private fun sampleTrafficUsage() {
@@ -979,21 +867,10 @@ class MonitorService : Service() {
             applyVideoSettings(JSONObject())
             notifyState("端末温度・バッテリーが回復したため映像設定を戻しました")
         }
-        val flashAvailable = flashAvailableCache ?: try {
-            val cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
-            cameraManager.cameraIdList.any { cameraId ->
-                val characteristics = cameraManager.getCameraCharacteristics(cameraId)
-                characteristics.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK &&
-                    characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-            }.also { flashAvailableCache = it }
-        } catch (error: Exception) {
-            // A transient camera-service error is not proof that the phone lacks a flash.
-            // Leave the cache empty so the next telemetry cycle retries capability detection.
-            Log.w("RemoteCameraService", "Could not query flash availability; will retry", error)
-            false
-        }
         val usage = getUsageTotals()
         val capture = rtc?.captureInfo() ?: JSONObject()
+        val flashAvailable = capture.optBoolean("flashAvailable", false)
+        torchEnabled = capture.optBoolean("flashEnabled", false)
         val audio = getSystemService(AUDIO_SERVICE) as AudioManager
         val musicMax = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         val speakerPercent = (audio.getStreamVolume(AudioManager.STREAM_MUSIC) * 100.0 / musicMax).toInt().coerceIn(0, 100)
@@ -1086,7 +963,8 @@ class MonitorService : Service() {
         val previousQuality = prefs.getString("requestedQuality", "720") ?: "720"
         val previousFps = prefs.getInt("fps", 24)
         val previousRatio = prefs.getString("aspectRatio", "original") ?: "16:9"
-        val requestedFps = settings.optInt("fps", previousFps).coerceIn(10, 60)
+        val requestedFpsRaw = settings.optInt("fps", previousFps)
+        val requestedFps = requestedFpsRaw.takeIf { it in setOf(10, 15, 20, 24, 30, 40, 45, 50, 55, 60) } ?: 24
         val requestedRatio = settings.optString("aspectRatio", previousRatio)
             .takeIf { it in setOf("16:9", "4:3", "1:1", "9:16", "original") } ?: "16:9"
         val requestChanged = requestedQuality != previousQuality ||
@@ -1358,19 +1236,13 @@ class MonitorService : Service() {
     override fun onDestroy() {
         pollJob?.cancel()
         locationJob?.cancel()
+        try { rtc?.setTorchEnabled(false) } catch (error: Exception) {
+            Log.w("RemoteCameraService", "Could not turn off in-stream torch during service cleanup", error)
+        }
+        torchEnabled = false
         try { rtc?.dispose() } catch (error: Exception) {
             Log.e("RemoteCameraService", "RTC cleanup failed during service destruction", error)
         }
-        try { setTorch(false) } catch (error: Exception) {
-            Log.w("RemoteCameraService", "Could not turn off torch during service cleanup", error)
-        }
-        try {
-            torchCallback?.let { (getSystemService(CAMERA_SERVICE) as CameraManager).unregisterTorchCallback(it) }
-        } catch (error: Exception) {
-            Log.w("RemoteCameraService", "Could not unregister torch callback", error)
-        }
-        torchCallback = null
-        torchCallbackRegistered = false
         rtc = null
         try { updateStreamWakeLock(false) } catch (_: Exception) {}
         try { updateDisplayWakeLock(false) } catch (_: Exception) {}
