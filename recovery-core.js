@@ -18,7 +18,8 @@
   // changes camera/quality. Only treat silence as a connection failure after the
   // operation grace period and the normal frame timeout have both elapsed.
   function shouldRecoverVideo(state) {
-    if (!state || state.manualDisconnect === true || state.cameraEnabled === false) return false;
+    if (!state || state.manualDisconnect === true || state.cameraEnabled === false ||
+        state.videoVisible === false) return false;
     const now = Number(state.now);
     const lastFrameAt = Number(state.lastFrameAt);
     if (!Number.isFinite(now) || !Number.isFinite(lastFrameAt)) return false;
