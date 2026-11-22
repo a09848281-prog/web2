@@ -102,6 +102,16 @@ class MainActivity : Activity() {
             setOnClickListener {
                 val enabled = !prefs.getBoolean("androidKeepScreenAwake", false)
                 prefs.edit().putBoolean("androidKeepScreenAwake", enabled).apply()
+                if (prefs.getBoolean("monitoringEnabled", false)) {
+                    try {
+                        startService(Intent(this@MainActivity, MonitorService::class.java).apply {
+                            action = MonitorService.ACTION_DISPLAY_AWAKE
+                            putExtra("enabled", enabled)
+                        })
+                    } catch (error: Exception) {
+                        Toast.makeText(this@MainActivity, "待機サービスへ設定を送れませんでした。", Toast.LENGTH_LONG).show()
+                    }
+                }
                 applyKeepScreenAwake()
             }
         }
