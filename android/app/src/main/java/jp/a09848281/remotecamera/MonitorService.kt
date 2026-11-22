@@ -339,7 +339,9 @@ class MonitorService : Service() {
                     val secret = prefs.getString("deviceSecret", "") ?: ""
                     val response = api!!.call(
                         "device_poll",
-                        JSONObject().put("deviceId", deviceId).put("deviceSecret", secret).put("afterSeq", afterSeq)
+                        JSONObject().put("deviceId", deviceId).put("deviceSecret", secret).put("afterSeq", afterSeq),
+                        10000,
+                        12000
                     )
                     rtc?.setIceServers(response.optJSONArray("iceServers"))
                     if (!response.optBoolean("registered", false)) {
