@@ -59,7 +59,7 @@ class RtcEngine(
     @Volatile private var micGain=100
     @Volatile private var nightModeEnabled=false
     private var factory: PeerConnectionFactory? = null
-    private var audioDeviceModule: AudioDeviceModule? = null
+    private var audioDeviceModule: JavaAudioDeviceModule? = null
     private var egl: EglBase? = null
     private var capturer: CameraVideoCapturer? = null
     private var helper: SurfaceTextureHelper? = null
@@ -573,7 +573,31 @@ class RtcEngine(
         }catch(e:Exception){Log.w("RemoteCameraRTC","DataChannel send failed",e);false}
     }
     fun sendControlToOpenDataChannels(message:JSONObject){controlChannels.keys.toList().forEach{id->sendControl(id,message)}}
-    fun setNoiseSuppressionLevel(level:Int){noiseSuppressionLevel=level.coerceIn(0,100);onState("ノイズ抑制要求 "+noiseSuppressionLevel+"%（実効値は端末依存・次回音声初期化時に反映）")}
+    @Synchronized
+    fun setNoiseSuppressionLevel(level: Int): Boolean {
+        noiseSuppressionLevel = level.coerceIn(0, 100)
+        val enabled = noiseSuppressionLevel > 0
+        val module = audioDeviceModule
+        if (module == null) {
+            onState("ノイズ抑制 " + noiseSuppressionLevel + "% を保存しました。音声エンジン開始時に適用します。")
+            return false
+        }
+        val applied = try {
+            module.setNoiseSuppressorEnabled(enabled)
+        } catch (error: Exception) {
+            Log.w("RemoteCameraRTC", "Could not change live noise suppressor state", error)
+            false
+        }
+        onState(
+            if (applied) {
+                if (enabled) "ノイズ抑制ON（" + noiseSuppressionLevel + "%要求・端末標準強度）"
+                else "ノイズ抑制OFF"
+            } else {
+                "ノイズ抑制のライブ切替に失敗しました。次回接続時に再適用します。"
+            }
+        )
+        return applied
+    }
     fun setMicSensitivity(level:Int){micSensitivity=level.coerceIn(0,100);onState("マイク感度要求 "+micSensitivity+"%（自動ゲインは対応範囲・次回音声初期化時に反映）")}
     fun setMicGain(level:Int){micGain=level.coerceIn(0,100);try{audioTrack?.setVolume(micGain/100.0)}catch(e:Exception){Log.w("RemoteCameraRTC","Mic gain update failed",e)}}
     fun setNightMode(enabled:Boolean){nightModeEnabled=enabled;onState(if(enabled)"夜間モード要求ON（露出制御は端末依存）" else "夜間モードOFF")}
