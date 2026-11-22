@@ -191,7 +191,7 @@ assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from S
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.2.0"'), "GAS API version must be 1.2.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 422"), "Android version code must be incremented for v1.2");
+assert.ok(androidBuild.includes("versionCode = 423"), "Android version code must be 423 for v2.1.1");
 assert.equal(manifestJson.name, "Remote Camera Web2 v2.1.1 Preview", "PWA display name must match v2.1.1");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 console.log("Web2 source checks passed.");
@@ -204,7 +204,7 @@ assert.ok(!html.includes('id="snapshot"'), "Static image capture must remain exc
 assert.equal([...js.matchAll(/\$\("fitMode"\)\.addEventListener\("click"/g)].length, 1, "Fit/fill action must be registered once");
 assert.ok(!js.includes('"pointerup", "pointerleave"'), "Pointer capture must not stop PTT on pointer leave");
 assert.ok(html.includes("RTC接続中はAndroidの現在地をDataChannelで直接受信"), "Location UI must explain RTC live updates");
-console.log("Web2 v2.1.0 Preview UI, RTC location and stability checks passed.");
+console.log("Web2 v2.1.1 Preview UI, RTC location and stability checks passed.");
 
 assert.ok(main.includes("addTextChangedListener") && main.includes('putInt("pollIntervalSeconds", seconds)'), "Polling interval must be saved as it is edited");
 assert.ok(main.includes("saveMonitoringSchedule()") && main.includes("setAndAllowWhileIdle"), "Android standby schedule UI missing");
