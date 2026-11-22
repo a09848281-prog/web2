@@ -10,6 +10,7 @@ on:
       - preview/v2.8.0-stable-reconnect
       - preview/v2.8.1-web-style-preserved
       - preview/v2.8.2-command-stability
+      - preview/v2.8.3-fps-reconnect-stability
     paths:
       - "index.html"
       - "app.js"
@@ -28,6 +29,7 @@ on:
       - "V2.8.0-STABLE-RECOVERY.md"
       - "V2.8.1-WEB-STYLE-PRESERVED.md"
       - "V2.8.2-COMMAND-STABILITY.md"
+      - "V2.8.3-FPS-RECONNECT-STABILITY.md"
       - "android/**"
       - "tests/**"
       - "scripts/**"
@@ -102,8 +104,13 @@ jobs:
         with:
           ref: preview/v2.8.2-command-stability
           path: v282-source
+      - name: Checkout v2.8.3 FPS and reconnect stability preview
+        uses: actions/checkout@v4
+        with:
+          ref: preview/v2.8.3-fps-reconnect-stability
+          path: v283-source
       - name: Run JavaScript regression and project checks
-        working-directory: v282-source
+        working-directory: v283-source
         run: |
           node --check app.js
           node --check recovery-core.js
@@ -111,7 +118,7 @@ jobs:
           node scripts/check-project.mjs
       - name: Assemble site without replacing the homepage
         run: |
-          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6 _site/v2.6.1 _site/v2.7 _site/v2.7.1 _site/v2.8.0 _site/v2.8.1 _site/v2.8.2
+          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6 _site/v2.6.1 _site/v2.7 _site/v2.7.1 _site/v2.8.0 _site/v2.8.1 _site/v2.8.2 _site/v2.8.3
           rsync -a --exclude='.git' base-site/ _site/
           rsync -a --exclude='.git' --exclude='.github' v21-source/ _site/v2.1/
           rsync -a --exclude='.git' --exclude='.github' v25-source/ _site/v2.5/
@@ -122,13 +129,14 @@ jobs:
           rsync -a --exclude='.git' --exclude='.github' v280-source/ _site/v2.8.0/
           rsync -a --exclude='.git' --exclude='.github' v281-source/ _site/v2.8.1/
           rsync -a --exclude='.git' --exclude='.github' v282-source/ _site/v2.8.2/
+          rsync -a --exclude='.git' --exclude='.github' v283-source/ _site/v2.8.3/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          name: github-pages-v2.8.2
+          name: github-pages-v2.8.3
           path: _site
-      - name: Deploy v2.8.2 command stability preview
+      - name: Deploy v2.8.3 FPS and reconnect stability preview
         id: deployment
         uses: actions/deploy-pages@v4
         with:
-          artifact_name: github-pages-v2.8.2
+          artifact_name: github-pages-v2.8.3
