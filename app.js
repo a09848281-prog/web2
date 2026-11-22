@@ -2133,7 +2133,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (document.hidden) {
       stopMotionDetection("画面がバックグラウンドです。復帰後に再開します。");
       // A hidden controller must never keep its Web microphone transmitting.
-      if (S.pttActive) {
+      if (S.pttActive || S.pttRequested || S.pttStarting) {
+        // Invalidate any in-flight permission prompt too; a late getUserMedia
+        // resolution must not attach a microphone while this page is hidden.
         setWebMicEnabled(false);
       }
       if (S.wakeLock) {
