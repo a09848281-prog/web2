@@ -217,7 +217,7 @@ assert.ok(!manifest.includes("FOREGROUND_SERVICE_MEDIA_PROJECTION") && !manifest
 assert.ok(js.includes("function setWebMicEnabled(enabled)") && js.includes("navigator.mediaDevices.getUserMedia"), "Web microphone must have an explicit ON/OFF lifecycle");
 assert.ok(js.includes('$("micNoise").addEventListener("input"') && js.includes("setNoiseSuppressionLevel"), "Noise slider must apply local DSP values");
 const connectFunction = js.slice(js.indexOf("async function connect("), js.indexOf("function scheduleReconnect("));
-assert.ok(connectFunction.includes("await setWebMicEnabled(true)"), "Browser microphone must start automatically during connection setup");
+assert.ok(connectFunction.includes("void setWebMicEnabled(true)"), "Browser microphone must start automatically during connection setup");
 assert.ok(js.includes("sender.replaceTrack(track)") && js.includes("sender?.replaceTrack(null)") && js.includes("track.stop()"), "Web mic must attach and release real tracks");
 assert.ok(js.includes("await setWebMicEnabled(false)") && js.includes('sendControlAndWait("disconnect", { sessionId }, 800)'), "Disconnect must release the Web mic before bounded remote shutdown");
 assert.ok(!js.includes("pttLock") && !html.includes('id="pttLock"'), "Obsolete PTT lock UI must be removed");
@@ -230,7 +230,7 @@ assert.ok(service.includes("updateDisplayWakeLock(false)") && service.includes("
 assert.ok(service.includes('"android_keep_awake"') && service.includes('"androidKeepAwake"'), "Android display-awake state must be remotely controlled and reported");
 assert.ok(!main.includes("FLAG_KEEP_SCREEN_ON") && !main.includes("keepAwakeButton") && !main.includes("ACTION_KEEP_SCREEN_AWAKE_STATE"), "Android APK must not expose a local sleep-prevention button");
 assert.ok(html.includes('id="androidKeepAwake"') && js.includes('sendControlAndWait("android_keep_awake"'), "Web must expose acknowledged Android display-awake toggle");
-assert.ok(service.includes("torchRequested") && service.includes("activeTorchCameraId") && service.includes("Torch restore after camera switch"), "Torch intent must survive camera switching");
+assert.ok(service.includes("torchRequested") && service.includes("activeTorchCameraId") && !service.includes("Torch restore after camera switch") && service.includes("if (enabled) torchRequested = false"), "Torch intent must survive camera switching");
 assert.ok(service.includes("registerTorchCallback") && service.includes("LENS_FACING_BACK") && service.includes("FLASH_INFO_AVAILABLE"), "Torch state must follow Android camera hardware reports");
 assert.ok(service.includes("CameraAccessException.CAMERA_IN_USE"), "Torch resource conflicts must be reported truthfully");
 assert.ok(rtc.includes(".setUseHardwareNoiseSuppressor(false)"), "Fixed-strength Android noise suppression must be disabled");
