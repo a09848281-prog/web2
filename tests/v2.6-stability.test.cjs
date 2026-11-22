@@ -110,18 +110,19 @@ test("noise suppression uses a real adjustable Web Audio gate from 0 to 100", ()
 test("flashlight reports actual state and clears a rejected ON request", () => {
   assert.match(service, /torchRequested = enabled/);
   assert.match(service, /registerTorchCallback/);
-  assert.match(service, /onTorchModeChanged\\(cameraId: String, enabled: Boolean\\)/);
-  assert.match(service, /sortedByDescending \\{ it == selectedId \\}/);
-  assert.match(service, /if \\(enabled\\) torchRequested = false/);
+  assert.match(service, /onTorchModeChanged\(cameraId: String, enabled: Boolean\)/);
+  assert.match(service, /sortedByDescending \{ it == selectedId \}/);
+  assert.match(service, /if \(enabled\) torchRequested = false/);
   assert.match(service, /activeTorchCameraId/);
-  assert.match(service, /CameraAccessException\\.CAMERA_IN_USE/);
-  assert.match(service, /\\.put\\("flashEnabled",torchEnabled\\)/);
+  assert.match(service, /CameraAccessException\.CAMERA_IN_USE/);
+  assert.match(service, /\.put\("flashEnabled",torchEnabled\)/);
   const cameraStart = service.indexOf('"camera" -> {');
   const torchStart = service.indexOf('"torch" -> setTorch', cameraStart);
   const cameraBlock = service.slice(cameraStart, torchStart);
-  assert.doesNotMatch(cameraBlock, /delay\\(|setTorch\\(true\\)/,
+  assert.doesNotMatch(cameraBlock, /delay\(|setTorch\(true\)/,
     "A failed flashlight request must not switch on unexpectedly after a later camera flip");
 });
+
 test("zoomed video can be dragged in both directions and reset", () => {
   assert.match(web, /function startViewerPan\(/);
   assert.match(web, /function moveViewerPan\(/);
