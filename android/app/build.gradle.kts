@@ -6,7 +6,7 @@ android {
     namespace = "jp.a09848281.remotecamera"
     compileSdk = 35
     defaultConfig {
-        applicationId = "jp.a09848281.remotecamera.v26"
+        applicationId = "jp.a09848281.remotecamera.v28"
         minSdk = 26
         targetSdk = 35
         versionCode = 431
