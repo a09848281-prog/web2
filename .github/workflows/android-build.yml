@@ -37,7 +37,7 @@ jobs:
         run: gradle --no-daemon :app:assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: remote-camera-web2-preview-v2.5-apk
+          name: remote-camera-web2-preview-v2.5.1-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
