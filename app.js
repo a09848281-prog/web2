@@ -1168,6 +1168,7 @@ async function connect(automatic = false) {
       updateAndroidMediaButtons();
       updateAndroidKeepAwakeButton();
       settlePendingControlAcks("制御チャネルが切断されました。");
+      discardControlSendQueue(control);
       if (S.pttActive || S.pttRequested) setWebMicEnabled(false);
       stopRtcStats();
       status("制御チャネル切断・自動復旧中");
@@ -1328,6 +1329,8 @@ async function pollAnswers(peer, sessionId, device) {
 async function disconnect(sendCommand = true, preserveMic = false, notifyRemote = sendCommand, keepRecovery = false) {
   if (sendCommand) {
     S.manualDisconnect = true;
+    ++S.wakeLockRequestGeneration;
+    S.keepAwakeWanted = false;
     S.autoConnectWanted = false;
     setAutoReconnectIntent(S.device, false);
     S.everConnected = false;
@@ -1393,6 +1396,7 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
 
   S.pc = null;
   settlePendingControlAcks("切断しました。");
+  discardControlSendQueue(S.control);
   try { S.control?.close(); } catch (_) {}
   S.control = null;
   S.session = "";
@@ -1550,6 +1554,12 @@ const controlSendQueue = [];
 let controlSendBusy = false;
 let lastControlPacketAt = 0;
 
+function discardControlSendQueue(channel) {
+  for (let i = controlSendQueue.length - 1; i >= 0; i--) {
+    if (controlSendQueue[i].channel === channel) controlSendQueue.splice(i, 1);
+  }
+}
+
 function pumpControlSendQueue() {
   if (controlSendBusy || !controlSendQueue.length) return;
   controlSendBusy = true;
@@ -1598,7 +1608,9 @@ function sendControl(name,payload={}) {
 }
 function sendControlAndWait(name, payload = {}, timeoutMs = 1200) {
   const channel = S.control;
-  if (!channel || channel.readyState !== "open" || channel.bufferedAmount > 256 * 1024) {
+  if (!channel || channel.readyState !== "open" ||
+      channel.bufferedAmount > 512 * 1024 ||
+      controlSendQueue.length >= CONTROL_SEND_QUEUE_LIMIT) {
     return Promise.resolve({ ok: false, timeout: true, message: "DataChannel未接続または送信待ちです。" });
   }
   const requestId = rid();
@@ -1606,18 +1618,16 @@ function sendControlAndWait(name, payload = {}, timeoutMs = 1200) {
     const timer = setTimeout(() => {
       S.pendingControlAcks.delete(requestId);
       resolve({ ok: false, timeout: true, message: "Androidから応答がありませんでした。" });
-    }, Math.max(250, Math.min(3000, timeoutMs)));
+    }, Math.max(250, Math.min(5000, timeoutMs)));
     S.pendingControlAcks.set(requestId, result => {
       clearTimeout(timer);
       resolve(result);
     });
-    try {
-      channel.send(JSON.stringify({ type: "command", command: name, requestId, payload }));
-    } catch (error) {
-      clearTimeout(timer);
-      S.pendingControlAcks.delete(requestId);
-      resolve({ ok: false, timeout: true, message: error?.message || "DataChannel送信失敗" });
-    }
+    controlSendQueue.push({
+      channel,
+      packet: JSON.stringify({ type: "command", command: name, requestId, payload })
+    });
+    pumpControlSendQueue();
   });
 }
 function settlePendingControlAcks(message = "制御チャネルが閉じられました。") {
