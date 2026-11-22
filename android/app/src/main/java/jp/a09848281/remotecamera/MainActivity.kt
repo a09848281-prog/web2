@@ -9,6 +9,7 @@ import android.app.PendingIntent
 import android.app.TimePickerDialog
 import android.content.Context
 import android.content.Intent
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.provider.Settings
 import android.content.pm.PackageManager
@@ -55,6 +56,7 @@ class MainActivity : Activity() {
     private var scheduleEndAt = 0L
     private var uiInitialized = false
     private var gasUrl = ""
+    private var screenPermissionPromptStarted = false
     private val prefs by lazy { getSharedPreferences(AppConfig.PREFS, MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -184,6 +186,20 @@ class MainActivity : Activity() {
         root.addView(refreshCodeButton, LinearLayout.LayoutParams(-1, -2))
         root.addView(startButton, LinearLayout.LayoutParams(-1, -2))
         root.addView(stopButton, LinearLayout.LayoutParams(-1, -2))
+        root.addView(Button(this).apply {
+            text = "遠隔操作サービスを設定"
+            setOnClickListener {
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Android遠隔操作の設定")
+                    .setMessage("Webからのタップ・スワイプ・文字入力を使う場合に限り、Android設定で「Remote Camera操作サービス」を利用者自身で有効にしてください。画面共有の許可とは別の設定です。")
+                    .setNegativeButton("あとで", null)
+                    .setPositiveButton("設定を開く") { _, _ ->
+                        try { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                        catch (error: Exception) { Toast.makeText(this@MainActivity, "設定画面を開けませんでした。", Toast.LENGTH_LONG).show() }
+                    }
+                    .show()
+            }
+        }, LinearLayout.LayoutParams(-1, -2))
         root.addView(TextView(this).apply {
             text = "開始ボタンを押すと通知欄に待機状態が表示されます。アプリを表示した状態でカメラ・マイクなどの権限を許可してから待機を開始してください。強制停止・再起動・権限取消後の自動復帰は保証されません。"
             textSize = 13f
@@ -503,6 +519,46 @@ class MainActivity : Activity() {
         else @Suppress("DEPRECATION") registerReceiver(codeReceiver, filter)
         showSavedCode()
         refreshMonitoringButtons()
+        maybeRequestScreenPermission()
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent != null) {
+            setIntent(intent)
+            maybeRequestScreenPermission()
+        }
+    }
+
+    private fun maybeRequestScreenPermission() {
+        val launchIntent = intent ?: return
+        if (!launchIntent.getBooleanExtra(MonitorService.EXTRA_REQUEST_SCREEN_PERMISSION, false)) return
+        launchIntent.removeExtra(MonitorService.EXTRA_REQUEST_SCREEN_PERMISSION)
+        if (screenPermissionPromptStarted) return
+        screenPermissionPromptStarted = true
+        try {
+            val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            startActivityForResult(manager.createScreenCaptureIntent(), 5205)
+        } catch (error: Exception) {
+            screenPermissionPromptStarted = false
+            Toast.makeText(this, "画面共有の許可画面を開けませんでした：" + (error.message ?: "不明"), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    @Deprecated("Android screen capture consent result")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != 5205) return
+        screenPermissionPromptStarted = false
+        val result = Intent(this, MonitorService::class.java)
+            .setAction(MonitorService.ACTION_SCREEN_PERMISSION_RESULT)
+            .putExtra(MonitorService.EXTRA_SCREEN_RESULT_CODE, resultCode)
+        if (data != null) result.putExtra(MonitorService.EXTRA_SCREEN_RESULT_DATA, data)
+        try {
+            startService(result)
+        } catch (error: Exception) {
+            Toast.makeText(this, "画面共有の結果をアプリへ渡せませんでした：" + (error.message ?: "不明"), Toast.LENGTH_LONG).show()
+        }
     }
 
     override fun onPause() {
