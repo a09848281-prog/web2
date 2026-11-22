@@ -14,7 +14,6 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import org.webrtc.*
-import org.webrtc.audio.AudioDeviceModule
 import org.webrtc.audio.JavaAudioDeviceModule
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -340,7 +339,7 @@ class RtcEngine(
                     else -> MediaRecorder.AudioSource.MIC
                 }
                 val hardwareAec = microphoneMode == "voice"
-                val hardwareNoiseSuppression = microphoneMode != "ambient" && noiseSuppressionLevel > 0
+                val hardwareNoiseSuppression = noiseSuppressionLevel > 0
                 audioDeviceModule = JavaAudioDeviceModule.builder(context.applicationContext)
                     .setAudioSource(audioSourceType)
                     .setUseHardwareAcousticEchoCanceler(hardwareAec)
@@ -373,7 +372,7 @@ class RtcEngine(
             val constraints = MediaConstraints()
             val ambientMode = microphoneMode == "ambient"
             constraints.mandatory.add(MediaConstraints.KeyValuePair(
-                "googNoiseSuppression", (microphoneMode != "ambient" && noiseSuppressionLevel > 0).toString()
+                "googNoiseSuppression", (noiseSuppressionLevel > 0).toString()
             ))
             constraints.mandatory.add(MediaConstraints.KeyValuePair(
                 "googAutoGainControl", (microphoneMode != "ambient" && micSensitivity > 0).toString()
