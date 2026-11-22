@@ -23,3 +23,18 @@ test("limits remote text and removes control characters", () => {
   assert.equal(Screen.sanitizeText("A\u0000B"), "AB");
   assert.equal(Screen.sanitizeText("x".repeat(500)).length, 300);
 });
+
+test("fits portrait phone screen ratio inside iPad viewport bounds", () => {
+  const fitted = Screen.fitStageSize(900, 700, 1080, 2400);
+  assert.deepEqual(fitted, { width: 315, height: 700, aspectRatio: "1080 / 2400" });
+});
+
+test("fits landscape phone screen ratio without exceeding either bound", () => {
+  const fitted = Screen.fitStageSize(1000, 500, 2400, 1080);
+  assert.deepEqual(fitted, { width: 1000, height: 450, aspectRatio: "2400 / 1080" });
+});
+
+test("rejects invalid viewport or display dimensions", () => {
+  assert.equal(Screen.fitStageSize(0, 500, 1080, 2400), null);
+  assert.equal(Screen.fitStageSize(800, 500, 1080, 0), null);
+});
