@@ -1,6 +1,8 @@
 package jp.a09848281.remotecamera
 
 import android.content.Context
+import android.content.Intent
+import android.media.projection.MediaProjection
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
@@ -31,7 +33,8 @@ class RtcEngine(
     private val onDataChannelMessage: (String, String) -> Unit,
     private val onConnectionState: (String, String) -> Unit,
     private val microphoneMode: String = "balanced",
-    private val captureAspectRatio: String = "16:9"
+    private val captureAspectRatio: String = "16:9",
+    private val onScreenShareState: (Boolean, String) -> Unit = { _, _ -> }
 ) {
     companion object {
         private val initializationLock = Any()
@@ -52,6 +55,7 @@ class RtcEngine(
 
     private val peers = ConcurrentHashMap<String, PeerConnection>()
     private val videoSenders = ConcurrentHashMap<String, RtpSender>()
+    private val screenSenders = ConcurrentHashMap<String, RtpSender>()
     private val controlChannels = ConcurrentHashMap<String, DataChannel>()
     private val disposed = AtomicBoolean(false)
     @Volatile private var noiseSuppressionLevel=70
@@ -66,6 +70,12 @@ class RtcEngine(
     private var videoSource: VideoSource? = null
     private var audioSource: AudioSource? = null
     private var videoTrack: VideoTrack? = null
+    private var screenVideoSource: VideoSource? = null
+    private var screenVideoTrack: VideoTrack? = null
+    private var screenHelper: SurfaceTextureHelper? = null
+    @Volatile private var screenCapturer: ScreenCapturerAndroid? = null
+    @Volatile private var screenSharing = false
+    @Volatile private var screenStopping = false
     private var audioTrack: AudioTrack? = null
     private var frontCamera = false
     private var selectedCameraId = ""
@@ -384,7 +394,12 @@ class RtcEngine(
             audioSource = factory!!.createAudioSource(constraints)
             audioTrack = factory!!.createAudioTrack("remote-camera-audio", audioSource)
                 .apply { setEnabled(true); setVolume(micGain / 100.0) }
-            onState("カメラ・マイクを起動しました")
+            // Reserve a second receive-only video m-line during the initial SDP exchange.
+            // The screen itself is NOT captured until a Web viewer explicitly requests it.
+            screenVideoSource = factory!!.createVideoSource(true)
+            screenVideoTrack = factory!!.createVideoTrack("remote-screen-video", screenVideoSource).apply { setEnabled(false) }
+            screenHelper = SurfaceTextureHelper.create("RemoteScreenCapture", egl!!.eglBaseContext)
+            onState("カメラ・マイクを起動しました（画面共有は要求時のみ開始）")
         } catch (error: Exception) {
             Log.e("RemoteCameraRTC", "Media startup failed; releasing partial resources", error)
             stopMedia()
@@ -478,6 +493,8 @@ class RtcEngine(
                 ?: error("PeerConnectionを作成できません。")
             peers[sessionId] = peer
             videoSenders[sessionId] = peer.addTrack(videoTrack, listOf("remote-camera"))
+            val screenTrack = screenVideoTrack ?: error("画面共有用の映像トラックを作成できません。")
+            screenSenders[sessionId] = peer.addTrack(screenTrack, listOf("remote-screen"))
             peer.addTrack(audioTrack, listOf("remote-camera"))
             peer.setRemoteDescription(object : SdpObserver {
                 override fun onSetSuccess() {
@@ -509,6 +526,7 @@ class RtcEngine(
             } catch (_: Exception) {}
             try { controlChannels.remove(sessionId)?.dispose() } catch (_: Exception) {}
             try { videoSenders.remove(sessionId) } catch (_: Exception) {}
+            try { screenSenders.remove(sessionId) } catch (_: Exception) {}
             if (peers.isEmpty()) {
                 try { stopMedia() } catch (_: Exception) {}
             }
@@ -528,6 +546,7 @@ class RtcEngine(
         if (peers[sessionId] !== peer) return
         peers.remove(sessionId, peer)
         videoSenders.remove(sessionId)
+        screenSenders.remove(sessionId)
         try { controlChannels.remove(sessionId)?.dispose() } catch (_: Exception) {}
         try { peer.close() } catch (_: Exception) {}
         try { peer.dispose() } catch (_: Exception) {}
@@ -549,6 +568,7 @@ class RtcEngine(
     fun closeSession(sessionId: String) {
         val peer=peers.remove(sessionId)
         videoSenders.remove(sessionId)
+        screenSenders.remove(sessionId)
         try{controlChannels.remove(sessionId)?.dispose()}catch(_:Exception){}
         try{peer?.close()}catch(_:Exception){}
         try{peer?.dispose()}catch(_:Exception){}
@@ -557,6 +577,74 @@ class RtcEngine(
 
     fun hasPeers():Boolean=peers.isNotEmpty()
     fun peerCount():Int=peers.size
+    fun isScreenSharing(): Boolean = screenSharing
+
+    @Synchronized
+    fun startScreenShare(resultCode: Int, permissionData: Intent) {
+        check(!disposed.get()) { "RTCエンジンが終了しています。" }
+        check(peers.isNotEmpty()) { "Web端末が接続されていません。" }
+        if (screenSharing) return
+        check(resultCode == android.app.Activity.RESULT_OK) { "画面共有の許可がキャンセルされました。" }
+        val source = screenVideoSource ?: error("画面共有映像ソースがありません。")
+        val helperForScreen = screenHelper ?: error("画面共有ヘルパーがありません。")
+        val metrics = context.resources.displayMetrics
+        val scale = minOf(1.0, 1600.0 / maxOf(metrics.widthPixels, metrics.heightPixels).coerceAtLeast(1))
+        val width = ((metrics.widthPixels * scale).toInt().coerceAtLeast(2) / 2) * 2
+        val height = ((metrics.heightPixels * scale).toInt().coerceAtLeast(2) / 2) * 2
+        val capturer = ScreenCapturerAndroid(permissionData, object : MediaProjection.Callback() {
+            override fun onStop() {
+                if (!screenStopping) {
+                    scope.launch(Dispatchers.Main) {
+                        stopScreenShare("Android側で画面共有が停止されました。")
+                    }
+                }
+            }
+        })
+        try {
+            capturer.initialize(helperForScreen, context, source.capturerObserver)
+            screenVideoTrack?.setEnabled(true)
+            capturer.startCapture(width, height, 15)
+            screenCapturer = capturer
+            screenSharing = true
+            screenSenders.values.forEach { sender ->
+                try {
+                    val params = sender.parameters
+                    params.encodings.forEach { it.maxBitrateBps = 1800000; it.maxFramerate = 15 }
+                    sender.setParameters(params)
+                } catch (error: Exception) {
+                    Log.w("RemoteCameraRTC", "Could not apply screen video bitrate", error)
+                }
+            }
+            onScreenShareState(true, "Android画面の共有を開始しました。")
+            onState("Android画面共有中：${width}×${height} @ 15FPS")
+        } catch (error: Exception) {
+            screenVideoTrack?.setEnabled(false)
+            try { capturer.stopCapture() } catch (_: Exception) {}
+            try { capturer.dispose() } catch (_: Exception) {}
+            screenCapturer = null
+            screenSharing = false
+            onScreenShareState(false, "画面共有を開始できませんでした：" + (error.message ?: "不明"))
+            throw IllegalStateException("Android画面共有の開始に失敗しました。", error)
+        }
+    }
+
+    @Synchronized
+    fun stopScreenShare(reason: String = "画面共有を停止しました。") {
+        if (!screenSharing && screenCapturer == null) return
+        screenStopping = true
+        screenSharing = false
+        try { screenVideoTrack?.setEnabled(false) } catch (_: Exception) {}
+        try { screenCapturer?.stopCapture() } catch (error: Exception) {
+            Log.w("RemoteCameraRTC", "Screen capture stop failed", error)
+        }
+        try { screenCapturer?.dispose() } catch (error: Exception) {
+            Log.w("RemoteCameraRTC", "Screen capturer disposal failed", error)
+        }
+        screenCapturer = null
+        screenStopping = false
+        onScreenShareState(false, reason)
+        onState(reason)
+    }
     fun currentCameraFacing(): String = if (frontCamera) "前面" else "背面"
     fun currentCameraId(): String = selectedCameraId
     fun hasOpenControlChannel():Boolean=controlChannels.values.any{it.state()==DataChannel.State.OPEN}
@@ -742,6 +830,7 @@ class RtcEngine(
 
     @Synchronized
     private fun stopMedia() {
+        try { stopScreenShare("画面共有を停止しました。") } catch (_: Exception) {}
         try { capturer?.stopCapture() } catch (_: Exception) {}
         try { capturer?.dispose() } catch (_: Exception) {}
         capturer = null
@@ -753,6 +842,12 @@ class RtcEngine(
         audioTrack = null
         try { videoSource?.dispose() } catch (_: Exception) {}
         videoSource = null
+        try { screenVideoTrack?.dispose() } catch (_: Exception) {}
+        screenVideoTrack = null
+        try { screenVideoSource?.dispose() } catch (_: Exception) {}
+        screenVideoSource = null
+        try { screenHelper?.dispose() } catch (_: Exception) {}
+        screenHelper = null
         try { audioSource?.dispose() } catch (_: Exception) {}
         audioSource = null
     }
@@ -764,6 +859,7 @@ class RtcEngine(
         peers.values.forEach{try{it.close()}catch(_:Exception){};try{it.dispose()}catch(_:Exception){}}
         peers.clear()
         videoSenders.clear()
+        screenSenders.clear()
         stopMedia()
         try { factory?.dispose() } catch (_: Exception) {}
         factory = null
