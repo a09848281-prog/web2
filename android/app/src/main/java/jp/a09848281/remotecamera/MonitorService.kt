@@ -99,6 +99,7 @@ class MonitorService : Service() {
     private var powerSaveActive = false
     private var torchEnabled = false
     @Volatile private var flashAvailableCache: Boolean? = null
+    @Volatile private var activeTorchCameraId: String? = null
     private val screenRequesters = ConcurrentHashMap.newKeySet<String>()
     @Volatile private var screenPermissionPending = false
 
@@ -152,6 +153,10 @@ class MonitorService : Service() {
         ) ?: prefs.getInt("pollIntervalSeconds", AppConfig.POLL_SECONDS.toInt())
         pollIntervalSeconds = requestedPoll.coerceIn(AppConfig.MIN_POLL_SECONDS,AppConfig.MAX_POLL_SECONDS).toLong()
         prefs.edit().putInt("pollIntervalSeconds",pollIntervalSeconds.toInt()).apply()
+        // Restore the saved next-connection camera profile before the first RTC offer.
+        currentQuality = (prefs.getString("requestedQuality", "720") ?: "720").let { if (it in setOf("360", "480", "720", "1080")) it else "720" }
+        currentDataMode = "standard"
+        currentFps = prefs.getInt("fps", 24).coerceIn(10, 60)
         try { startMonitoringForeground() } catch(e:Exception) {
             Log.e("RemoteCameraService","Foreground startup rejected by Android",e)
             prefs.edit().putBoolean("monitoringEnabled",false).apply()
@@ -195,10 +200,18 @@ class MonitorService : Service() {
         val notificationText = if (includeProjection) "画面共有中（Webからの要求）" else "監視待機中（接続要求を確認しています）"
         val foregroundNotification = notification(notificationText)
         if (Build.VERSION.SDK_INT >= 29) {
-            var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            val hasLocation = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED ||
+            // Waiting for a Web viewer is network-device monitoring, not camera/mic use.
+            // Add sensor service types only while a real viewer session has those tracks enabled.
+            var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            val engine = rtc
+            if (engine?.hasPeers() == true) {
+                if (engine.isCameraEnabled()) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                if (engine.isMicrophoneEnabled()) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            }
+            val hasLocationPermission = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED ||
                 checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED
-            if (hasLocation) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            val locationNeeded = idleLocationEnabled || (engine?.hasPeers() == true && connectedLocationEnabled)
+            if (hasLocationPermission && locationNeeded) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
             if (includeProjection) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             startForeground(NOTIFICATION_ID, foregroundNotification, types)
         } else {
@@ -243,7 +256,6 @@ class MonitorService : Service() {
                 return@launch
             }
             if (resultCode != Activity.RESULT_OK || data == null) {
-                screenRequesters.clear()
                 updateForegroundScreenProjection(false)
                 notifyScreenShareState(false, "Androidで画面共有が許可されませんでした。", true)
                 return@launch
@@ -253,7 +265,6 @@ class MonitorService : Service() {
                 updateForegroundScreenProjection(true)
                 engine.startScreenShare(resultCode, data)
             } catch (error: Exception) {
-                screenRequesters.clear()
                 updateForegroundScreenProjection(false)
                 notifyScreenShareState(false, "画面共有の開始に失敗しました：" + (error.message ?: "不明"), true)
                 Log.e("RemoteCameraService", "MediaProjection start failed", error)
@@ -272,11 +283,16 @@ class MonitorService : Service() {
         }
         prefs.edit().putBoolean("pendingScreenPermission", true).apply()
         sendBroadcast(Intent(ACTION_SCREEN_PERMISSION_NEEDED).setPackage(packageName))
+        val activityVisible = prefs.getBoolean("mainActivityVisible", false)
         if (!screenPermissionPending) {
             screenPermissionPending = true
-            notifyScreenPermissionNeeded()
+            if (!activityVisible) notifyScreenPermissionNeeded()
         }
-        return "Androidへ許可通知を送りました。端末の通知をタップして画面共有を許可してください。"
+        return if (activityVisible) {
+            "Androidアプリが前面にあるため、画面共有の許可画面を自動表示します。"
+        } else {
+            "Androidへ許可通知を送りました。通知をタップして画面共有を許可してください。"
+        }
     }
 
     private fun stopScreenRequest(sessionId: String): String {
