@@ -7,7 +7,7 @@ const rtc = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera
 const service = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MonitorService.kt", "utf8");
 
 test("Web recovery handles DataChannel loss, ICE failure, setup timeout and frozen video", () => {
-  assert.match(web, /scheduleReconnect\(pc, true, 450, "datachannel"\)/);
+  assert.match(web, /scheduleReconnect\(pc, "datachannel"\)/);
   assert.match(web, /const reason = state === "failed" \? "failed" : "disconnected"/);
   assert.match(web, /setup-timeout/);
   assert.match(web, /video-stalled/);
@@ -29,11 +29,24 @@ test("connection setup timeout clears after a healthy channel and when disconnec
   assert.match(web, /clearConnectionTimeout\(old\)/);
 });
 
-test("Android polls for a replacement offer every second during bounded recovery", () => {
-  assert.match(service, /recoveryPollUntil/);
-  assert.match(service, /recoveryActive/);
-  assert.match(service, /1000L - elapsed/);
-  assert.match(service, /System\.currentTimeMillis\(\) \+ 45000L/);
+test("iPad pagehide never sends a remote shutdown command", () => {
+  assert.doesNotMatch(web, /window\.addEventListener\("pagehide"/);
+  assert.match(web, /Never send an explicit Android disconnect on pagehide/);
+});
+
+test("connect intent is stored per paired device and resumed after PWA reload", () => {
+  assert.match(web, /AUTO_RECONNECT_PREFIX/);
+  assert.match(web, /setAutoReconnectIntent\(device, true\)/);
+  assert.match(web, /resumeSavedConnectionIntent\(\)/);
+  assert.match(web, /setAutoReconnectIntent\(S\.device, false\)/);
+});
+
+test("Android recovery polling stays armed until DataChannel returns or monitoring is stopped", () => {
+  assert.match(service, /prefs\.getBoolean\("rtcRecoveryArmed", false\)/);
+  assert.match(service, /recoveryPollIntervalMs = 3000L/);
+  assert.match(service, /putBoolean\("rtcRecoveryArmed", true\)/);
+  assert.match(service, /putBoolean\("rtcRecoveryArmed", false\)/);
+  assert.doesNotMatch(service, /currentTimeMillis\(\) \+ 45000L/);
 });
 
 test("Android reports DataChannel close to the service recovery handler", () => {
@@ -42,13 +55,24 @@ test("Android reports DataChannel close to the service recovery handler", () => 
   assert.match(service, /"DATA_CHANNEL_CLOSED"/);
 });
 
+test("rapid remote commands are serialized and rate limited in the Web viewer", () => {
+  assert.match(web, /CONTROL_SEND_INTERVAL_MS = 120/);
+  assert.match(web, /CONTROL_SEND_QUEUE_LIMIT = 24/);
+  assert.match(web, /pumpControlSendQueue\(\)/);
+});
+
+test("Web WakeLock toggles are guarded against repeated taps and stale requests", () => {
+  assert.match(web, /keepAwakeTogglePending/);
+  assert.match(web, /wakeLockRequestGeneration/);
+  assert.match(web, /generation !== S\.wakeLockRequestGeneration/);
+});
+
 test("wide-camera selector compares Camera2 field of view and needs multiple rear camera IDs", () => {
   assert.match(rtc, /SENSOR_INFO_PHYSICAL_SIZE/);
   assert.match(rtc, /horizontalFovDegrees/);
   assert.match(html, /id="wideCameraButton"/);
   assert.match(web, /rear\.length < 2/);
 });
-
 
 test("first-ever connection attempt is retried while the user has auto-connect armed", () => {
   assert.match(web, /autoConnectWanted: S\.autoConnectWanted/);
@@ -68,7 +92,6 @@ test("Web UI exposes synchronized APK schedule timestamps", () => {
   for (const id of ["androidScheduleStart", "androidScheduleEnd", "androidScheduleStatus", "refreshAndroidSchedule"]) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(web, /function renderAndroidSchedule\(/);
 });
-
 
 test("first ICE/DataChannel failure retries even before the first successful connection", () => {
   assert.match(web, /S\.everConnected \|\| S\.autoConnectWanted/);
@@ -97,6 +120,18 @@ test("requested FPS choices 40, 45, 50 and 55 are present in Web and APK setting
   }
 });
 
+test("50/55/60 fps requests are tried across supported sizes before dropping fps", () => {
+  assert.match(rtc, /requested\.fps >= 50/);
+  assert.match(rtc, /fpsOptions\.flatMap/);
+  assert.match(rtc, /sizes\.map/);
+});
+
+test("FPS reporting separates the selected camera profile from the actual WebRTC receive rate", () => {
+  assert.match(service, /put\("requestedFps", prefs\.getInt\("fps", 24\)/);
+  assert.match(service, /put\("captureFps", capture\.optInt\("fps", 0\)\)/);
+  assert.match(web, /Android撮影プロファイル/);
+  assert.match(web, /受信FPS/);
+});
 
 test("APK schedule synchronization retries after transient network failure", () => {
   const main = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MainActivity.kt", "utf8");
