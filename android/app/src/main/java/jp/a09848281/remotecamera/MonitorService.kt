@@ -579,7 +579,7 @@ class MonitorService : Service() {
                     delay(15000L)
                     val engine = rtc
                     if (engine != null && engine.hasSession(sessionId) &&
-                        engine.iceConnectionState(sessionId) == PeerConnection.IceConnectionState.DISCONNECTED) {
+                        engine.iceConnectionState(sessionId) == "DISCONNECTED") {
                         closeRtcViewerSession(sessionId)
                     } else if (engine != null && !engine.hasPeers()) {
                         engine.dispose()
