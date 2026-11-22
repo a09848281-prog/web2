@@ -18,6 +18,7 @@ class ScheduleReceiver : BroadcastReceiver() {
                     Log.e("RemoteCameraSchedule", "Scheduled start skipped: GAS URL is unavailable.")
                     return
                 }
+                prefs.edit().putBoolean("monitoringEnabled", true).apply()
                 val start = Intent(context, MonitorService::class.java).apply {
                     action = MonitorService.ACTION_START
                     putExtra(MonitorService.EXTRA_GAS_URL, gasUrl)
@@ -36,9 +37,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             }
             ACTION_STOP -> {
                 try {
-                    context.getSharedPreferences(AppConfig.PREFS, Context.MODE_PRIVATE)
-                        .edit().putBoolean("monitoringEnabled", false).apply()
-                    context.stopService(Intent(context, MonitorService::class.java))
+                    StopMonitoringReceiver.stop(context)
                     Log.i("RemoteCameraSchedule", "Scheduled monitoring stop requested.")
                 } catch (error: Exception) {
                     Log.e("RemoteCameraSchedule", "Scheduled monitoring stop failed.", error)
