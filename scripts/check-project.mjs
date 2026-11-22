@@ -112,7 +112,7 @@ assert.ok(rtc.includes("private val captureFpsMonitor = object : VideoSink"), "A
 assert.ok(rtc.includes("addSink(captureFpsMonitor)") && rtc.includes("removeSink(captureFpsMonitor)"), "Actual camera FPS monitor lifecycle missing");
 assert.ok(rtc.includes('.put("measuredFps",') && rtc.includes('.put("frameAgeMs",'), "Actual Android capture FPS telemetry missing");
 assert.ok(torchSession.includes("Selected target FPS range") &&
-  torchSession.includes("range.min == framerate && range.max == framerate"),
+  torchSession.includes("range.min == targetMilliFps && range.max == targetMilliFps"),
   "Camera2 must prefer exact fixed frame-rate ranges before variable ranges");
 assert.ok(torchSession.includes("Electronic stabilization disabled to prioritize 30+ FPS"),
   "Electronic stabilization should be disabled at high requested FPS");
