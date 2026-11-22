@@ -603,8 +603,8 @@ class RtcEngine(
         params.encodings.forEach { encoding ->
             encoding.active = enabled
             if (enabled) {
-                encoding.maxBitrateBps = 1800000
-                encoding.maxFramerate = 15
+                encoding.maxBitrateBps = 2000000
+                encoding.maxFramerate = 20
             }
         }
         check(sender.setParameters(params)) { "画面共有の送信先を切り替えられませんでした。" }
