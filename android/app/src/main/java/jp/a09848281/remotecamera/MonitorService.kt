@@ -584,9 +584,32 @@ class MonitorService : Service() {
                 } else {
                     engine.switchCamera(payload.optString("facing", cameraId.ifBlank { "back" }))
                 }
-                // Never defer a rejected torch request until after a camera switch.
-                // Android can free the rear flash when switching away from the rear camera;
-                // a delayed retry made the light turn on at an unexpected time.
+                // Some Android camera HALs reject setTorchMode while the active
+                // rear Camera2 stream owns that sensor. Retry after the camera session
+                // settles, while preserving the user's explicit ON/OFF intent.
+                if (torchRequested) {
+                    var restored = false
+                    var restoreError: Exception? = null
+                    val retryDelays = longArrayOf(250L, 500L, 900L)
+                    for ((attempt, waitMs) in retryDelays.withIndex()) {
+                        if (!torchRequested) break
+                        delay(waitMs)
+                        try {
+                            setTorch(true)
+                            restored = torchEnabled
+                            if (restored) break
+                        } catch (error: Exception) {
+                            restoreError = error
+                            Log.w("RemoteCameraService", "Torch restore attempt ${attempt + 1} after camera switch failed", error)
+                        }
+                    }
+                    if (!restored && torchRequested) {
+                        notifyState(
+                            "カメラ切替後もライトを点灯できませんでした。Androidのカメラ資源がライトとの同時使用を拒否している可能性があります。" +
+                                (restoreError?.message?.let { " " + it } ?: "")
+                        )
+                    }
+                }
             }
             "torch" -> setTorch(payload.optBoolean("enabled",false))
             "media_toggle" -> {
