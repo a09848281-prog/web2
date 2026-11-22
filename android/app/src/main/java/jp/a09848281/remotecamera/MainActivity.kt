@@ -433,7 +433,10 @@ class MainActivity : Activity() {
             Toast.makeText(this, "確認間隔は1～50秒で入力してください。", Toast.LENGTH_LONG).show()
             return
         }
-        prefs.edit().putInt("pollIntervalSeconds", requestedSeconds).apply()
+        prefs.edit()
+            .putInt("pollIntervalSeconds", requestedSeconds)
+            .putBoolean("monitoringEnabled", true)
+            .apply()
         val intent = Intent(this, MonitorService::class.java).apply {
             action = MonitorService.ACTION_START
             putExtra(MonitorService.EXTRA_GAS_URL, gasUrl)
@@ -441,7 +444,6 @@ class MainActivity : Activity() {
         }
         try {
             ContextCompat.startForegroundService(this, intent)
-            prefs.edit().putBoolean("monitoringEnabled", true).apply()
             status.text = "監視待機を開始しました。通知欄からも停止できます。"
             refreshMonitoringButtons()
         } catch (e: Exception) {
@@ -511,6 +513,7 @@ class MainActivity : Activity() {
         prefs.edit().putBoolean("mainActivityVisible", true).apply()
         val filter = android.content.IntentFilter(MonitorService.ACTION_CODE).apply {
             addAction(ACTION_KEEP_SCREEN_AWAKE_STATE)
+            addAction(ACTION_MONITOR_STOPPED)
         }
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(codeReceiver, filter, RECEIVER_NOT_EXPORTED)
         else @Suppress("DEPRECATION") registerReceiver(codeReceiver, filter)
@@ -521,6 +524,7 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         prefs.edit().putBoolean("mainActivityVisible", false).apply()
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         try { unregisterReceiver(codeReceiver) } catch (_: Exception) {}
         super.onPause()
     }
@@ -530,6 +534,11 @@ class MainActivity : Activity() {
             if (intent?.action == ACTION_KEEP_SCREEN_AWAKE_STATE) {
                 prefs.edit().putBoolean("androidKeepScreenAwake", intent.getBooleanExtra("enabled", false)).apply()
                 applyKeepScreenAwake()
+                return
+            }
+            if (intent?.action == ACTION_MONITOR_STOPPED) {
+                status.text = "監視待機を停止しました。カメラ・マイク・通信は終了しています。"
+                refreshMonitoringButtons()
                 return
             }
             val code = intent?.getStringExtra(MonitorService.EXTRA_CODE) ?: return
@@ -557,5 +566,6 @@ class MainActivity : Activity() {
 
     companion object {
         const val ACTION_KEEP_SCREEN_AWAKE_STATE = "jp.a09848281.remotecamera.KEEP_SCREEN_AWAKE_STATE"
+        const val ACTION_MONITOR_STOPPED = "jp.a09848281.remotecamera.MONITOR_STOPPED"
     }
 }
