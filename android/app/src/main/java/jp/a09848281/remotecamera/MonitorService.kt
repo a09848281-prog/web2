@@ -590,7 +590,18 @@ class MonitorService : Service() {
                 sendTelemetry()
                 if (payload.has("micMode")) return "$micModeMessage Android設定を保存しました。"
             }
-            "mic_noise" -> rtc?.setNoiseSuppressionLevel(payload.optInt("strength",70))
+            "mic_noise" -> {
+                val strength = payload.optInt("strength", prefs.getInt("micNoise", 70)).coerceIn(0, 100)
+                prefs.edit().putInt("micNoise", strength).apply()
+                val applied = rtc?.setNoiseSuppressionLevel(strength) == true
+                sendTelemetry()
+                return when {
+                    strength == 0 && applied -> "Androidノイズ抑制をリアルタイムでOFFにしました。"
+                    strength == 0 -> "Androidノイズ抑制OFFを保存しました。次回音声開始時に適用します。"
+                    applied -> "Androidノイズ抑制をリアルタイムでONにしました（端末標準の強度）。"
+                    else -> "Androidノイズ抑制設定を保存しました。次回音声開始時に適用します。"
+                }
+            }
             "mic_sensitivity" -> rtc?.setMicSensitivity(payload.optInt("percent",70))
             "mic_gain" -> rtc?.setMicGain(payload.optInt("percent",100))
             "night_mode" -> rtc?.setNightMode(payload.optBoolean("enabled",false))
