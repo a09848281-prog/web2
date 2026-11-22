@@ -308,8 +308,15 @@ async function setWebMicEnabled(enabled) {
   }
   S.pttRequested = false; ++S.pttRequestId; S.pttActive = false;
   const stream = S.mic, sender = S.micSender; S.mic = null;
-  try { await sender?.replaceTrack(null); } catch (error) { console.warn("Could not detach Web mic", error); }
+  let detach = Promise.resolve();
+  try { if (sender) detach = sender.replaceTrack(null); } catch (error) {
+    console.warn("Could not begin Web mic detach", error);
+  }
+  // Stop the physical microphone tracks immediately; never hold reconnect cleanup
+  // open while Safari/WebRTC is still resolving replaceTrack().
   try { stream?.getTracks().forEach(track => track.stop()); } catch (_) {}
+  try { await withTimeout(detach, 1000, "Webマイクの切断"); }
+  catch (error) { console.warn("Web mic detach timed out; audio tracks were already stopped", error); }
   updateWebMicrophoneButton();
   if (S.remoteAudioTracks.some(track => track.readyState === "live") && !S.remoteAudioMuted) startAudioMeter();
   if (S.remoteAudioMuted) $("audioLevelText").textContent = "ミュート中";
@@ -1863,9 +1870,15 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
   updateAndroidMediaButtons();
   const width=Number(d.captureWidth)||0,height=Number(d.captureHeight)||0,profileFps=Number(d.captureFps)||0;
   const requestedFps=Number(d.requestedFps)||Number($("fps").value)||0;
+  const androidMeasuredFps=Number(d.captureMeasuredFps);
+  const androidFrameAge=Number(d.captureFrameAgeMs);
+  const receiveFps=Number.isFinite(S.viewerReceiveFps)?S.viewerReceiveFps:null;
   $("actualVideoFormat").textContent = width>0&&height>0
-    ? "Android撮影プロファイル "+width+"×"+height+" / 希望 "+(requestedFps||"--")+"FPS・選択形式 "+(profileFps||"--")+"FPS"
+    ? "Android "+width+"×"+height+" / 希望 "+(requestedFps||"--")+"FPS・撮影設定 "+(profileFps||"--")+"FPS / 実測 "+(Number.isFinite(androidMeasuredFps)?androidMeasuredFps.toFixed(0):"--")+"FPS / Web受信 "+(receiveFps===null?"--":receiveFps.toFixed(0))+"FPS"
     : "Android撮影プロファイル 取得待ち";
+  if (Number.isFinite(androidFrameAge) && androidFrameAge >= 0 && androidFrameAge > 2500) {
+    $("videoState").textContent = "Androidからの新しい映像フレーム待ち（" + (androidFrameAge / 1000).toFixed(1) + "秒）";
+  }
   if(Number.isFinite(Number(d.speakerVolumePercent))) $("androidSpeakerVolume").value=String(Math.max(0,Math.min(100,Number(d.speakerVolumePercent))));
   updateSliderLabels();
   $("androidMediaState").textContent = "カメラ "+(S.androidCameraEnabled?"ON":"OFF")+" / マイク "+(S.androidMicEnabled?"ON":"OFF")+" / Androidスピーカー "+$("androidSpeakerVolume").value+"%";
@@ -1906,7 +1919,7 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
 }
  else if(d.type==="error"){toast(d.message||"Androidエラー");$("diagnosticOutput").textContent=d.message||"Androidエラー";}
 }
-function stopRtcStats(){if(S.statsTimer)clearInterval(S.statsTimer);S.statsTimer=null;}
+function stopRtcStats(){if(S.statsTimer)clearInterval(S.statsTimer);S.statsTimer=null;S.statsFrameLast=null;S.viewerReceiveFps=null;}
 function maybeAdaptQuality(rttMs, lossPercent) {
   const selectedQuality = $("quality").value;
   if (selectedQuality !== "auto") return;
@@ -1922,10 +1935,13 @@ function maybeAdaptQuality(rttMs, lossPercent) {
   if (nextTier === S.adaptive.tier || now - S.adaptive.lastChange < 10000) return;
   S.adaptive.tier = nextTier;
   S.adaptive.bad = 0; S.adaptive.good = 0; S.adaptive.lastChange = now;
+  // Adaptive mode should lower pixel count first, not silently cut the user's
+  // selected frame rate. Keep the requested FPS while bandwidth is recovered.
+  const targetFps = Math.max(10, Math.min(60, Number($("fps").value) || 30));
   const tiers = [
-    { quality: "360", fps: 15, label: "低負荷 360p" },
-    { quality: "480", fps: 20, label: "中負荷 480p" },
-    { quality: "720", fps: 24, label: "標準 720p" }
+    { quality: "360", fps: targetFps, label: "低負荷 360p・" + targetFps + "FPS" },
+    { quality: "480", fps: targetFps, label: "中負荷 480p・" + targetFps + "FPS" },
+    { quality: "720", fps: targetFps, label: "標準 720p・" + targetFps + "FPS" }
   ];
   const tier = tiers[nextTier];
   const payload = { quality: tier.quality, fps: tier.fps, adaptive: true };
@@ -1937,6 +1953,7 @@ function maybeAdaptQuality(rttMs, lossPercent) {
 function startRtcStats() {
   stopRtcStats();
   S.statsLast = null;
+  S.statsFrameLast = null;
   let updateRunning = false;
   const update = async () => {
     const peer = S.pc;
@@ -1946,6 +1963,7 @@ function startRtcStats() {
       const stats = await peer.getStats();
       if (peer !== S.pc) return;
       let sent = 0, received = 0, rtt = null, lost = 0, packets = 0, fps = null;
+      let decodedVideoFrames = null;
       stats.forEach(item => {
         if (item.type === "outbound-rtp" && !item.isRemote && item.kind === "video") sent += Number(item.bytesSent || 0);
         if (item.type === "inbound-rtp" && !item.isRemote) {
@@ -1954,12 +1972,26 @@ function startRtcStats() {
             lost += Math.max(0, Number(item.packetsLost || 0));
             packets += Math.max(0, Number(item.packetsReceived || 0));
             if (Number.isFinite(Number(item.framesPerSecond))) fps = Number(item.framesPerSecond);
+            if (Number.isFinite(Number(item.framesDecoded))) {
+              decodedVideoFrames = Number(item.framesDecoded);
+            }
           }
         }
         if (item.type === "candidate-pair" && item.state === "succeeded" && item.nominated &&
             Number.isFinite(item.currentRoundTripTime)) rtt = item.currentRoundTripTime;
       });
       const now = performance.now();
+      if (decodedVideoFrames !== null) {
+        if (S.statsFrameLast && now > S.statsFrameLast.at) {
+          const seconds = (now - S.statsFrameLast.at) / 1000;
+          const deltaFrames = Math.max(0, decodedVideoFrames - S.statsFrameLast.frames);
+          const measuredFps = deltaFrames / seconds;
+          if (fps === null || !Number.isFinite(fps) || fps <= 0) fps = measuredFps;
+          else fps = Math.min(fps, measuredFps > 0 ? measuredFps : fps);
+        }
+        S.statsFrameLast = { at: now, frames: decodedVideoFrames };
+      }
+      S.viewerReceiveFps = Number.isFinite(fps) ? fps : null;
       let bitrateKbps = null;
       if (S.statsLast && now > S.statsLast.at) {
         const seconds = (now - S.statsLast.at) / 1000;
