@@ -174,11 +174,11 @@ assert.ok(gas.includes("Controllers:"), "Multi-controller storage sheet missing"
 assert.ok(gas.includes("activeControllerCount_(deviceId) >= 3"), "Three-controller pairing limit missing");
 assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi permission missing");
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
-assert.ok(androidBuild.includes('versionName = "2.5.0-preview"'), "Android app version must be v2.1.1");
-assert.ok(androidBuild.includes("versionCode = 425"), "Android version code must be 423");
-assert.ok(webConfig.includes('"appVersion": "2.5.0-preview"'), "Web config version must be v2.1.1");
+assert.ok(androidBuild.includes('versionName = "2.5.1-preview"'), "Android app version must be v2.1.1");
+assert.ok(androidBuild.includes("versionCode = 426"), "Android version code must be 423");
+assert.ok(webConfig.includes('"appVersion": "2.5.1-preview"'), "Web config version must be v2.1.1");
 assert.ok(html.includes("v2.5"), "PWA display version must be v2.1.1");
-assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-5"'), "PWA cache key must be bumped to v2.1.1");
+assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-5-1"'), "PWA cache key must be bumped to v2.1.1");
 assert.ok(serviceWorker.includes("key.startsWith(CACHE_PREFIX)"), "Service worker must only delete its own cache namespace");
 assert.ok(!serviceWorker.includes("keys.filter(key => key !== CACHE)"), "Service worker must not delete unrelated origin caches");
 assert.ok(serviceWorker.includes("caches.open(CACHE).then(cache => cache.match(event.request))"), "Offline fallback must only read this PWA cache");
@@ -202,17 +202,17 @@ assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from S
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.2.0"'), "GAS API version must be 1.2.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 425"), "Android version code must be 423 for v2.1.1");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.5 Preview", "PWA display name must match v2.1.1");
+assert.ok(androidBuild.includes("versionCode = 426"), "Android version code must be 423 for v2.1.1");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.5.1 Preview", "PWA display name must match v2.1.1");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 console.log("Web2 source checks passed.");
 
 
-for (const id of ["screenTab", "screenPane", "remoteScreenVideo", "screenTouchLayer", "screenStatus", "screenPlaceholder", "screenStop", "screenBack", "screenHome", "screenRecent", "screenNotifications", "screenQuickSettings", "screenTextInput", "screenSendText", "screenAppInput", "screenOpenApp", "screenUrlInput", "screenOpenUrl"]) {
+for (const id of ["screenTab", "screenPane", "screenStage", "remoteScreenVideo", "screenTouchLayer", "screenStatus", "screenPlaceholder", "screenStop", "screenBack", "screenHome", "screenRecent", "screenNotifications", "screenQuickSettings", "screenTextInput", "screenSendText", "screenAppInput", "screenOpenApp", "screenUrlInput", "screenOpenUrl"]) {
   assert.ok(html.includes('id="' + id + '"'), "Missing v2.5 screen element: " + id);
   assert.ok(js.includes('$("' + id + '")'), "Missing v2.5 screen handler: " + id);
 }
-assert.ok(html.includes("./remote-screen-utils.js?v=2.5-preview"), "Screen gesture helper must be loaded before app.js");
+assert.ok(html.includes("./remote-screen-utils.js?v=2.5.1-preview"), "Screen gesture helper must be loaded before app.js");
 assert.ok(serviceWorker.includes("remote-screen-utils.js"), "Screen gesture helper must be precached");
 assert.ok(screenUtils.includes("function mapPoint(") && screenUtils.includes("function classifyGesture("), "Screen coordinate and gesture helpers missing");
 assert.ok(screenTests.includes("maps points through object-fit contain") && screenTests.includes("classifies taps, long presses and swipes"), "Screen gesture unit tests missing");
@@ -228,6 +228,30 @@ assert.ok(manifest.includes("FOREGROUND_SERVICE_MEDIA_PROJECTION") && manifest.i
 assert.ok(manifest.includes("RemoteControlAccessibilityService"), "Android accessibility service must be declared");
 assert.ok(accessibility.includes("dispatchGesture") && accessibility.includes("GLOBAL_ACTION_BACK") && accessibility.includes("ACTION_SET_TEXT"), "Remote touch, system navigation and text input actions missing");
 assert.ok(accessibility.includes("node.isPassword") && accessibilityConfig.includes("canPerformGestures"), "Remote input must protect password fields and require opt-in gesture permission");
+
+
+assert.ok(html.includes('id="screenStage"'), "Screen stage node must exist for actual display-ratio sizing");
+assert.ok(js.includes("function syncScreenStageAspectRatio(") && js.includes("RemoteScreenUtils.fitStageSize("), "Screen view must fit the physical Android display ratio");
+assert.ok(screenUtils.includes("function fitStageSize("), "Pure screen aspect-ratio sizing helper missing");
+assert.ok(screenTests.includes("fits portrait phone screen ratio inside iPad viewport bounds"), "Portrait screen fitting test missing");
+assert.ok(screenTests.includes("fits landscape phone screen ratio without exceeding either bound"), "Landscape screen fitting test missing");
+assert.ok(js.includes("function sendControlAndWait(") && js.includes('await sendControlAndWait("disconnect"'), "Web disconnect must wait for Android acknowledgement before closing the RTC channel");
+assert.ok(js.includes('await sendControlAndWait("screen_stop"'), "Screen share must be explicitly stopped before viewer disconnect");
+assert.ok(js.includes("settlePendingControlAcks("), "Pending control acknowledgements must settle on channel close");
+assert.ok(js.includes('window.addEventListener("pagehide"') && js.includes('command: "disconnect"'), "Closing the viewer page must request Android session shutdown");
+assert.ok(main.includes('putBoolean("mainActivityVisible", true)') && main.includes('putBoolean("mainActivityVisible", false)'), "Android foreground state must be tracked for automatic consent prompt handoff");
+assert.ok(service.includes('if (!activityVisible) notifyScreenPermissionNeeded()'), "Do not require a notification tap while Android app is already visible");
+assert.ok(main.includes("Web接続時の撮影設定") && main.includes("待機中は撮影・録画しません。"), "Android standby camera profile must explain that it applies only when Web connects");
+assert.ok(main.includes('putExtra("aspectRatio", "original")'), "Saved next-connection ratio must match the original sensor ratio");
+assert.ok(rtc.includes("maximumWindowMetrics.bounds") && rtc.includes("1440.0") && rtc.includes("capturer.startCapture(width, height, 20)"), "Screen capture must follow real display bounds with a bounded 20 FPS encoder load");
+assert.ok(rtc.includes("fun iceConnectionState(sessionId: String)"), "RTC ICE state query missing for stale session cleanup");
+assert.ok(rtc.includes('onConnectionState(sessionId, "SESSION_REMOVED")'), "RTC must notify service after peer session removal");
+assert.ok(rtc.includes("Ignore late CLOSED callbacks after this viewer has already been removed"), "Late ICE close callback must not re-enter teardown");
+assert.ok(service.includes('"FAILED", "CLOSED", "SESSION_REMOVED"') && service.includes("closeRtcViewerSession(sessionId)"), "Failed/closed RTC viewer sessions must be closed and release sensor resources");
+assert.ok(service.includes('engine.iceConnectionState(sessionId) == "DISCONNECTED"'), "Stale disconnected ICE session must be removed after recovery grace period");
+assert.ok(service.includes("if (!enabled && !torchEnabled)") && service.includes("activeTorchCameraId"), "Torch cleanup must not call CameraManager when flashlight was never enabled");
+assert.ok(service.includes("LENS_FACING_BACK") && service.includes("FLASH_INFO_AVAILABLE"), "Flash capability must match a rear camera flash");
+assert.ok(service.includes("remote-screen") && service.includes("screenRequesters"), "Screen capture recipients must remain isolated by Web session");
 
 assert.ok(html.includes('class="settingsGroup"'), "Legacy v4.1 collapsible settings groups must be restored");
 assert.ok(html.includes('class="viewerControls"'), "Legacy v4.1 viewer toolbar must be restored");
