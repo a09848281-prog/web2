@@ -200,18 +200,13 @@ class MonitorService : Service() {
         val notificationText = if (includeProjection) "画面共有中（Webからの要求）" else "監視待機中（接続要求を確認しています）"
         val foregroundNotification = notification(notificationText)
         if (Build.VERSION.SDK_INT >= 29) {
-            // Waiting for a Web viewer is network-device monitoring, not camera/mic use.
-            // Add sensor service types only while a real viewer session has those tracks enabled.
-            var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-            val engine = rtc
-            if (engine?.hasPeers() == true) {
-                if (engine.isCameraEnabled()) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
-                if (engine.isMicrophoneEnabled()) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            }
-            val hasLocationPermission = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED ||
+            // Keep camera/microphone service types declared from the user-initiated
+            // foreground start. The hardware itself is opened only for active RTC peers.
+            // This also avoids an illegal background upgrade to a while-in-use sensor FGS.
+            var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            val hasLocation = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED ||
                 checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED
-            val locationNeeded = idleLocationEnabled || (engine?.hasPeers() == true && connectedLocationEnabled)
-            if (hasLocationPermission && locationNeeded) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            if (hasLocation) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
             if (includeProjection) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             startForeground(NOTIFICATION_ID, foregroundNotification, types)
         } else {
