@@ -796,6 +796,7 @@ class MonitorService : Service() {
         if (candidates.isEmpty()) {
             torchEnabled = false
             activeTorchCameraId = null
+            if (enabled) torchRequested = false
             sendTelemetry()
             if (enabled) error("この端末にライト対応の背面カメラがありません。")
             return
