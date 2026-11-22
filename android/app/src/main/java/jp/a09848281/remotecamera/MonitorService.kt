@@ -338,8 +338,8 @@ class MonitorService : Service() {
                                                 onDataChannelMessage = ::handleDataChannelMessage,
                                                 onConnectionState = ::onRtcConnectionState,
                                                 microphoneMode = prefs.getString("micMode", "balanced") ?: "balanced",
-                                                captureAspectRatio = prefs.getString("aspectRatio", "original") ?: "16:9",
-                                                                                )
+                                                captureAspectRatio = prefs.getString("aspectRatio", "original") ?: "16:9"
+                                            )
                                         }
                                         rtc?.setIceServers(response.optJSONArray("iceServers"))
                                         rtc?.setNoiseSuppressionLevel(prefs.getInt("micNoise", 70))
@@ -862,7 +862,6 @@ class MonitorService : Service() {
             .put("cameraFacing",rtc?.currentCameraFacing() ?: "未接続")
             .put("cameraId",rtc?.currentCameraId() ?: "")
             .put("flashAvailable",flashAvailable).put("flashEnabled",torchEnabled)
-            .put("accessibilityEnabled", RemoteControlAccessibilityService.instance != null)
             .put("microphoneMode",prefs.getString("micMode","balanced") ?: "balanced")
             .put("network",networkInfo())
         rtc?.sendControlToOpenDataChannels(data)
