@@ -84,7 +84,8 @@ class MonitorService : Service() {
     private var lastTrafficRx = 0L
     private var lastTrafficAt = 0L
     private var lastNetworkError = ""
-    @Volatile private var recoveryPollUntil = 0L
+    // Keep recovery polling armed until a channel returns or the user stops monitoring.
+    private val recoveryPollIntervalMs = 3000L
     private val apiReady = CompletableDeferred<Unit>()
     private var streamWakeLock: PowerManager.WakeLock? = null
     private var streamWifiLock: WifiManager.WifiLock? = null
@@ -262,7 +263,10 @@ class MonitorService : Service() {
         rtc = null
         updateStreamWakeLock(false)
         updateDisplayWakeLock(false)
-        prefs.edit().putBoolean("monitoringEnabled", false).putBoolean("androidKeepScreenAwake", false).apply()
+        prefs.edit().putBoolean("monitoringEnabled", false)
+            .putBoolean("androidKeepScreenAwake", false)
+            .putBoolean("rtcRecoveryArmed", false)
+            .apply()
         stopForeground(STOP_FOREGROUND_REMOVE)
         getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
         stopSelf(startId)
@@ -291,7 +295,7 @@ class MonitorService : Service() {
                 }
                 sampleTrafficUsage()
                 val controlOpen = rtc?.hasOpenControlChannel() == true
-                val recoveryActive = System.currentTimeMillis() < recoveryPollUntil || (rtc?.peerCount() ?: 0) > 0
+                val recoveryActive = prefs.getBoolean("rtcRecoveryArmed", false) || (rtc?.peerCount() ?: 0) > 0
                 if (!controlOpen && (rtc?.peerCount() ?: 0) == 0) {
                     // Reset the app-wide traffic baseline only after the last
                     // viewer leaves, not whenever another viewer connects.
@@ -319,7 +323,7 @@ class MonitorService : Service() {
                     }
                 } else if (recoveryActive) {
                     val elapsed = System.currentTimeMillis() - lastDevicePollAt
-                    val untilNextPoll = 1000L - elapsed
+                    val untilNextPoll = recoveryPollIntervalMs - elapsed
                     if (untilNextPoll > 0L) {
                         delay(minOf(250L, untilNextPoll))
                         continue
@@ -403,6 +407,7 @@ class MonitorService : Service() {
                                     }
                                 }
                                 "bye" -> {
+                                    prefs.edit().putBoolean("rtcRecoveryArmed", false).apply()
                                     closeRtcViewerSession(signal.optString("sessionId"))
                                     notifyState("Web側から切断要求を受信しました")
                                 }
@@ -438,7 +443,11 @@ class MonitorService : Service() {
                 }
                 // Connected mode uses a short scheduler tick, then the
                 // elapsed-time gate above enforces the configured 1–50s interval.
-                delay(if (rtc?.hasOpenControlChannel()==true) 250L else pollIntervalSeconds*1000L)
+                delay(when {
+                    rtc?.hasOpenControlChannel() == true -> 250L
+                    prefs.getBoolean("rtcRecoveryArmed", false) -> recoveryPollIntervalMs
+                    else -> pollIntervalSeconds * 1000L
+                })
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -462,7 +471,7 @@ class MonitorService : Service() {
     private fun onRtcConnectionState(sessionId:String,state:String) {
         when(state) {
             "DATA_CHANNEL_OPEN" -> {
-                recoveryPollUntil = 0L
+                prefs.edit().putBoolean("rtcRecoveryArmed", false).apply()
                 updateStreamWakeLock(true)
                 if (trafficBaselineTx < 0L || trafficBaselineRx < 0L) {
                     trafficBaselineTx=TrafficStats.getUidTxBytes(Process.myUid())
@@ -481,7 +490,7 @@ class MonitorService : Service() {
                 }
             }
             "FAILED", "CLOSED", "SESSION_REMOVED", "DATA_CHANNEL_CLOSED" -> {
-                recoveryPollUntil = System.currentTimeMillis() + 45000L
+                prefs.edit().putBoolean("rtcRecoveryArmed", true).apply()
                 lastDevicePollAt = 0L
                 lastNetworkError = "WebRTC / DataChannel state: " + state
                 // Defer disposal out of the WebRTC observer callback. FAILED is
@@ -495,7 +504,7 @@ class MonitorService : Service() {
                 }
             }
             "DISCONNECTED" -> {
-                recoveryPollUntil = System.currentTimeMillis() + 45000L
+                prefs.edit().putBoolean("rtcRecoveryArmed", true).apply()
                 lastDevicePollAt = 0L
                 // Poll for a replacement offer while ICE gets a short recovery grace period.
                 scope.launch {
@@ -558,6 +567,7 @@ class MonitorService : Service() {
                         .put("type", "ack").put("requestId", requestId)
                         .put("ok", true).put("message", result))
                     if (commandName == "disconnect") {
+                        prefs.edit().putBoolean("rtcRecoveryArmed", false).apply()
                         delay(150L)
                         closeRtcViewerSession(sessionId)
                     }
