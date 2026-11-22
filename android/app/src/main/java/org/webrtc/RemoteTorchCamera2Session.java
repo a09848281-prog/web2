@@ -351,9 +351,11 @@ final class RemoteTorchCamera2Session implements CameraSession {
     // Prefer an exact fixed-rate range first (for example 30-30 FPS). The generic
     // WebRTC selector intentionally favors variable ranges so AE can reduce FPS in
     // low light; that behavior can make a requested 30 FPS stream fall far below target.
+    // WebRTC stores supported FPS ranges in milli-FPS (30 FPS = 30000).
+    final int targetMilliFps = framerate * 1000;
     CaptureFormat.FramerateRange bestFpsRange = null;
     for (CaptureFormat.FramerateRange range : framerateRanges) {
-      if (range.min == framerate && range.max == framerate) {
+      if (range.min == targetMilliFps && range.max == targetMilliFps) {
         bestFpsRange = range;
         break;
       }
@@ -361,9 +363,9 @@ final class RemoteTorchCamera2Session implements CameraSession {
     if (bestFpsRange == null) {
       int bestScore = Integer.MAX_VALUE;
       for (CaptureFormat.FramerateRange range : framerateRanges) {
-        if (range.min <= framerate && range.max >= framerate) {
-          int score = Math.abs(framerate - range.min) * 3
-              + Math.abs(range.max - framerate);
+        if (range.min <= targetMilliFps && range.max >= targetMilliFps) {
+          int score = Math.abs(targetMilliFps - range.min) * 3
+              + Math.abs(range.max - targetMilliFps);
           if (score < bestScore) {
             bestScore = score;
             bestFpsRange = range;
