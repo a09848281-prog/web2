@@ -4,6 +4,7 @@ const $ = id => document.getElementById(id);
 const STORAGE_KEY = "rc_paired_devices_v1";
 const SELECTED_KEY = "rc_selected_device_v1";
 let settingsChangeTimer = null;
+let micNoiseLiveTimer = null;
 const S = {
   cfg: null,
   apiVersion: "",
@@ -2181,11 +2182,22 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("cancelReservation").addEventListener("click",cancelConnectionReservation);
   $("micNoise").addEventListener("input", () => {
     updateSliderLabels();
+    if (micNoiseLiveTimer) clearTimeout(micNoiseLiveTimer);
+    micNoiseLiveTimer = setTimeout(() => {
+      micNoiseLiveTimer = null;
+      if (S.control?.readyState === "open") {
+        sendControl("mic_noise", { strength: Number($("micNoise").value) });
+      }
+    }, 120);
+  });
+  $("micNoise").addEventListener("change", () => {
+    if (micNoiseLiveTimer) clearTimeout(micNoiseLiveTimer);
+    micNoiseLiveTimer = null;
     if (S.control?.readyState === "open") {
       sendControl("mic_noise", { strength: Number($("micNoise").value) });
     }
+    scheduleSettingsSave();
   });
-  $("micNoise").addEventListener("change", scheduleSettingsSave);
   $("micSensitivity").addEventListener("change", scheduleSettingsSave);
   $("micGain").addEventListener("change", scheduleSettingsSave);
   $("nightMode").addEventListener("change",()=>{applyNightViewFilter();localStorage.setItem(nightViewStorageKey(),String($("nightMode").checked));});
