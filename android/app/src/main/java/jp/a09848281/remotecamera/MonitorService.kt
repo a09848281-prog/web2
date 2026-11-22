@@ -192,6 +192,15 @@ class MonitorService : Service() {
         return START_STICKY
     }
 
+    private fun createChannel() {
+        if (Build.VERSION.SDK_INT >= 26) {
+            getSystemService(NotificationManager::class.java).createNotificationChannel(
+                NotificationChannel(CHANNEL, "Remote Camera", NotificationManager.IMPORTANCE_LOW)
+                    .apply { description = "遠隔監視の待機・接続状態を表示します。" }
+            )
+        }
+    }
+
     private fun startMonitoringForeground() {
         createChannel()
         prefs.edit().putBoolean("monitoringEnabled", true).apply()
