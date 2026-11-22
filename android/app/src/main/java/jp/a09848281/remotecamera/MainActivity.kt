@@ -2,6 +2,7 @@ package jp.a09848281.remotecamera
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.AlarmManager
 import android.app.DatePickerDialog
 import android.app.PendingIntent
@@ -12,6 +13,7 @@ import android.net.Uri
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowManager
 import android.text.InputType
