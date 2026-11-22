@@ -24,8 +24,8 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 
 1. Deploy `gas/Code.gs` as a Google Apps Script Web App.
 2. Confirm `gasUrl` in `config.json` points to the deployed `/exec` URL. Do not commit TURN credentials or other secrets.
-3. Publish the PWA with the `Deploy v2.6 Preview to GitHub Pages` workflow. It publishes the v2.7 preview at `/v2.7/` without replacing older preview folders. without replacing the older preview folders.
-4. Build the Android APK with the `Android APK Build` workflow. Download the `remote-camera-web2-preview-v2.6.1-apk` artifact.
+3. Publish the PWA with the `Deploy Remote Camera Web2 Previews to GitHub Pages` workflow. It publishes the v2.7 preview at `/v2.7/` alongside older preview folders. without replacing the older preview folders.
+4. Build the Android APK with the `Android APK Build` workflow. Download the `remote-camera-web2-preview-v2.7-apk` artifact.
 5. Follow `docs/WEB2-V2.1.0-CHECKLIST.md` for Galaxy A22 5G / Android 13 and iPad Safari tests.
 
 ## v2.7 Automatic Recovery Preview
