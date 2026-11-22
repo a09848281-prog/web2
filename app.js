@@ -1180,12 +1180,12 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
       const disconnectResult = await sendControlAndWait("disconnect", { sessionId }, 800);
       if (!disconnectResult.ok) console.warn("Remote disconnect was not acknowledged", disconnectResult.message);
     }
-    try {
-      await api("send_signal", {
-        controllerToken:device.controllerToken, deviceId:device.deviceId,
-        sessionId:sessionId, recipient:"device", kind:"bye"
-      });
-    } catch (error) {
+    // DataChannel acknowledgement is the fast path. The GAS bye is only a fallback,
+    // so do not hold the local UI or camera/microphone release while waiting for HTTP.
+    void api("send_signal", {
+      controllerToken:device.controllerToken, deviceId:device.deviceId,
+      sessionId:sessionId, recipient:"device", kind:"bye"
+    }).catch(async error => {
       console.warn("Session bye signal failed", error);
       if (!channelOpen) {
         try {
@@ -1194,10 +1194,10 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
             command:"disconnect", payload:{sessionId:sessionId}
           });
         } catch (commandError) {
-          console.warn("Session disconnect command failed", commandError);
+          console.warn("Session disconnect fallback failed", commandError);
         }
       }
-    }
+    });
   }
   stopRtcStats();
   stopVideoWatchdog();
@@ -1272,7 +1272,6 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   else status("未ペアリング");
   $("pttLock").disabled = !S.device;
   $("keepAwake").disabled = !S.device;
-  updateAndroidKeepAwakeButton();
   updateAndroidKeepAwakeButton();
 }
 async function loadSettings() {
