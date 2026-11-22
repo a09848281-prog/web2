@@ -47,6 +47,7 @@ class MonitorService : Service() {
         const val ACTION_REFRESH_CODE = "jp.a09848281.remotecamera.REFRESH_CODE"
         const val ACTION_STOP = "jp.a09848281.remotecamera.STOP"
         const val ACTION_VIDEO_SETTINGS = "jp.a09848281.remotecamera.VIDEO_SETTINGS"
+        const val ACTION_DISPLAY_AWAKE = "jp.a09848281.remotecamera.DISPLAY_AWAKE"
         const val ACTION_CODE = "jp.a09848281.remotecamera.CODE"
         const val EXTRA_GAS_URL = "gas_url"
         const val EXTRA_POLL_INTERVAL_SECONDS = "poll_interval_seconds"
@@ -124,7 +125,7 @@ class MonitorService : Service() {
             stopSelf(startId)
             return START_NOT_STICKY
         }
-        if (intent != null && action != ACTION_START && action != ACTION_REFRESH_CODE && action != ACTION_VIDEO_SETTINGS) {
+        if (intent != null && action != ACTION_START && action != ACTION_REFRESH_CODE && action != ACTION_VIDEO_SETTINGS && action != ACTION_DISPLAY_AWAKE) {
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -158,6 +159,14 @@ class MonitorService : Service() {
 
         if (pollJob?.isActive != true) pollJob = scope.launch { pollLoop() }
         if (locationJob?.isActive != true) locationJob = scope.launch { locationLoop() }
+
+        if (action == ACTION_DISPLAY_AWAKE) {
+            val enabled = intent?.getBooleanExtra("enabled", false) == true
+            prefs.edit().putBoolean("androidKeepScreenAwake", enabled).apply()
+            updateDisplayWakeLock(enabled)
+            sendTelemetry()
+            return START_STICKY
+        }
 
         if (action == ACTION_VIDEO_SETTINGS) {
             val quality = intent?.getStringExtra("quality") ?: prefs.getString("requestedQuality", "720") ?: "720"
