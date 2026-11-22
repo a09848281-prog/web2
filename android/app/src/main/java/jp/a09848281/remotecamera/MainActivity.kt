@@ -372,6 +372,8 @@ class MainActivity : Activity() {
     }
 
     private fun syncScheduleToGas(startAt: Long, endAt: Long) {
+        // Keep a durable pending flag so the service can retry a transient network failure.
+        prefs.edit().putBoolean("scheduleSyncPending", true).apply()
         val id = prefs.getString("deviceId", "") ?: ""
         val secret = prefs.getString("deviceSecret", "") ?: ""
         if (id.isBlank() || secret.isBlank() || gasUrl.isBlank()) {
@@ -386,13 +388,16 @@ class MainActivity : Activity() {
                         .put("deviceId", id).put("deviceSecret", secret)
                         .put("startAt", startAt).put("endAt", endAt))
                 }
+                val stillCurrent = prefs.getLong("scheduleStartAt", 0L) == startAt &&
+                    prefs.getLong("scheduleEndAt", 0L) == endAt
+                if (stillCurrent) prefs.edit().putBoolean("scheduleSyncPending", false).apply()
                 if (::scheduleStatus.isInitialized && scheduleStartAt == startAt && scheduleEndAt == endAt) {
                     scheduleStatus.text = scheduleStatus.text.toString() + "\nWeb同期：完了"
                 }
             } catch (error: Exception) {
-                Log.w("RemoteCameraSchedule", "Could not sync Android schedule to Web", error)
+                Log.w("RemoteCameraSchedule", "Could not sync Android schedule to Web; retry is pending", error)
                 if (::scheduleStatus.isInitialized && scheduleStartAt == startAt && scheduleEndAt == endAt) {
-                    scheduleStatus.text = scheduleStatus.text.toString() + "\nWeb同期：失敗（予約はAndroid内に保存済み）"
+                    scheduleStatus.text = scheduleStatus.text.toString() + "\nWeb同期：失敗（再試行待ち・予約はAndroid内に保存済み）"
                 }
             }
         }
