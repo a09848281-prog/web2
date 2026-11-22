@@ -514,7 +514,9 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        val filter = android.content.IntentFilter(MonitorService.ACTION_CODE)
+        val filter = android.content.IntentFilter(MonitorService.ACTION_CODE).apply {
+            addAction(MonitorService.ACTION_SCREEN_PERMISSION_NEEDED)
+        }
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(codeReceiver, filter, RECEIVER_NOT_EXPORTED)
         else @Suppress("DEPRECATION") registerReceiver(codeReceiver, filter)
         showSavedCode()
@@ -532,7 +534,9 @@ class MainActivity : Activity() {
 
     private fun maybeRequestScreenPermission() {
         val launchIntent = intent ?: return
-        if (!launchIntent.getBooleanExtra(MonitorService.EXTRA_REQUEST_SCREEN_PERMISSION, false)) return
+        val explicitRequest = launchIntent.getBooleanExtra(MonitorService.EXTRA_REQUEST_SCREEN_PERMISSION, false)
+        val pendingRequest = prefs.getBoolean("pendingScreenPermission", false)
+        if (!explicitRequest && !pendingRequest) return
         launchIntent.removeExtra(MonitorService.EXTRA_REQUEST_SCREEN_PERMISSION)
         if (screenPermissionPromptStarted) return
         screenPermissionPromptStarted = true
@@ -550,6 +554,7 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != 5205) return
         screenPermissionPromptStarted = false
+        prefs.edit().putBoolean("pendingScreenPermission", false).apply()
         val result = Intent(this, MonitorService::class.java)
             .setAction(MonitorService.ACTION_SCREEN_PERMISSION_RESULT)
             .putExtra(MonitorService.EXTRA_SCREEN_RESULT_CODE, resultCode)
@@ -568,6 +573,11 @@ class MainActivity : Activity() {
 
     private val codeReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
+            if (intent?.action == MonitorService.ACTION_SCREEN_PERMISSION_NEEDED) {
+                this@MainActivity.intent?.putExtra(MonitorService.EXTRA_REQUEST_SCREEN_PERMISSION, true)
+                maybeRequestScreenPermission()
+                return
+            }
             val code = intent?.getStringExtra(MonitorService.EXTRA_CODE) ?: return
             val id = intent.getStringExtra(MonitorService.EXTRA_DEVICE_ID) ?: ""
             if (code.isNotBlank()) {
