@@ -15,6 +15,7 @@ const S = {
   mic: null,
   remoteAudioTracks: [],
   remoteScreenStream: null,
+  pendingControlAcks: new Map(),
   screenRequested: false,
   screenActive: false,
   accessibilityEnabled: false,
@@ -972,6 +973,7 @@ async function connect(automatic = false) {
       updateAndroidMediaButtons();
       S.screenRequested = false;
       S.screenActive = false;
+      settlePendingControlAcks("制御チャネルが切断されました。");
       updateScreenControls();
       $("screenPlaceholder").classList.remove("hidden");
       $("screenStatus").textContent = "制御チャネルが切断されました。";
@@ -1005,6 +1007,8 @@ async function connect(automatic = false) {
     pc.addTransceiver("video", { direction: "recvonly" });
     pc.addTrack(localAudioTrack, stream);
     $("remoteScreenVideo").srcObject = remoteScreen;
+    $("remoteScreenVideo").addEventListener("loadedmetadata", syncScreenStageAspectRatio);
+    $("remoteScreenVideo").addEventListener("resize", syncScreenStageAspectRatio);
     pc.ontrack = event => {
       if (S.pc !== pc) return;
       const track = event.track;
@@ -1166,15 +1170,17 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   const device = S.device;
   const sessionId = S.session;
   const old = S.pc;
-  if (S.screenRequested && S.control?.readyState === "open") sendControl("screen_stop", {});
-  S.screenRequested = false;
-  S.screenActive = false;
-  $("screenPlaceholder").classList.remove("hidden");
-  $("screenStatus").textContent = "接続を終了しました。";
-  updateScreenControls();
   if (notifyRemote && old && device && sessionId) {
-    const channelOpen = S.control && S.control.readyState === "open";
-    if (channelOpen) sendControl("disconnect", {});
+    const channelOpen = S.control?.readyState === "open";
+    // Wait for Android to acknowledge the stop/disconnect requests before closing SCTP.
+    if (channelOpen && (S.screenRequested || S.screenActive)) {
+      const screenStopResult = await sendControlAndWait("screen_stop", {}, 1200);
+      if (!screenStopResult.ok) console.warn("Screen stop was not acknowledged", screenStopResult.message);
+    }
+    if (channelOpen) {
+      const disconnectResult = await sendControlAndWait("disconnect", { sessionId }, 1800);
+      if (!disconnectResult.ok) console.warn("Remote disconnect was not acknowledged", disconnectResult.message);
+    }
     try {
       await api("send_signal", {
         controllerToken:device.controllerToken, deviceId:device.deviceId,
@@ -1194,6 +1200,11 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
       }
     }
   }
+  S.screenRequested = false;
+  S.screenActive = false;
+  $("screenPlaceholder").classList.remove("hidden");
+  $("screenStatus").textContent = "接続を終了しました。";
+  updateScreenControls();
 
   stopRtcStats();
   stopVideoWatchdog();
@@ -1224,6 +1235,7 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   }
 
   S.pc = null;
+  settlePendingControlAcks("切断しました。");
   try { S.control?.close(); } catch (_) {}
   S.control = null;
   S.session = "";
@@ -1235,6 +1247,13 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   }
   S.remoteAudioTracks = [];
   S.remoteVideoStream = null;
+  S.remoteScreenStream = null;
+  $("remoteScreenVideo").srcObject = null;
+  $("remoteScreenVideo").style.width = "";
+  $("remoteScreenVideo").style.height = "";
+  $("screenStage").style.width = "";
+  $("screenStage").style.height = "";
+  $("screenStage").style.aspectRatio = "";
   $("remoteVideo").srcObject = null;
   $("remoteVideo").muted = false;
   $("placeholder").classList.remove("hidden");
@@ -1383,6 +1402,54 @@ function sendControl(name,payload={}) {
     return false;
   }
 }
+function sendControlAndWait(name, payload = {}, timeoutMs = 1200) {
+  const channel = S.control;
+  if (!channel || channel.readyState !== "open" || channel.bufferedAmount > 256 * 1024) {
+    return Promise.resolve({ ok: false, timeout: true, message: "DataChannel未接続または送信待ちです。" });
+  }
+  const requestId = rid();
+  return new Promise(resolve => {
+    const timer = setTimeout(() => {
+      S.pendingControlAcks.delete(requestId);
+      resolve({ ok: false, timeout: true, message: "Androidから応答がありませんでした。" });
+    }, Math.max(250, Math.min(3000, timeoutMs)));
+    S.pendingControlAcks.set(requestId, result => {
+      clearTimeout(timer);
+      resolve(result);
+    });
+    try {
+      channel.send(JSON.stringify({ type: "command", command: name, requestId, payload }));
+    } catch (error) {
+      clearTimeout(timer);
+      S.pendingControlAcks.delete(requestId);
+      resolve({ ok: false, timeout: true, message: error?.message || "DataChannel送信失敗" });
+    }
+  });
+}
+function settlePendingControlAcks(message = "制御チャネルが閉じられました。") {
+  for (const [requestId, resolve] of S.pendingControlAcks) {
+    try { resolve({ ok: false, timeout: true, message }); } catch (_) {}
+    S.pendingControlAcks.delete(requestId);
+  }
+}
+function syncScreenStageAspectRatio() {
+  const video = $("remoteScreenVideo");
+  const stage = $("screenStage");
+  if (!video || !stage) return;
+  const width = Number(video.videoWidth) || 0;
+  const height = Number(video.videoHeight) || 0;
+  if (!(width > 0 && height > 0)) return;
+  const ratio = width / height;
+  const containerWidth = stage.parentElement?.clientWidth || window.innerWidth - 32;
+  const maxHeight = Math.max(200, window.innerHeight * 0.68);
+  const stageWidth = Math.max(120, Math.min(containerWidth, maxHeight * ratio));
+  const stageHeight = stageWidth / ratio;
+  stage.style.aspectRatio = width + " / " + height;
+  stage.style.width = Math.round(stageWidth) + "px";
+  stage.style.height = Math.round(stageHeight) + "px";
+  stage.dataset.videoWidth = String(width);
+  stage.dataset.videoHeight = String(height);
+}
 function updateAndroidMediaButtons() {
   const open = S.control?.readyState === "open";
   $("cameraToggle").disabled = !open;
@@ -1452,7 +1519,16 @@ function applyLiveLocationUpdate(raw) {
 }
 
 function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;}
- if(d.type==="ack"){$("networkSummary").textContent=d.message||(d.ok?"Android受信済み":"適用失敗");if(!d.ok)toast(d.message||"Android側で適用失敗");}
+ if(d.type==="ack"){
+  const ackResult = { ok: d.ok === true, message: String(d.message || (d.ok ? "Android受信済み" : "適用失敗")) };
+  const pending = S.pendingControlAcks.get(String(d.requestId || ""));
+  if (pending) {
+    S.pendingControlAcks.delete(String(d.requestId));
+    pending(ackResult);
+  }
+  $("networkSummary").textContent=ackResult.message;
+  if(!d.ok)toast(ackResult.message);
+ }
  else if(d.type==="screen_state"){
   S.screenActive = d.active === true;
   if (!S.screenActive || d.denied) S.screenRequested = false;
@@ -1835,7 +1911,7 @@ function requestScreenShare() {
   }
   if (S.screenRequested || S.screenActive) return;
   S.screenRequested = true;
-  $("screenStatus").textContent = "Androidへ画面共有を要求しています。Android側の通知をタップして許可してください。";
+  $("screenStatus").textContent = "Androidへ画面共有を要求しています。Androidアプリが前面なら許可画面が自動で開きます。バックグラウンドならAndroid通知をタップして許可してください。";
   $("screenPlaceholder").classList.remove("hidden");
   if (!sendControl("screen_start", {})) {
     S.screenRequested = false;
@@ -2123,6 +2199,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     event.preventDefault();
   });
   $("screenTouchLayer").addEventListener("pointercancel", () => { screenPointerStart = null; });
+  window.addEventListener("resize", syncScreenStageAspectRatio, { passive: true });
+  window.addEventListener("orientationchange", () => setTimeout(syncScreenStageAspectRatio, 120), { passive: true });
   $("fullscreen").addEventListener("click", toggleFullscreen);
   $("motionEnabled").addEventListener("change", saveMotionSettings);
   $("motionSensitivity").addEventListener("change", saveMotionSettings);
@@ -2281,11 +2359,15 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 window.addEventListener("pagehide", () => {
-  if (!S.screenRequested || !S.control || S.control.readyState !== "open") return;
+  if (!S.control || S.control.readyState !== "open") return;
   try {
-    S.control.send(JSON.stringify({ type: "command", command: "screen_stop", requestId: rid(), payload: {} }));
+    if (S.screenRequested || S.screenActive) {
+      S.control.send(JSON.stringify({ type: "command", command: "screen_stop", requestId: rid(), payload: {} }));
+    }
+    // DataChannel is ordered: request the viewer session to close after screen_stop.
+    S.control.send(JSON.stringify({ type: "command", command: "disconnect", requestId: rid(), payload: { sessionId: S.session } }));
   } catch (error) {
-    console.warn("Could not send screen-stop during pagehide", error);
+    console.warn("Could not send remote shutdown during pagehide", error);
   }
 });
 window.addEventListener("pageshow", event => {
