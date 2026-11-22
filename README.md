@@ -27,6 +27,19 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 4. Build the Android APK with the `Android APK Build` workflow. Download the `remote-camera-web2-preview-v2.1.1-apk` artifact.
 5. Follow `docs/WEB2-V2.1.0-CHECKLIST.md` for the Galaxy A22 5G / Android 13 and iPad Safari checks.
 
+## v2.5 Remote Screen Preview
+
+- Preview branch: `preview/v2.5-remote-screen`
+- PWA: `https://a09848281-prog.github.io/web2/v2.5/` (published by `Deploy v2.5 Preview to GitHub Pages`)
+- Android APK artifact: `remote-camera-web2-preview-v2.5-apk`
+- The new **画面** tab requests Android screen sharing only when opened while connected. Normal camera monitoring does not start screen capture.
+- Android's system screen-capture permission is required for every new sharing session. If Android is in the background, tap the Remote Camera screen-share notification, then confirm the system dialog.
+- Remote tap/swipe/navigation/text/app launch commands require the user to enable the optional `Remote Camera操作サービス` in Android Accessibility settings.
+- Screen video is carried on a second WebRTC video track, separate from the existing camera video. Only Web sessions that requested screen sharing are enabled as recipients.
+- The screen stream stops when the request is cancelled, the viewer leaves the screen tab, or its RTC session ends. Protected/secure Android views remain subject to OS restrictions.
+
+See [V2.5-REMOTE-SCREEN.md](V2.5-REMOTE-SCREEN.md) for the feature and platform limitation details.
+
 ## Location delivery
 
 - While a WebRTC DataChannel is open, Android sends each acquired location directly to authenticated Web controllers.
