@@ -13,6 +13,7 @@ import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.media.AudioManager
@@ -758,8 +759,17 @@ class MonitorService : Service() {
                 Log.w("RemoteCameraService", "Flashlight camera $torchId is unavailable; trying another rear flash", error)
             }
         }
+        val cameraReason = when ((lastError as? CameraAccessException)?.reason) {
+            CameraAccessException.CAMERA_IN_USE ->
+                "背面カメラが映像撮影中のため、Androidがライトを拒否しました。"
+            CameraAccessException.MAX_CAMERAS_IN_USE ->
+                "Androidのカメラ資源が上限に達しているため、ライトを使えません。"
+            CameraAccessException.CAMERA_DISCONNECTED ->
+                "Androidカメラサービスが一時的に切断されています。"
+            else -> "カメラまたはライト資源を取得できませんでした。"
+        }
         val reason = if (enabled) {
-            "ライトを点灯できません。撮影中のカメラがライト資源を使用中の可能性があります。別の背面ライトがない端末ではカメラ映像とライトを同時に使えない場合があります。"
+            "ライトを点灯できません。$cameraReason 端末によっては映像撮影とライトを同時に使えません。"
         } else {
             "ライトを消灯できませんでした。端末のライト状態を確認してください。"
         }
