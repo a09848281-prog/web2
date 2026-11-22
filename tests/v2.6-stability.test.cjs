@@ -90,7 +90,7 @@ test("flashlight OFF is idempotent and transient capability errors are retried",
 
 test("Android version, PWA version and fresh cache stay synchronized", () => {
   assert.match(read("android/app/build.gradle.kts"), /versionCode = 427/);
-  assert.match(read("android/app/build.gradle.kts"), /applicationId = "jp\\.a09848281\\.remotecamera\\.v26"/);
+  assert.ok(read("android/app/build.gradle.kts").includes('applicationId = "jp.a09848281.remotecamera.v26"'));
   assert.match(read("android/app/build.gradle.kts"), /versionName = "2\.6\.0-preview"/);
   assert.match(read("config.json"), /"appVersion": "2\.6\.0-preview"/);
   assert.match(read("sw.js"), /v2-6-0/);
