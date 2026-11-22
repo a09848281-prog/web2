@@ -547,6 +547,8 @@ class MainActivity : Activity() {
                 return
             }
             if (intent?.action == ACTION_MONITOR_STOPPED) {
+                prefs.edit().putBoolean("androidKeepScreenAwake", false).apply()
+                applyKeepScreenAwake()
                 status.text = "監視待機を停止しました。カメラ・マイク・通信は終了しています。"
                 refreshMonitoringButtons()
                 return
