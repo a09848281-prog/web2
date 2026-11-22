@@ -264,9 +264,12 @@ assert.ok(service.includes("updateDisplayWakeLock(false)") && service.includes("
 assert.ok(service.includes('"android_keep_awake"') && service.includes('"androidKeepAwake"'), "Android display-awake state must be remotely controlled and reported");
 assert.ok(!main.includes("FLAG_KEEP_SCREEN_ON") && !main.includes("keepAwakeButton") && !main.includes("ACTION_KEEP_SCREEN_AWAKE_STATE"), "Android APK must not expose a local sleep-prevention button");
 assert.ok(html.includes('id="androidKeepAwake"') && js.includes('sendControlAndWait("android_keep_awake"'), "Web must expose acknowledged Android display-awake toggle");
-assert.ok(service.includes("torchRequested") && service.includes("activeTorchCameraId") && !service.includes("Torch restore after camera switch") && service.includes("if (enabled) torchRequested = false"), "Torch intent must survive camera switching");
-assert.ok(service.includes("registerTorchCallback") && service.includes("LENS_FACING_BACK") && service.includes("FLASH_INFO_AVAILABLE"), "Torch state must follow Android camera hardware reports");
-assert.ok(service.includes("CameraAccessException.CAMERA_IN_USE"), "Torch resource conflicts must be reported truthfully");
+assert.ok(rtc.includes("torchRequested") && rtc.includes("setTorchEnabled") &&
+  rtc.includes("TorchCaptureControl"), "Torch intent must be owned by the active RTC camera capturer");
+assert.ok(torchSession.includes("FLASH_MODE_TORCH") && torchSession.includes("torchState.attach"),
+  "The active Camera2 repeating request must support in-stream flashlight control");
+assert.ok(!service.includes("CameraManager") && !service.includes("CameraAccessException.CAMERA_IN_USE"),
+  "The service must not use the separate CameraManager torch path while the camera is streaming");
 assert.ok(rtc.includes(".setUseHardwareNoiseSuppressor(false)"), "Fixed-strength Android noise suppression must be disabled");
 assert.ok(noiseProcessor.includes('registerProcessor("remote-camera-noise-gate"') && noiseProcessor.includes("this.strength"), "Graduated Web Audio noise-gate processor missing");
 assert.ok(js.includes("remote-camera-noise-gate") && js.includes("noiseSuppressorNode") && js.includes("setNoiseSuppressionLevel"), "Web receive audio must apply graduated software noise reduction");
