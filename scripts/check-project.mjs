@@ -285,7 +285,7 @@ assert.ok(js.includes("assertConnectAttempt(attemptId, device.deviceId)") &&
 assert.ok(js.includes("consecutiveFailures >= 3") && js.includes("if (S.connecting)"),
   "Signal polling must trigger recovery after repeated failures without stacking reconnect timers");
 
-assert.ok(js.includes("sender.replaceTrack(track)") && js.includes("sender?.replaceTrack(null)") && js.includes("track.stop()"), "Web mic must attach and release real tracks");
+assert.ok(js.includes("sender.replaceTrack(track)") && js.includes("sender.replaceTrack(null)") && js.includes("track.stop()"), "Web mic must attach and release real tracks");
 assert.ok(js.includes("await setWebMicEnabled(false)") && js.includes('sendControlAndWait("disconnect", { sessionId, keepRecovery }, 800)'), "Disconnect must release the Web mic before bounded remote shutdown");
 assert.ok(!js.includes("pttLock") && !html.includes('id="pttLock"'), "Obsolete PTT lock UI must be removed");
 assert.ok(html.includes("接続時にマイクを開始します") || html.includes("接続時自動ON"), "UI must explain automatic Web microphone startup");
