@@ -49,6 +49,12 @@ test("Android recovery polling stays armed until DataChannel returns or monitori
   assert.doesNotMatch(service, /currentTimeMillis\(\) \+ 45000L/);
 });
 
+test("Android keeps CPU and Wi-Fi locks during persistent recovery polling", () => {
+  assert.match(service, /updateStreamWakeLock\(recoveryActive\)/);
+  assert.match(service, /rtcRecoveryArmed.*false/);
+  assert.match(service, /updateStreamWakeLock\(prefs\.getBoolean\("rtcRecoveryArmed", false\) \|\| engine\.hasPeers\(\)\)/);
+});
+
 test("Android reports DataChannel close to the service recovery handler", () => {
   assert.match(rtc, /DataChannel\.State\.CLOSED/);
   assert.match(rtc, /DATA_CHANNEL_CLOSED/);
