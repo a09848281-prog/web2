@@ -565,12 +565,15 @@ class MonitorService : Service() {
             }
             "FAILED", "CLOSED", "SESSION_REMOVED" -> {
                 lastNetworkError = "WebRTC ICE状態: " + state
-                // Remove this exact viewer immediately. The last viewer's
-                // Camera capturer, microphone source and AudioDeviceModule are disposed.
-                closeRtcViewerSession(sessionId)
-                updateForegroundScreenProjection(false)
-                updateStreamWakeLock(rtc?.hasPeers() == true)
-                notifyState(if (rtc?.hasPeers() == true) "ほかのWeb端末は監視を継続中" else "監視待機中")
+                // Defer disposal out of the WebRTC observer callback. FAILED is
+                // immediately removed by RtcEngine; SESSION_REMOVED is the final cleanup signal.
+                scope.launch(Dispatchers.IO) {
+                    delay(120L)
+                    closeRtcViewerSession(sessionId)
+                    updateForegroundScreenProjection(false)
+                    updateStreamWakeLock(rtc?.hasPeers() == true)
+                    notifyState(if (rtc?.hasPeers() == true) "ほかのWeb端末は監視を継続中" else "監視待機中")
+                }
             }
             "DISCONNECTED" -> {
                 // RtcEngine gives ICE a recovery window. If the same session is
@@ -620,9 +623,6 @@ class MonitorService : Service() {
                 Log.w("RemoteCameraService", "Could not switch off flashlight after final viewer disconnected", error)
             }
             updateStreamWakeLock(false)
-            try { setTorch(false) } catch (error: Exception) {
-                Log.w("RemoteCameraService", "Could not switch off flashlight after final viewer disconnected", error)
-            }
             updateForegroundScreenProjection(false)
         }
     }
