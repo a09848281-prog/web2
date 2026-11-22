@@ -82,14 +82,12 @@ test("cancelled polling cannot repost the initial startup failure notification",
   assert.match(notifyState, /cancel\(NOTIFICATION_ID\)/);
 });
 
-test("Android display-awake is controlled only from Web and confirms successful application", () => {
+test("Android display-awake control is disabled in current Web client", () => {
   assert.match(service, /PowerManager\.SCREEN_BRIGHT_WAKE_LOCK\s+or\s+PowerManager\.ACQUIRE_CAUSES_WAKEUP/);
   assert.match(service, /updateDisplayWakeLock\(false\)/);
-  assert.match(service, /\.put\("androidKeepAwake", displayWakeLock\?\.isHeld == true\)/);
-  assert.match(service, /if \(!updateDisplayWakeLock\(enabled\)\)/);
-  assert.match(web, /sendControlAndWait\("android_keep_awake", \{ enabled: next \}, 2200\)/);
-  assert.match(web, /typeof v\.androidKeepAwake === "boolean"/);
   assert.match(html, /id="androidKeepAwake"/);
+  assert.match(html, /スリープ制御 無効/);
+  assert.doesNotMatch(web, /android_keep_awake|toggleAndroidKeepAwake|S\.androidKeepAwake/);
   assert.doesNotMatch(main, /keepAwakeButton|FLAG_KEEP_SCREEN_ON|ACTION_KEEP_SCREEN_AWAKE_STATE/);
   assert.equal(manifest.includes("android.permission.WAKE_LOCK"), true);
 });
@@ -134,7 +132,7 @@ test("zoomed video can be dragged in both directions and reset", () => {
   assert.match(html, /ドラッグして表示位置を移動できます/);
 });
 
-test("v2.8 Android, PWA and service-worker versions stay synchronized", () => {
+test("v2.8.2 Web preview stays synchronized with compatible Android package", () => {
   const build = read("android/app/build.gradle.kts");
   const config = read("config.json");
   const sw = read("sw.js");
@@ -142,8 +140,8 @@ test("v2.8 Android, PWA and service-worker versions stay synchronized", () => {
   assert.match(build, /versionCode = 431/);
   assert.match(build, /versionName = "2\.8\.0-preview"/);
   assert.match(build, /applicationId = "jp\.a09848281\.remotecamera\.v28"/);
-  assert.match(config, /"appVersion": "2\.8\.0-preview"/);
-  assert.match(sw, /v2-8-0/);
+  assert.match(config, /"appVersion": "2\.8\.2-preview"/);
+  assert.match(sw, /v2-8-2/);
   assert.match(sw, /noise-suppressor-processor\.js/);
-  assert.equal(pwa.name, "Remote Camera Web2 v2.8.0 Preview");
+  assert.equal(pwa.name, "Remote Camera Web2 v2.8.0 Preview"); // Android compatibility app identity is intentionally retained.
 });
