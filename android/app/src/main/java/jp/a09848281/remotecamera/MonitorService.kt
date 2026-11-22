@@ -71,6 +71,7 @@ class MonitorService : Service() {
     private var currentDataMode = "standard"
     private var currentFps = 24
     private var lastDevicePollAt = 0L
+    private var lastScheduleSyncAt = 0L
     private var lastTelemetryAt = 0L
     private val dataChannelCommandMutex = Mutex()
     private var lastAppliedSettingsSignature = ""
@@ -283,6 +284,11 @@ class MonitorService : Service() {
             syncSavedScheduleToGas()
             if (!apiReady.isCompleted) apiReady.complete(Unit)
             while (scope.isActive) {
+                val scheduleSyncNow = System.currentTimeMillis()
+                if (prefs.getBoolean("scheduleSyncPending", false) &&
+                    scheduleSyncNow - lastScheduleSyncAt >= 60000L) {
+                    syncSavedScheduleToGas()
+                }
                 sampleTrafficUsage()
                 val controlOpen = rtc?.hasOpenControlChannel() == true
                 val recoveryActive = System.currentTimeMillis() < recoveryPollUntil || (rtc?.peerCount() ?: 0) > 0
@@ -894,15 +900,22 @@ class MonitorService : Service() {
     private suspend fun syncSavedScheduleToGas() {
         val startAt = prefs.getLong("scheduleStartAt", 0L)
         val endAt = prefs.getLong("scheduleEndAt", 0L)
-        if (startAt <= 0L || endAt <= startAt) return
+        val hasValidSchedule = startAt > 0L && endAt > startAt
+        // Default to sync once for existing APK schedules created before this pending flag existed.
+        if (!prefs.getBoolean("scheduleSyncPending", hasValidSchedule)) return
+        lastScheduleSyncAt = System.currentTimeMillis()
         try {
             api?.call("save_device_schedule", JSONObject()
                 .put("deviceId", prefs.getString("deviceId", ""))
                 .put("deviceSecret", prefs.getString("deviceSecret", ""))
                 .put("startAt", startAt).put("endAt", endAt))
-            Log.i("RemoteCameraSchedule", "Saved APK schedule synchronized to GAS.")
+            val stillCurrent = prefs.getLong("scheduleStartAt", 0L) == startAt &&
+                prefs.getLong("scheduleEndAt", 0L) == endAt
+            if (stillCurrent) prefs.edit().putBoolean("scheduleSyncPending", false).apply()
+            Log.i("RemoteCameraSchedule", "APK schedule synchronization to GAS completed.")
         } catch (error: Exception) {
-            Log.w("RemoteCameraSchedule", "Saved APK schedule sync will be retried on next service start.", error)
+            prefs.edit().putBoolean("scheduleSyncPending", true).apply()
+            Log.w("RemoteCameraSchedule", "APK schedule sync remains pending; will retry while service is active.", error)
         }
     }
 
