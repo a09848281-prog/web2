@@ -78,7 +78,7 @@ function resumeSavedConnectionIntent() {
   S.manualDisconnect = false;
   S.autoConnectWanted = true;
   if (S.pc?.connectionState === "connected" && S.control?.readyState === "open") return true;
-  if (!S.connecting && !S.reconnectTimer) scheduleReconnect(S.pc, true, null, "resume");
+  if (!S.connecting && !S.reconnectTimer) scheduleReconnect(S.pc, "resume");
   return true;
 }
 
@@ -477,10 +477,10 @@ function startVideoWatchdog(peer) {
     const now = Date.now();
     if (!S.hasReceivedVideoFrame && now - S.connectedAt > 12000) {
       $("videoState").textContent = "映像未着信・自動復旧中";
-      scheduleReconnect(peer, true, 500, "video-stalled");
+      scheduleReconnect(peer, "video-stalled");
     } else if (S.hasReceivedVideoFrame && now - S.lastVideoFrameAt > 6000) {
       $("videoState").textContent = "映像フリーズ・自動復旧中";
-      scheduleReconnect(peer, true, 500, "video-stalled");
+      scheduleReconnect(peer, "video-stalled");
     }
   }, 2000);
 }
@@ -1082,7 +1082,7 @@ function armConnectionTimeout(peer) {
       return;
     }
     $("streamState").textContent = "接続セットアップがタイムアウト・自動復旧中";
-    scheduleReconnect(peer, true, 300, "setup-timeout");
+    scheduleReconnect(peer, "setup-timeout");
   }, 25000);
 }
 function markRtcStable(peer) {
@@ -1170,7 +1170,7 @@ async function connect(automatic = false) {
       if (S.pttActive || S.pttRequested) setWebMicEnabled(false);
       stopRtcStats();
       status("制御チャネル切断・自動復旧中");
-      if (S.pc === pc && (S.everConnected || S.autoConnectWanted) && !S.manualDisconnect) scheduleReconnect(pc, true, 450, "datachannel");
+      if (S.pc === pc && (S.everConnected || S.autoConnectWanted) && !S.manualDisconnect) scheduleReconnect(pc, "datachannel");
     };
     control.onmessage = event => { if (S.pc === pc) handleControlMessage(event.data); };
     control.onerror = () => {
@@ -1202,7 +1202,7 @@ async function connect(automatic = false) {
         track.addEventListener("ended", () => {
           $("videoState").textContent = "映像トラック終了";
           stopMotionDetection("映像が終了しました。");
-          if (S.pc === pc && !S.manualDisconnect) scheduleReconnect(pc, true, 350, "track-ended");
+          if (S.pc === pc && !S.manualDisconnect) scheduleReconnect(pc, "track-ended");
         });
         track.addEventListener("mute", () => { $("videoState").textContent = "映像一時停止"; });
         track.addEventListener("unmute", () => { $("videoState").textContent = "映像再開中"; startMotionDetection(); });
@@ -1240,7 +1240,7 @@ async function connect(automatic = false) {
         S.reconnectResetTimer = null;
         stopSessionClock();
         const reason = state === "failed" ? "failed" : "disconnected";
-        scheduleReconnect(pc, true, state === "disconnected" ? 900 : 350, reason);
+        scheduleReconnect(pc, reason);
       }
     };
     const offer = await pc.createOffer();
@@ -1265,7 +1265,7 @@ async function connect(automatic = false) {
     await disconnect(false, false, true);
     toast("接続開始失敗: " + error.message);
     if (RemoteCameraRecovery.shouldRetry({ manualDisconnect: S.manualDisconnect, hasDevice: !!S.device, everConnected: S.everConnected, autoConnectWanted: S.autoConnectWanted })) {
-      scheduleReconnect(null, true, null, "connect-error");
+      scheduleReconnect(null, "connect-error");
     }
     return false;
   } finally {
@@ -1273,7 +1273,7 @@ async function connect(automatic = false) {
     $("connect").disabled = !S.device || !!S.pc;
   }
 }
-function scheduleReconnect(expectedPc, forceReconnect = false, initialWait = null, reason = "disconnected") {
+function scheduleReconnect(expectedPc, reason = "disconnected") {
   if (!RemoteCameraRecovery.shouldRetry({
     manualDisconnect: S.manualDisconnect, hasDevice: !!S.device, everConnected: S.everConnected,
     autoConnectWanted: S.autoConnectWanted
@@ -1296,14 +1296,13 @@ function scheduleReconnect(expectedPc, forceReconnect = false, initialWait = nul
       return;
     }
     if (expectedPc && expectedPc.connectionState === "connected" && S.control?.readyState === "open") return;
-    if (expectedPc && expectedPc.connectionState === "connected" && !forceReconnect) return;
     if (S.connecting) {
-      scheduleReconnect(null, true, 900, "connect-error");
+      scheduleReconnect(null, "connect-error");
       return;
     }
     S.reconnectAttempts = attempt;
     const ok = await connect(true);
-    if (!ok && !S.reconnectTimer) scheduleReconnect(null, true, null, "connect-error");
+    if (!ok && !S.reconnectTimer) scheduleReconnect(null, "connect-error");
   }, wait);
 }
 async function pollAnswers(peer, sessionId, device) {
@@ -2482,7 +2481,7 @@ window.addEventListener("online", () => {
   if ((!S.everConnected && !S.autoConnectWanted) || S.manualDisconnect || !S.device) return;
   if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
   S.reconnectTimer = null;
-  scheduleReconnect(S.pc, true, 200, "online");
+  scheduleReconnect(S.pc, "online");
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden || (!S.everConnected && !S.autoConnectWanted) || S.manualDisconnect || !S.device) return;
@@ -2490,7 +2489,7 @@ document.addEventListener("visibilitychange", () => {
     restoreRemotePlayback();
     return;
   }
-  scheduleReconnect(S.pc, true, 250, "resume");
+  scheduleReconnect(S.pc, "resume");
 });
 
 window.addEventListener("pageshow", () => {
