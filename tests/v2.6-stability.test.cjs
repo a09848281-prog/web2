@@ -17,7 +17,7 @@ test("browser microphone starts automatically when RTC connection is created", (
   const connectEnd = web.indexOf("function scheduleReconnect(", connectStart);
   const connect = web.slice(connectStart, connectEnd);
   assert.ok(connect.length > 0);
-  assert.match(connect, /await setWebMicEnabled\(true\)/);
+  assert.match(connect, /void setWebMicEnabled\(true\)/);
   assert.match(connect, /addTransceiver\("audio", \{ direction: "sendrecv" \}\)/);
 });
 
@@ -85,7 +85,7 @@ test("cancelled polling cannot repost the initial startup failure notification",
 test("Android display-awake is controlled only from Web and confirms successful application", () => {
   assert.match(service, /PowerManager\.SCREEN_BRIGHT_WAKE_LOCK\s+or\s+PowerManager\.ACQUIRE_CAUSES_WAKEUP/);
   assert.match(service, /updateDisplayWakeLock\(false\)/);
-  assert.match(service, /\.put\("androidKeepAwake", prefs\.getBoolean\("androidKeepScreenAwake", false\)\)/);
+  assert.match(service, /\.put\("androidKeepAwake", displayWakeLock\?\.isHeld == true\)/);
   assert.match(service, /if \(!updateDisplayWakeLock\(enabled\)\)/);
   assert.match(web, /sendControlAndWait\("android_keep_awake", \{ enabled: next \}, 2200\)/);
   assert.match(web, /typeof v\.androidKeepAwake === "boolean"/);
@@ -112,7 +112,7 @@ test("flashlight requests are tracked and restored after camera switching", () =
   assert.match(service, /registerTorchCallback/);
   assert.match(service, /onTorchModeChanged\(cameraId: String, enabled: Boolean\)/);
   assert.match(service, /sortedByDescending \{ it == selectedId \}/);
-  assert.match(service, /Torch restore after camera switch/);
+  assert.doesNotMatch(service, /Torch restore after camera switch/);\n  assert.match(service, /if \(enabled\) torchRequested = false/);
   assert.match(service, /activeTorchCameraId/);
   assert.match(service, /CameraAccessException\.CAMERA_IN_USE/);
   assert.match(service, /\.put\("flashEnabled",torchEnabled\)/);
