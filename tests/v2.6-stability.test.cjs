@@ -1,6 +1,6 @@
-import fs from "node:fs";
-import test from "node:test";
-import assert from "node:assert/strict";
+const fs = require("node:fs");
+const test = require("node:test");
+const assert = require("node:assert/strict");
 
 const read = path => fs.readFileSync(path, "utf8");
 const web = read("app.js");
