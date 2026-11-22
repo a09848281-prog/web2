@@ -47,7 +47,7 @@ test("incoming Android audio stays enabled during Web microphone transmission", 
 test("disconnect releases the Web microphone before bounded remote shutdown", () => {
   const disconnect = section(web, "async function disconnect(", "async function loadSettings(");
   assert.ok(disconnect.indexOf("await setWebMicEnabled(false)") < disconnect.indexOf('sendControlAndWait("disconnect"'));
-  assert.match(disconnect, /sendControlAndWait\("disconnect", \{ sessionId \}, 800\)/);
+  assert.match(disconnect, /sendControlAndWait\("disconnect", \{ sessionId, keepRecovery \}, 800\)/);
   assert.match(disconnect, /void api\("send_signal"/);
   assert.equal(disconnect.includes('await api("send_signal"'), false);
 });
