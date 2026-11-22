@@ -956,6 +956,7 @@ async function connect(automatic = false) {
       startRtcStats();
       startVideoWatchdog(pc);
        updateAndroidMediaButtons();
+       updateScreenControls();
        $("remoteMute").disabled = true;
       $("pttLock").disabled = false;
       $("keepAwake").disabled = false;
@@ -969,6 +970,11 @@ async function connect(automatic = false) {
       $("cameraToggle").disabled = true;
       $("micToggle").disabled = true;
       updateAndroidMediaButtons();
+      S.screenRequested = false;
+      S.screenActive = false;
+      updateScreenControls();
+      $("screenPlaceholder").classList.remove("hidden");
+      $("screenStatus").textContent = "制御チャネルが切断されました。";
       $("pttLock").disabled = true;
       if (S.pttActive) ptt(false);
       S.pttLocked = false;
@@ -1163,6 +1169,8 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   if (S.screenRequested && S.control?.readyState === "open") sendControl("screen_stop", {});
   S.screenRequested = false;
   S.screenActive = false;
+  $("screenPlaceholder").classList.remove("hidden");
+  $("screenStatus").textContent = "接続を終了しました。";
   updateScreenControls();
   if (notifyRemote && old && device && sessionId) {
     const channelOpen = S.control && S.control.readyState === "open";
@@ -1447,7 +1455,7 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
  if(d.type==="ack"){$("networkSummary").textContent=d.message||(d.ok?"Android受信済み":"適用失敗");if(!d.ok)toast(d.message||"Android側で適用失敗");}
  else if(d.type==="screen_state"){
   S.screenActive = d.active === true;
-  if (d.denied) S.screenRequested = false;
+  if (!S.screenActive || d.denied) S.screenRequested = false;
   $("screenStatus").textContent = String(d.message || (S.screenActive ? "Android画面を受信しています。" : "画面共有は停止中です。"));
   $("screenPlaceholder").classList.toggle("hidden", S.screenActive);
   if (S.screenActive) $("remoteScreenVideo").play().catch(() => {});
