@@ -1444,7 +1444,7 @@ function toggleAndroidKeepAwake() {
   S.androidKeepAwake = next;
   updateAndroidKeepAwakeButton();
   toast(next
-    ? "Androidの自動消灯防止を有効にしました（アプリ画面が前面の間）。"
+    ? "Androidの画面消灯防止を有効にしました。画面維持中は電池消費が増え、端末の安全ロックは解除されません。"
     : "Androidの自動消灯防止を解除しました。");
 }
 
