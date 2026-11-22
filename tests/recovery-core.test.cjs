@@ -18,9 +18,10 @@ test("retry jitter is bounded to ten percent", () => {
   assert.equal(Recovery.retryDelay(2, "other", 0), 1260);
   assert.equal(Recovery.retryDelay(2, "other", 1), 1540);
 });
-test("manual disconnect and unpaired or never-connected states suppress retry", () => {
+test("manual disconnect suppresses retry but initial connection failures keep retrying when armed", () => {
   assert.equal(Recovery.shouldRetry({manualDisconnect:false,hasDevice:true,everConnected:true}), true);
-  assert.equal(Recovery.shouldRetry({manualDisconnect:true,hasDevice:true,everConnected:true}), false);
-  assert.equal(Recovery.shouldRetry({manualDisconnect:false,hasDevice:false,everConnected:true}), false);
-  assert.equal(Recovery.shouldRetry({manualDisconnect:false,hasDevice:true,everConnected:false}), false);
+  assert.equal(Recovery.shouldRetry({manualDisconnect:false,hasDevice:true,everConnected:false,autoConnectWanted:true}), true);
+  assert.equal(Recovery.shouldRetry({manualDisconnect:true,hasDevice:true,everConnected:true,autoConnectWanted:true}), false);
+  assert.equal(Recovery.shouldRetry({manualDisconnect:false,hasDevice:false,everConnected:true,autoConnectWanted:true}), false);
+  assert.equal(Recovery.shouldRetry({manualDisconnect:false,hasDevice:true,everConnected:false,autoConnectWanted:false}), false);
 });

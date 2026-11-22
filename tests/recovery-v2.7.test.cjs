@@ -48,3 +48,23 @@ test("wide-camera selector compares Camera2 field of view and needs multiple rea
   assert.match(html, /id="wideCameraButton"/);
   assert.match(web, /rear\.length < 2/);
 });
+
+
+test("first-ever connection attempt is retried while the user has auto-connect armed", () => {
+  assert.match(web, /autoConnectWanted: S\.autoConnectWanted/);
+  assert.match(web, /S\.autoConnectWanted = true/);
+  assert.match(web, /if \(RemoteCameraRecovery\.shouldRetry\(/);
+  assert.match(web, /S\.autoConnectWanted = false/);
+});
+
+test("Web reservation checks seconds and runs a live scheduler", () => {
+  assert.match(html, /id="reserveAt" type="datetime-local" step="1"/);
+  assert.match(web, /S\.reservationTimer = setInterval\(checkConnectionReservation, 250\)/);
+  assert.match(web, /function checkConnectionReservation\(\)/);
+  assert.match(web, /S\.autoConnectWanted = true/);
+});
+
+test("Web UI exposes synchronized APK schedule timestamps", () => {
+  for (const id of ["androidScheduleStart", "androidScheduleEnd", "androidScheduleStatus", "refreshAndroidSchedule"]) assert.match(html, new RegExp(`id="${id}"`));
+  assert.match(web, /function renderAndroidSchedule\(/);
+});

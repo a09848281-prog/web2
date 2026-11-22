@@ -32,7 +32,7 @@ const S = {
   followMap: true,
   locationRefreshTimer: null,
   deviceTelemetry: null,
-  deviceDiagnostics: null, control: null, statsTimer: null, statsLast: null, reconnectTimer: null, reconnectAttempts: 0, everConnected: false, torchEnabled: false, reservationTimer: null,
+  deviceDiagnostics: null, control: null, statsTimer: null, statsLast: null, reconnectTimer: null, reconnectAttempts: 0, everConnected: false, autoConnectWanted: false, torchEnabled: false, reservationTimer: null,
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   motion: { enabled: false, sensitivity: 3, timer: null, previous: null, streak: 0, lastEventAt: 0, sendingDevices: new Set(), retryTimer: null },
   adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 },
@@ -897,6 +897,9 @@ function selectDevice(device) {
   const previousId = S.device && S.device.deviceId;
   S.device = device;
   if (previousId !== device.deviceId) {
+    S.autoConnectWanted = false;
+    if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
+    S.reconnectTimer = null;
     S.history = [];
     S.lastLocation = null;
     S.followMap = true;
@@ -1040,6 +1043,7 @@ async function connect(automatic = false) {
   if (!device) return false;
   if (!automatic) {
     S.manualDisconnect = false;
+    S.autoConnectWanted = true;
     S.reconnectAttempts = 0;
   }
   if (S.reconnectTimer) {
@@ -1198,7 +1202,9 @@ async function connect(automatic = false) {
   } catch (error) {
     await disconnect(false, false, true);
     toast("接続開始失敗: " + error.message);
-    if (S.everConnected && !S.manualDisconnect) scheduleReconnect(null, true, null, "connect-error");
+    if (RemoteCameraRecovery.shouldRetry({ manualDisconnect: S.manualDisconnect, hasDevice: !!S.device, everConnected: S.everConnected, autoConnectWanted: S.autoConnectWanted })) {
+      scheduleReconnect(null, true, null, "connect-error");
+    }
     return false;
   } finally {
     S.connecting = false;
@@ -1207,7 +1213,8 @@ async function connect(automatic = false) {
 }
 function scheduleReconnect(expectedPc, forceReconnect = false, initialWait = null, reason = "disconnected") {
   if (!RemoteCameraRecovery.shouldRetry({
-    manualDisconnect: S.manualDisconnect, hasDevice: !!S.device, everConnected: S.everConnected
+    manualDisconnect: S.manualDisconnect, hasDevice: !!S.device, everConnected: S.everConnected,
+    autoConnectWanted: S.autoConnectWanted
   }) || S.reconnectTimer) return;
   if (navigator.onLine === false) {
     status("ネットワーク切断・復旧待機中");
@@ -1260,6 +1267,7 @@ async function pollAnswers(peer, sessionId, device) {
 async function disconnect(sendCommand = true, preserveMic = false, notifyRemote = sendCommand) {
   if (sendCommand) {
     S.manualDisconnect = true;
+    S.autoConnectWanted = false;
     S.everConnected = false;
     S.reconnectAttempts = 0;
     if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
@@ -1376,6 +1384,7 @@ async function loadSettings() {
   });
   if (!S.device || S.device.deviceId !== device.deviceId) return;
   const settings = result.settings || {};
+  renderAndroidSchedule(settings.androidSchedule || null);
   $("quality").value = settings.quality || "720";
   $("dataMode").value = settings.dataMode || "standard";
   $("connectedLoc").checked = !!settings.connectedLocationEnabled;
@@ -1448,12 +1457,12 @@ async function saveSettings() {
   if (!device) return toast("Android端末をペアリングしてください。");
   const settings = readSettingsFromUi();
   if(S.control?.readyState==="open") {
-    if (!sendControl("settings_update",settings)) throw Error("DataChannelへの設定送信に失敗しました。");
+    const applied = await sendControlAndWait("settings_update", settings, 3000);
+    if (!applied.ok) throw Error("Androidへ設定を適用できませんでした: " + applied.message);
     try { localStorage.setItem("rc_live_settings_"+device.deviceId,JSON.stringify(settings)); }
     catch (storageError) { console.warn("Local setting cache unavailable", storageError); }
-    queueDeviceSettingsSave(device, settings)
-      .then(()=>toast(settings.micMode !== "ambient" ? "設定を保存しました。マイク集音モードは次回接続から反映します。" : "設定をDataChannelで反映し、GASへ保存しました。"))
-      .catch(error=>toast("設定は反映済みですが、GAS保存に失敗しました: "+error.message));
+    await queueDeviceSettingsSave(device, settings);
+    toast(settings.micMode !== "ambient" ? "Androidへ設定を適用し、保存しました。マイク集音モードは次回接続から反映します。" : "画質・FPSをAndroidへ適用し、GASへ保存しました。");
   } else {
     await queueDeviceSettingsSave(device, settings);
     if (S.device && S.device.deviceId === device.deviceId) {
@@ -2092,20 +2101,50 @@ function refreshReservationUi(){
  $("reservationStatus").textContent=valid?"予約中："+new Date(Number(r.when)).toLocaleString()+(S.device&&r.deviceId===S.device.deviceId?"":"（別端末の予約）"):"予約なし";
  $("cancelReservation").disabled=!valid;
 }
+function renderAndroidSchedule(schedule){
+ const start=Number(schedule&&schedule.startAt)||0;
+ const end=Number(schedule&&schedule.endAt)||0;
+ const enabled=!!(schedule&&schedule.enabled&&start>0&&end>start);
+ $("androidScheduleStart").textContent="開始："+(start?new Date(start).toLocaleString():"未設定");
+ $("androidScheduleEnd").textContent="終了："+(end?new Date(end).toLocaleString():"未設定");
+ $("androidScheduleStatus").textContent=enabled?(end>Date.now()?"APKに予約保存済み（Android側のアラームで動作）":"登録済みの予約時刻を経過しています"):(schedule&&schedule.updatedAt?"APK側の予約は解除されています":"APK側の予約情報は未同期です");
+}
+async function refreshAndroidSchedule(){
+ const device=S.device;
+ if(!device){renderAndroidSchedule(null);throw Error("先にAndroid端末をペアリングしてください。");}
+ const result=await api("get_settings",{controllerToken:device.controllerToken,deviceId:device.deviceId});
+ if(!S.device||S.device.deviceId!==device.deviceId)return;
+ renderAndroidSchedule((result.settings||{}).androidSchedule||null);
+ toast("APKの予約時刻を更新しました。");
+}
 async function reserveConnection(){
  if(!S.device)throw Error("先にAndroid端末をペアリングしてください。");
  const input=$("reserveAt").value;const when=new Date(input).getTime();
  if(!Number.isFinite(when)||when<Date.now()+15000)throw Error("15秒以上先の日時を指定してください。");
  localStorage.setItem(RESERVATION_KEY,JSON.stringify({deviceId:S.device.deviceId,when}));
- refreshReservationUi();toast("接続予約を保存しました。予約時刻にこのWeb画面が動作している必要があります。");
+ S.manualDisconnect=false;
+ refreshReservationUi();toast("接続予約を秒単位で保存しました。予約時刻にWeb画面が動作している必要があります。");
 }
 function cancelConnectionReservation(){localStorage.removeItem(RESERVATION_KEY);refreshReservationUi();toast("接続予約を解除しました。");}
 function checkConnectionReservation(){
- const r=readReservation();if(!r||!Number.isFinite(Number(r.when))||Date.now()<Number(r.when))return;
+ const r=readReservation();
+ if(!r||!Number.isFinite(Number(r.when))||!r.deviceId)return;
+ if(Date.now()<Number(r.when)||S.connecting)return;
+ if(!S.device||S.device.deviceId!==r.deviceId){
+  const target=(S.devices||[]).find(device=>device.deviceId===r.deviceId);
+  if(target) selectDevice(target);
+  else { refreshDeviceList(); return; }
+ }
+ if(!S.device||S.device.deviceId!==r.deviceId)return;
+ if(S.pc&&S.pc.connectionState==="connected"&&S.control?.readyState==="open"){
+  localStorage.removeItem(RESERVATION_KEY);refreshReservationUi();toast("予約時刻になりました。すでに接続中です。");return;
+ }
  localStorage.removeItem(RESERVATION_KEY);refreshReservationUi();
- if(!S.device||S.device.deviceId!==r.deviceId){toast("予約時刻になりましたが、対象Androidが選択されていません。");return;}
- if(S.pc){toast("予約時刻になりましたが、すでに接続中です。");return;}
- toast("予約した接続を開始します。");connect(true);
+ S.manualDisconnect=false;
+ S.autoConnectWanted=true;
+ S.reconnectAttempts=0;
+ toast("予約時刻になりました。接続を開始します。");
+ connect(true);
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -2250,6 +2289,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("androidKeepAwake").addEventListener("click", () => toggleAndroidKeepAwake().catch(error => toast(error.message)));
   $("reserveConnection").addEventListener("click",()=>reserveConnection().catch(e=>toast(e.message)));
   $("cancelReservation").addEventListener("click",cancelConnectionReservation);
+  $("refreshAndroidSchedule").addEventListener("click",()=>refreshAndroidSchedule().catch(error=>toast(error.message)));
   $("micNoise").addEventListener("input", () => setNoiseSuppressionLevel($("micNoise").value, false));
   $("micNoise").addEventListener("change", () => {
     setNoiseSuppressionLevel($("micNoise").value, true);
@@ -2277,6 +2317,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   $("wideCameraButton").addEventListener("click", switchToWidestCamera);
   updateWideCameraButton();
+  S.reservationTimer = setInterval(checkConnectionReservation, 250);
+  refreshReservationUi();
+  renderAndroidSchedule(null);
   $("quality").addEventListener("change", scheduleSettingsSave);
   $("dataMode").addEventListener("change", scheduleSettingsSave);
   try {
@@ -2318,19 +2361,19 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 window.addEventListener("offline", () => {
-  if (S.everConnected && !S.manualDisconnect) {
+  if ((S.everConnected || S.autoConnectWanted) && !S.manualDisconnect) {
     status("ネットワーク切断・復旧待機中");
     $("streamState").textContent = "ネットワーク復旧を待っています";
   }
 });
 window.addEventListener("online", () => {
-  if (!S.everConnected || S.manualDisconnect || !S.device) return;
+  if ((!S.everConnected && !S.autoConnectWanted) || S.manualDisconnect || !S.device) return;
   if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
   S.reconnectTimer = null;
   scheduleReconnect(S.pc, true, 200, "online");
 });
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden || !S.everConnected || S.manualDisconnect || !S.device) return;
+  if (document.hidden || (!S.everConnected && !S.autoConnectWanted) || S.manualDisconnect || !S.device) return;
   if (S.pc?.connectionState === "connected" && S.control?.readyState === "open") {
     restoreRemotePlayback();
     return;
@@ -2338,6 +2381,7 @@ document.addEventListener("visibilitychange", () => {
   scheduleReconnect(S.pc, true, 250, "resume");
 });
 
+window.addEventListener("pageshow", () => { checkConnectionReservation(); });
 window.addEventListener("pagehide", () => {
   if (!S.control || S.control.readyState !== "open") return;
   try {

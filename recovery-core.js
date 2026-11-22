@@ -17,7 +17,7 @@
   }
   function shouldRetry(state) {
     return !!state && state.manualDisconnect !== true &&
-      state.hasDevice === true && state.everConnected === true;
+      state.hasDevice === true && (state.everConnected === true || state.autoConnectWanted === true);
   }
   const api = Object.freeze({ retryDelay, shouldRetry, maxDelay: 15000, backoffMs: BACKOFF_MS.slice() });
   if (typeof module === "object" && module.exports) module.exports = api;

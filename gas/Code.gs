@@ -30,7 +30,7 @@ function doGet() {
 }
 
 function health_() {
-  const version = "1.2.0";
+  const version = "1.3.0";
   const spreadsheetId = PropertiesService.getScriptProperties().getProperty("DB_SPREADSHEET_ID");
   if (!spreadsheetId) {
     return {
@@ -119,6 +119,7 @@ function dispatch_(r) {
     case "ack_command": return ackCommand_(r);
     case "get_settings": return getSettings_(r);
     case "save_settings": return saveSettings_(r);
+    case "save_device_schedule": return saveDeviceSchedule_(r);
     case "add_location": return addLocation_(r);
     case "get_locations": return getLocations_(r);
     case "delete_locations": return deleteLocations_(r);
@@ -597,12 +598,47 @@ function saveSettings_(r) {
     idleInterval: clamp_(s.idleInterval, 10, 3600, 300)
   };
   const found = find_("Settings", 0, d.deviceId);
+  if (found) {
+    try {
+      const previous = JSON.parse(found.v[1] || "{}");
+      if (previous.androidSchedule) clean.androidSchedule = previous.androidSchedule;
+    } catch (err) {}
+  }
   const sh = sheet_("Settings");
   const json = JSON.stringify(clean);
   if (found) sh.getRange(found.row, 2, 1, 2).setValues([[json, now_()]]);
   else append_("Settings", [d.deviceId, json, now_()]);
   return { ok: true, settings: clean };
 }
+function saveDeviceSchedule_(r) {
+  const device = authDevice_(String(r.deviceId || ""), String(r.deviceSecret || ""));
+  const startAt = Number(r.startAt || 0);
+  const endAt = Number(r.endAt || 0);
+  const clear = startAt === 0 && endAt === 0;
+  if (!clear && (!Number.isFinite(startAt) || !Number.isFinite(endAt) || startAt <= 0 || endAt <= startAt)) {
+    throw Error("Android予約時刻が不正です。");
+  }
+  const found = find_("Settings", 0, device.deviceId);
+  let settings = {};
+  if (found) {
+    try { settings = JSON.parse(found.v[1] || "{}"); } catch (err) { settings = {}; }
+  }
+  const schedule = {
+    enabled: !clear && endAt > Date.now(),
+    startAt: clear ? 0 : Math.round(startAt),
+    endAt: clear ? 0 : Math.round(endAt),
+    updatedAt: Date.now()
+  };
+  settings.androidSchedule = schedule;
+  const sh = sheet_("Settings");
+  const json = JSON.stringify(settings);
+  if (found) sh.getRange(found.row, 2, 1, 2).setValues([[json, now_()]]);
+  else append_("Settings", [device.deviceId, json, now_()]);
+  log_(device.deviceId, clear ? "android_schedule_clear" : "android_schedule_save", true,
+    clear ? "Android schedule cleared" : "Android schedule saved");
+  return { ok: true, schedule: schedule };
+}
+
 function addLocation_(r) {
   const d = authDevice_(String(r.deviceId || ""), String(r.deviceSecret || ""));
   const lat = Number(r.lat);

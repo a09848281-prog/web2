@@ -52,7 +52,9 @@
         <label>映像FPS<select id="fps">
           <option value="10">10 FPS</option><option value="15">15 FPS</option>
           <option value="20">20 FPS</option><option value="24" selected>24 FPS（標準）</option>
-          <option value="30">30 FPS</option><option value="60">60 FPS（対応端末のみ）</option>
+          <option value="30">30 FPS</option><option value="40">40 FPS（対応端末のみ）</option>
+          <option value="45">45 FPS（対応端末のみ）</option><option value="50">50 FPS（対応端末のみ）</option>
+          <option value="55">55 FPS（対応端末のみ）</option><option value="60">60 FPS（対応端末のみ）</option>
         </select></label>
         <p class="hint">通信量モードは廃止しました。解像度とFPSで画質・通信量が決まります。1080p・60FPSは対応端末のみ。実際にAndroidで適用された解像度とFPSを映像欄に表示します。</p>
         <label>カメラ<select id="camera"><option value="back">背面カメラ</option><option value="front">前面カメラ</option></select></label>
@@ -114,10 +116,17 @@
     <details class="settingsGroup">
       <summary>⏱ 接続予約</summary>
       <div class="settingsBody">
-        <label>接続予定日時<input id="reserveAt" type="datetime-local"></label>
+        <label>接続予定日時<input id="reserveAt" type="datetime-local" step="1"></label>
         <button id="reserveConnection" type="button" class="wide" disabled>この端末への接続を予約</button>
         <button id="cancelReservation" type="button" class="wide" disabled>予約を解除</button>
         <p id="reservationStatus" class="hint">予約なし</p>
+        <div class="deviceCard" style="margin-top:10px">
+          <b>📱 Android APK側の予約</b>
+          <p id="androidScheduleStart" class="hint">開始：未取得</p>
+          <p id="androidScheduleEnd" class="hint">終了：未取得</p>
+          <p id="androidScheduleStatus" class="hint">APK側の予約情報は未同期です</p>
+          <button id="refreshAndroidSchedule" type="button" class="wide" disabled>APK予約時刻を更新</button>
+        </div>
       </div>
     </details>
 
