@@ -37,7 +37,7 @@ const S = {
   adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 },
   audioContext: null, remoteGain: null, remoteAudioSource: null, remoteAnalyser: null,
   flashAvailable: false,
-  androidCameraEnabled: true, androidMicEnabled: true,
+  androidCameraEnabled: true, androidMicEnabled: true, androidKeepAwake: false,
   audioMeterFrame: null, receiveVolume: 70, remoteAudioMuted: false,
   pttLocked: false, pttStartedAt: 0, pttTimeout: null, pttKeyActive: false,
   wakeLock: null, keepAwakeWanted: false,
@@ -250,6 +250,7 @@ async function ptt(enabled) {
       return false;
     } finally {
       S.pttStarting = false;
+  updateAndroidKeepAwakeButton();
     }
   }
 
@@ -812,7 +813,7 @@ function renderDevices() {
   });
 }
 function setControlsEnabled(enabled) {
-  ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair", "reserveConnection", "motionHistory", "motionExport", "motionClear", "remoteMute", "cameraToggle", "micToggle", "deviceInfo"].forEach(id => {
+  ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair", "reserveConnection", "motionHistory", "motionExport", "motionClear", "remoteMute", "cameraToggle", "micToggle", "androidKeepAwake", "deviceInfo"].forEach(id => {
     $(id).disabled = !enabled;
   });
   $("pttLock").disabled = !enabled || !S.pc;
@@ -992,8 +993,9 @@ async function connect(automatic = false) {
       $("streamState").textContent = "映像・音声・DataChannel接続中";
       startRtcStats();
       startVideoWatchdog(pc);
-       updateAndroidMediaButtons();
-        $("remoteMute").disabled = true;
+      updateAndroidMediaButtons();
+      updateAndroidKeepAwakeButton();
+      $("remoteMute").disabled = true;
       $("pttLock").disabled = false;
       $("keepAwake").disabled = false;
       if (S.keepAwakeWanted && !S.wakeLock) enableScreenWakeLock().catch(() => {});
@@ -1006,6 +1008,7 @@ async function connect(automatic = false) {
       $("cameraToggle").disabled = true;
       $("micToggle").disabled = true;
       updateAndroidMediaButtons();
+      updateAndroidKeepAwakeButton();
       settlePendingControlAcks("制御チャネルが切断されました。");
           $("pttLock").disabled = true;
       if (S.pttActive || S.pttRequested) ptt(false);
@@ -1235,6 +1238,7 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   S.micSender = null;
   S.pttRequested = false;
   S.pttStarting = false;
+  updateAndroidKeepAwakeButton();
   S.remoteAudioTracks = [];
   S.remoteVideoStream = null;
   $("remoteVideo").srcObject = null;
@@ -1270,6 +1274,7 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   else status("未ペアリング");
   $("pttLock").disabled = !S.device;
   $("keepAwake").disabled = !S.device;
+  updateAndroidKeepAwakeButton();
 }
 async function loadSettings() {
   const device = S.device;
@@ -1424,6 +1429,24 @@ function updateAndroidMediaButtons() {
   $("cameraToggle").textContent = S.androidCameraEnabled ? "📷 Androidカメラ OFF" : "📷 Androidカメラ ON";
   $("micToggle").textContent = S.androidMicEnabled ? "🎙 Androidマイク OFF" : "🎙 Androidマイク ON";
 }
+
+function updateAndroidKeepAwakeButton() {
+  const button = $("androidKeepAwake");
+  if (!button) return;
+  button.textContent = S.androidKeepAwake ? "📱 Android自動消灯防止 ON" : "📱 Android自動消灯防止 OFF";
+  button.classList.toggle("active", S.androidKeepAwake);
+  button.disabled = !S.pc || S.control?.readyState !== "open";
+}
+
+function toggleAndroidKeepAwake() {
+  const next = !S.androidKeepAwake;
+  if (!sendControl("android_keep_awake", { enabled: next })) return;
+  S.androidKeepAwake = next;
+  updateAndroidKeepAwakeButton();
+  toast(next
+    ? "Androidの自動消灯防止を有効にしました（アプリ画面が前面の間）。"
+    : "Androidの自動消灯防止を解除しました。");
+}
 function toggleAndroidCamera() {
   if (!S.control || S.control.readyState !== "open") return toast("AndroidとのDataChannel接続が必要です。");
   const next = !S.androidCameraEnabled;
@@ -1465,7 +1488,7 @@ function renderDeviceInfo() {
   $("deviceInfoOutput").textContent = JSON.stringify(safe, null, 2);
 }
 
-function updateSliderLabels(){ $("androidSpeakerVolumeValue").value=$("androidSpeakerVolume").value+"%"; $("micNoiseValue").value=Number($("micNoise").value)>0?"ON（端末依存）":"OFF"; $("micSensitivityValue").value=$("micSensitivity").value+"%"; $("micGainValue").value=$("micGain").value+"%"; $("receiveVolumeValue").value=S.receiveVolume+"%"; }
+function updateSliderLabels(){ $("androidSpeakerVolumeValue").value=$("androidSpeakerVolume").value+"%"; const noiseLevel=Number($("micNoise").value); $("micNoiseValue").value=noiseLevel===0?"OFF":"端末標準ON（"+noiseLevel+"要求）"; $("micSensitivityValue").value=$("micSensitivity").value+"%"; $("micGainValue").value=$("micGain").value+"%"; $("receiveVolumeValue").value=S.receiveVolume+"%"; }
 function applyLiveLocationUpdate(raw) {
   const point = LocationUtils && LocationUtils.normalizeLiveLocation(raw);
   if (!point) { console.warn("Rejected invalid RTC location update"); return; }
@@ -1553,7 +1576,9 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
   S.deviceTelemetry = d;
   S.androidCameraEnabled = d.cameraEnabled !== false;
   S.androidMicEnabled = d.microphoneEnabled !== false;
+  S.androidKeepAwake = d.androidKeepAwake === true;
   updateAndroidMediaButtons();
+  updateAndroidKeepAwakeButton();
   const width=Number(d.captureWidth)||0,height=Number(d.captureHeight)||0,actualFps=Number(d.captureFps)||0;
   $("actualVideoFormat").textContent = width>0&&height>0 ? "撮影形式 "+width+"×"+height+" @ "+(actualFps||"--")+"FPS" : "撮影形式 取得待ち";
   if(Number.isFinite(Number(d.speakerVolumePercent))) $("androidSpeakerVolume").value=String(Math.max(0,Math.min(100,Number(d.speakerVolumePercent))));
@@ -2154,6 +2179,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   $("cameraToggle").addEventListener("click",toggleAndroidCamera);
   $("micToggle").addEventListener("click",toggleAndroidMicrophone);
+  $("androidKeepAwake").addEventListener("click",toggleAndroidKeepAwake);
   $("reserveConnection").addEventListener("click",()=>reserveConnection().catch(e=>toast(e.message)));
   $("cancelReservation").addEventListener("click",cancelConnectionReservation);
   $("micNoise").addEventListener("change", scheduleSettingsSave);
