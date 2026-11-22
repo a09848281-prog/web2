@@ -198,7 +198,7 @@ assert.ok(gas.includes("activeControllerCount_(deviceId) >= 3"), "Three-controll
 assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi permission missing");
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
 assert.ok(androidBuild.includes('versionName = "2.8.3-preview"'), "Android app version must be v2.8.3");
-assert.ok(androidBuild.includes("versionCode = 432"), "Android version code must be 431");
+assert.ok(androidBuild.includes("versionCode = 432"), "Android version code must be 432");
 assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v28"'), "v2.8 uses a separate package so v2.7 data and install remain intact");
 assert.ok(webConfig.includes('"appVersion": "2.8.3-preview"'), "Web config version must be v2.8.3");
 assert.ok(html.includes("v2.8.3 Preview"), "PWA display version must be v2.8.3");
@@ -227,8 +227,8 @@ assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from S
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.3.0"'), "GAS API version must be 1.3.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 432"), "Android version code must be 431 for v2.8.3");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.3 Preview", "PWA display name must match v2.8.2");
+assert.ok(androidBuild.includes("versionCode = 432"), "Android version code must be 432 for v2.8.3");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.3 Preview", "PWA display name must match v2.8.3");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 assert.ok(html.includes('id="reserveAt" type="datetime-local" step="1"'), "Web schedule must accept second precision");
 assert.ok(js.includes("S.reservationTimer = setInterval(checkConnectionReservation, 250)"), "Web reservation scheduler missing");
