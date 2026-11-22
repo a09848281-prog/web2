@@ -22,6 +22,7 @@ class StopMonitoringReceiver : BroadcastReceiver() {
                 .getSharedPreferences(AppConfig.PREFS, Context.MODE_PRIVATE)
                 .edit()
                 .putBoolean("monitoringEnabled", false)
+                .putBoolean("androidKeepScreenAwake", false)
                 .apply()
 
             context.applicationContext.stopService(
