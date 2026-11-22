@@ -567,7 +567,7 @@ class MonitorService : Service() {
                         .put("type", "ack").put("requestId", requestId)
                         .put("ok", true).put("message", result))
                     if (commandName == "disconnect") {
-                        prefs.edit().putBoolean("rtcRecoveryArmed", false).apply()
+                        prefs.edit().putBoolean("rtcRecoveryArmed", payload.optBoolean("keepRecovery", false)).apply()
                         delay(150L)
                         closeRtcViewerSession(sessionId)
                     }
