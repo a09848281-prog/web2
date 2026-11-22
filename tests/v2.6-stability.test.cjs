@@ -132,16 +132,68 @@ test("zoomed video can be dragged in both directions and reset", () => {
   assert.match(html, /ドラッグして表示位置を移動できます/);
 });
 
-test("v2.8.2 Web preview stays synchronized with compatible Android package", () => {
+test("v2.8.3 FPS and reconnect preview stays synchronized with compatible Android package", () => {
   const build = read("android/app/build.gradle.kts");
   const config = read("config.json");
   const sw = read("sw.js");
   const pwa = JSON.parse(read("manifest.webmanifest"));
-  assert.match(build, /versionCode = 431/);
-  assert.match(build, /versionName = "2\.8\.0-preview"/);
+  assert.match(build, /versionCode = 432/);
+  assert.match(build, /versionName = "2\.8\.3-preview"/);
   assert.match(build, /applicationId = "jp\.a09848281\.remotecamera\.v28"/);
-  assert.match(config, /"appVersion": "2\.8\.2-preview"/);
-  assert.match(sw, /v2-8-2/);
+  assert.match(config, /"appVersion": "2\.8\.3-preview"/);
+  assert.match(sw, /v2-8-3/);
   assert.match(sw, /noise-suppressor-processor\.js/);
-  assert.equal(pwa.name, "Remote Camera Web2 v2.8.2 Preview");
+  assert.equal(pwa.name, "Remote Camera Web2 v2.8.3 Preview");
+});
+
+test("Android camera, capture and viewer all expose independent real FPS measurements", () => {
+  const rtc = read("android/app/src/main/java/jp/a09848281/remotecamera/RtcEngine.kt");
+  const service = read("android/app/src/main/java/jp/a09848281/remotecamera/MonitorService.kt");
+  const cameraSession = read("android/app/src/main/java/org/webrtc/RemoteTorchCamera2Session.java");
+  assert.match(rtc, /private val captureFpsMonitor = object : VideoSink/);
+  assert.match(rtc, /\.addSink\(captureFpsMonitor\)/);
+  assert.match(rtc, /\.removeSink\(captureFpsMonitor\)/);
+  assert.match(rtc, /\.put\("measuredFps",/);
+  assert.match(rtc, /\.put\("frameAgeMs",/);
+  assert.match(service, /\.put\("captureMeasuredFps", capture\.optInt\("measuredFps"/);
+  assert.match(service, /\.put\("captureFrameAgeMs", capture\.optLong\("frameAgeMs"/);
+  assert.match(cameraSession, /Selected target FPS range/);
+  assert.match(cameraSession, /range\.min == framerate && range\.max == framerate/);
+  assert.match(cameraSession, /Electronic stabilization disabled to prioritize 30\+ FPS/);
+  assert.match(web, /decodedVideoFrames/);
+  assert.match(web, /S\.viewerReceiveFps/);
+  assert.match(web, /Web受信 /);
+});
+
+test("normal thermal protection preserves up to 30 FPS and reduces resolution first", () => {
+  const service = read("android/app/src/main/java/jp/a09848281/remotecamera/MonitorService.kt");
+  assert.match(service, /lowBattery = percent in 0\.\.10 && !charging/);
+  assert.match(service, /criticalThermal = thermal >= PowerManager\.THERMAL_STATUS_CRITICAL/);
+  assert.match(service, /currentQuality = if \(criticalThermalProtection\) "360" else "480"/);
+  assert.match(service, /minOf\(currentFps, 30\)/);
+  assert.match(service, /minOf\(currentFps, 20\)/);
+  assert.doesNotMatch(service, /currentFps = 10\s*\n\s*\}/);
+});
+
+test("stalled WebRTC setup is bounded, invalidated and retried without stacked timers", () => {
+  assert.match(web, /connectionAttemptWatchdog/);
+  assert.match(web, /abortStalledConnectAttempt\(attemptId\)/);
+  assert.match(web, /assertConnectAttempt\(attemptId, device\.deviceId\)/);
+  assert.match(web, /withTimeout\(pc\.createOffer\(\), 8000/);
+  assert.match(web, /withTimeout\(pc\.setLocalDescription\(offer\), 8000/);
+  assert.match(web, /function api\(action, data = \{\}, timeoutMs = null\)/);
+  assert.match(web, /consecutiveFailures >= 3/);
+  assert.match(web, /if \(S\.connecting\) \{/);
+  assert.match(web, /++S\.connectionAttemptId/);
+  const disconnect = web.slice(web.indexOf("async function disconnect("), web.indexOf("async function loadSettings("));
+  assert.match(disconnect, /S\.connectionAttemptWatchdog = null/);
+  assert.match(disconnect, /S\.connecting = false/);
+});
+
+test("Android signaling polling has strict network timeouts", () => {
+  const api = read("android/app/src/main/java/jp/a09848281/remotecamera/ApiClient.kt");
+  const service = read("android/app/src/main/java/jp/a09848281/remotecamera/MonitorService.kt");
+  assert.match(api, /connectTimeoutMs: Int = 15000/);
+  assert.match(api, /readTimeoutMs: Int = 20000/);
+  assert.match(service, /10000,\s*12000\s*\)/);
 });
