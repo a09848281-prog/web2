@@ -311,7 +311,8 @@ class MonitorService : Service() {
             recipients.forEach { id ->
                 try { rtc?.setScreenShareRecipient(id, false) } catch (_: Exception) {}
             }
-            if (denied) screenRequesters.clear()
+            // Android or the user stopped the projection: release every stale screen request.
+            screenRequesters.clear()
             getSystemService(NotificationManager::class.java).cancel(SCREEN_NOTIFICATION_ID)
             if (prefs.getBoolean("monitoringEnabled", false)) {
                 try { updateForegroundScreenProjection(false) } catch (error: Exception) {
