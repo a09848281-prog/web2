@@ -103,6 +103,7 @@ jobs:
           ref: preview/v2.8.2-command-stability
           path: v282-source
       - name: Run JavaScript regression and project checks
+        working-directory: v282-source
         run: |
           node --check app.js
           node --check recovery-core.js
