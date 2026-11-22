@@ -42,12 +42,12 @@ const S = {
   noiseStrength: 70, audioAttachGeneration: 0,
   zoomPanX: 0, zoomPanY: 0, zoomDrag: null,
   flashAvailable: false,
-  androidCameraEnabled: true, androidMicEnabled: true, androidKeepAwake: false,
+  androidCameraEnabled: true, androidMicEnabled: true,
   audioMeterFrame: null, receiveVolume: 70, remoteAudioMuted: false,
   wakeLock: null, keepAwakeWanted: false, keepAwakeTogglePending: false, wakeLockRequestGeneration: 0,
   videoWatchdogTimer: null, videoFrameCallbackId: null, videoUsesFrameCallback: false,
   viewportRestoreTimer: null,
-  hasReceivedVideoFrame: false, lastVideoFrameAt: 0, connectedAt: 0, sessionTimer: null,
+  hasReceivedVideoFrame: false, lastVideoFrameAt: 0, videoWatchdogGraceUntil: 0, connectedAt: 0, sessionTimer: null,
   statsLast: null, manualDisconnect: false, reconnectResetTimer: null,
   connectionTimeoutTimer: null, connectionTimeoutPeer: null, cameraCapabilities: [],
   settingsSaveQueue: Promise.resolve()
@@ -456,6 +456,7 @@ function startVideoWatchdog(peer) {
     if (S.pc !== peer) return;
     S.hasReceivedVideoFrame = true;
     S.lastVideoFrameAt = Date.now();
+    S.videoWatchdogGraceUntil = 0;
     $("videoState").textContent = "映像受信中";
     if (typeof video.requestVideoFrameCallback === "function") {
       S.videoUsesFrameCallback = true;
@@ -468,19 +469,33 @@ function startVideoWatchdog(peer) {
   }
   S.videoWatchdogTimer = setInterval(() => {
     if (S.pc !== peer || peer.connectionState !== "connected" || document.hidden) return;
+    // A deliberate camera OFF state is not a failed connection.
+    if (S.androidCameraEnabled === false) {
+      $("videoState").textContent = "Androidカメラ OFF";
+      return;
+    }
     if (!S.videoUsesFrameCallback && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0) {
       if (video.currentTime > previousCurrentTime + 0.015) {
         previousCurrentTime = video.currentTime;
         S.hasReceivedVideoFrame = true;
         S.lastVideoFrameAt = Date.now();
+        S.videoWatchdogGraceUntil = 0;
       }
     }
     const now = Date.now();
-    if (!S.hasReceivedVideoFrame && now - S.connectedAt > 12000) {
-      $("videoState").textContent = "映像未着信・自動復旧中";
-      scheduleReconnect(peer, "video-stalled");
-    } else if (S.hasReceivedVideoFrame && now - S.lastVideoFrameAt > 6000) {
-      $("videoState").textContent = "映像フリーズ・自動復旧中";
+    if (RemoteCameraRecovery.shouldRecoverVideo({
+      now,
+      cameraEnabled: S.androidCameraEnabled,
+      manualDisconnect: S.manualDisconnect,
+      graceUntil: S.videoWatchdogGraceUntil,
+      lastFrameAt: S.lastVideoFrameAt,
+      hasReceivedFrame: S.hasReceivedVideoFrame,
+      startupMs: 18000,
+      freezeMs: 15000
+    })) {
+      $("videoState").textContent = S.hasReceivedVideoFrame
+        ? "映像フリーズ・自動復旧中"
+        : "映像未着信・自動復旧中";
       scheduleReconnect(peer, "video-stalled");
     }
   }, 2000);
@@ -935,7 +950,7 @@ function renderDevices() {
   });
 }
 function setControlsEnabled(enabled) {
-  ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair", "reserveConnection", "refreshAndroidSchedule", "motionHistory", "motionExport", "motionClear", "remoteMute", "cameraToggle", "micToggle", "androidKeepAwake", "deviceInfo"].forEach(id => {
+  ["connect", "locate", "saveSettings", "history", "deleteHistory", "unpair", "reserveConnection", "refreshAndroidSchedule", "motionHistory", "motionExport", "motionClear", "remoteMute", "cameraToggle", "micToggle", "deviceInfo"].forEach(id => {
     $(id).disabled = !enabled;
   });
   $("keepAwake").disabled = !enabled || !S.pc;
@@ -1153,7 +1168,6 @@ async function connect(automatic = false) {
       startRtcStats();
       startVideoWatchdog(pc);
       updateAndroidMediaButtons();
-      updateAndroidKeepAwakeButton();
       $("remoteMute").disabled = true;
       $("keepAwake").disabled = false;
       if (S.keepAwakeWanted && !S.wakeLock) enableScreenWakeLock().catch(() => {});
@@ -1166,7 +1180,6 @@ async function connect(automatic = false) {
       $("cameraToggle").disabled = true;
       $("micToggle").disabled = true;
       updateAndroidMediaButtons();
-      updateAndroidKeepAwakeButton();
       settlePendingControlAcks("制御チャネルが切断されました。");
       discardControlSendQueue(control);
       if (S.pttActive || S.pttRequested) setWebMicEnabled(false);
@@ -1409,7 +1422,6 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   S.micSender = null;
   S.pttRequested = false;
   S.pttStarting = false;
-  updateAndroidKeepAwakeButton();
   S.remoteAudioTracks = [];
   S.remoteVideoStream = null;
   $("remoteVideo").srcObject = null;
@@ -1442,7 +1454,6 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   if (S.device) status("ペアリング済み");
   else status("未ペアリング");
   $("keepAwake").disabled = !S.device;
-  updateAndroidKeepAwakeButton();
 }
 async function loadSettings() {
   const device = S.device;
@@ -1589,12 +1600,26 @@ function pumpControlSendQueue() {
   }, wait);
 }
 
+function isVideoChangingCommand(name, payload = {}) {
+  if (["camera", "torch", "quality", "data_mode", "settings_update", "adaptive_quality"].includes(name)) return true;
+  return name === "media_toggle" && Object.prototype.hasOwnProperty.call(payload, "cameraEnabled");
+}
+function grantVideoWatchdogGrace(ms = 15000) {
+  const now = Date.now();
+  S.videoWatchdogGraceUntil = Math.max(S.videoWatchdogGraceUntil || 0, now + ms);
+  S.lastVideoFrameAt = now;
+}
+function prepareForVideoCommand(name, payload = {}) {
+  if (isVideoChangingCommand(name, payload)) grantVideoWatchdogGrace(15000);
+}
+
 function sendControl(name,payload={}) {
   const channel = S.control;
   if (!channel || channel.readyState !== "open") {
     toast("DataChannelが未接続です。");
     return false;
   }
+  prepareForVideoCommand(name, payload);
   if (channel.bufferedAmount > 512 * 1024 || controlSendQueue.length >= CONTROL_SEND_QUEUE_LIMIT) {
     toast("Androidへの操作が集中しています。少し待ってから再操作してください。");
     return false;
@@ -1613,12 +1638,13 @@ function sendControlAndWait(name, payload = {}, timeoutMs = 1200) {
       controlSendQueue.length >= CONTROL_SEND_QUEUE_LIMIT) {
     return Promise.resolve({ ok: false, timeout: true, message: "DataChannel未接続または送信待ちです。" });
   }
+  prepareForVideoCommand(name, payload);
   const requestId = rid();
   return new Promise(resolve => {
     const timer = setTimeout(() => {
       S.pendingControlAcks.delete(requestId);
       resolve({ ok: false, timeout: true, message: "Androidから応答がありませんでした。" });
-    }, Math.max(250, Math.min(5000, timeoutMs)));
+    }, Math.max(250, Math.min(12000, timeoutMs)));
     S.pendingControlAcks.set(requestId, result => {
       clearTimeout(timer);
       resolve(result);
@@ -1638,42 +1664,56 @@ function settlePendingControlAcks(message = "制御チャネルが閉じられ�
 }
 function updateAndroidMediaButtons() {
   const open = S.control?.readyState === "open";
-  $("cameraToggle").disabled = !open;
-  $("micToggle").disabled = !open;
+  $("cameraToggle").disabled = !open || $("cameraToggle").dataset.pending === "true";
+  $("micToggle").disabled = !open || $("micToggle").dataset.pending === "true";
   $("camera").disabled = !open || !S.androidCameraEnabled;
   $("cameraToggle").textContent = S.androidCameraEnabled ? "📷 Androidカメラ OFF" : "📷 Androidカメラ ON";
   $("micToggle").textContent = S.androidMicEnabled ? "🎙 Androidマイク OFF" : "🎙 Androidマイク ON";
-  updateAndroidKeepAwakeButton();
 }
 
-function updateAndroidKeepAwakeButton() {
-  const button = $("androidKeepAwake");
-  if (!button) return;
-  button.textContent = S.androidKeepAwake ? "📱 Androidスリープ防止 ON" : "📱 Androidスリープ防止 OFF";
-  button.classList.toggle("active", S.androidKeepAwake);
-  button.disabled = !S.pc || S.control?.readyState !== "open" || button.dataset.pending === "true";
-}
-async function toggleAndroidKeepAwake() {
-  const button = $("androidKeepAwake"), next = !S.androidKeepAwake;
-  button.dataset.pending = "true"; updateAndroidKeepAwakeButton();
-  try {
-    const result = await sendControlAndWait("android_keep_awake", { enabled: next }, 2200);
-    if (!result.ok) throw new Error(result.message || "Androidから応答がありません。");
-    S.androidKeepAwake = next;
-    toast(next ? "Android画面の点灯・自動消灯防止を有効にしました。" : "Androidスリープ防止を解除しました。");
-  } catch (error) { toast("Androidスリープ防止を変更できませんでした: " + error.message); }
-  finally { button.dataset.pending = "false"; updateAndroidKeepAwakeButton(); }
-}
-
-function toggleAndroidCamera() {
+async function toggleAndroidCamera() {
+  const button = $("cameraToggle");
+  if (button.dataset.pending === "true") return;
   if (!S.control || S.control.readyState !== "open") return toast("AndroidとのDataChannel接続が必要です。");
   const next = !S.androidCameraEnabled;
-  if (sendControl("media_toggle", { cameraEnabled: next })) toast(next ? "Androidカメラの再開を要求しました。" : "Androidカメラの停止を要求しました。");
+  button.dataset.pending = "true";
+  grantVideoWatchdogGrace(15000);
+  updateAndroidMediaButtons();
+  try {
+    const result = await sendControlAndWait("media_toggle", { cameraEnabled: next }, 12000);
+    if (!result.ok) throw new Error(result.message || "Androidから応答がありません。");
+    S.androidCameraEnabled = next;
+    if (next) {
+      S.hasReceivedVideoFrame = false;
+      S.lastVideoFrameAt = Date.now();
+      grantVideoWatchdogGrace(15000);
+    }
+    toast(next ? "Androidカメラを再開しました。" : "Androidカメラを停止しました。監視通信は維持します。");
+  } catch (error) {
+    toast("Androidカメラの切替に失敗しました: " + error.message);
+  } finally {
+    button.dataset.pending = "false";
+    updateAndroidMediaButtons();
+  }
 }
-function toggleAndroidMicrophone() {
+async function toggleAndroidMicrophone() {
+  const button = $("micToggle");
+  if (button.dataset.pending === "true") return;
   if (!S.control || S.control.readyState !== "open") return toast("AndroidとのDataChannel接続が必要です。");
   const next = !S.androidMicEnabled;
-  if (sendControl("media_toggle", { microphoneEnabled: next })) toast(next ? "Androidマイクの再開を要求しました。" : "Androidマイクの停止を要求しました。");
+  button.dataset.pending = "true";
+  updateAndroidMediaButtons();
+  try {
+    const result = await sendControlAndWait("media_toggle", { microphoneEnabled: next }, 8000);
+    if (!result.ok) throw new Error(result.message || "Androidから応答がありません。");
+    S.androidMicEnabled = next;
+    toast(next ? "Androidマイクを再開しました。" : "Androidマイクを停止しました。");
+  } catch (error) {
+    toast("Androidマイクの切替に失敗しました: " + error.message);
+  } finally {
+    button.dataset.pending = "false";
+    updateAndroidMediaButtons();
+  }
 }
 function readLiveSettings(){return {quality:$("quality").value,dataMode:$("dataMode").value,fps:Number($("fps").value),aspectRatio:$("aspectRatio").value,micNoise:Number($("micNoise").value),micSensitivity:Number($("micSensitivity").value),micGain:Number($("micGain").value),speakerVolume:Number($("androidSpeakerVolume").value),micMode:$("micMode").value};}
 function bytesText(value){const b=Math.max(0,Number(value)||0);if(b<1024)return b.toFixed(0)+" B";if(b<1048576)return (b/1024).toFixed(1)+" KB";return (b/1048576).toFixed(2)+" MB";}
@@ -1762,10 +1802,6 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
   if (["ambient", "balanced", "voice"].includes(String(v.micMode))) {
     $("micMode").value = String(v.micMode);
   }
-  if (typeof v.androidKeepAwake === "boolean") {
-    S.androidKeepAwake = v.androidKeepAwake;
-    updateAndroidKeepAwakeButton();
-  }
   applyAspectRatio($("aspectRatio").value);
   updateSliderLabels();
   const targetDevice = S.device;
@@ -1808,9 +1844,7 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
   S.deviceTelemetry = d;
   S.androidCameraEnabled = d.cameraEnabled !== false;
   S.androidMicEnabled = d.microphoneEnabled !== false;
-  S.androidKeepAwake = d.androidKeepAwake === true;
   updateAndroidMediaButtons();
-  updateAndroidKeepAwakeButton();
   const width=Number(d.captureWidth)||0,height=Number(d.captureHeight)||0,profileFps=Number(d.captureFps)||0;
   const requestedFps=Number(d.requestedFps)||Number($("fps").value)||0;
   $("actualVideoFormat").textContent = width>0&&height>0
@@ -1941,8 +1975,10 @@ function startRtcStats() {
 async function command(name,payload={}) {
   if (!S.device) throw Error("Android端末をペアリングしてください。");
   if (S.control?.readyState === "open") {
-    if (!sendControl(name,payload)) throw Error("DataChannelへの送信に失敗しました。");
-    toast("DataChannelでAndroidへ直接送信しました。"); return true;
+    const result = await sendControlAndWait(name, payload, 12000);
+    if (!result.ok) throw Error(result.message || "Androidから応答がありませんでした。");
+    toast("Androidで操作を受け付けました。");
+    return true;
   }
   await api("send_command",{controllerToken:S.device.controllerToken,deviceId:S.device.deviceId,command:name,payload});
   toast("接続前命令をGASに登録しました。"); return true;
@@ -2410,7 +2446,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   $("cameraToggle").addEventListener("click",toggleAndroidCamera);
   $("micToggle").addEventListener("click",toggleAndroidMicrophone);
-  $("androidKeepAwake").addEventListener("click", () => toggleAndroidKeepAwake().catch(error => toast(error.message)));
+  $("androidKeepAwake").addEventListener("click", () => toast("安全性と接続安定性のため、WebからのAndroidスリープ制御は無効です。"));
   $("reserveConnection").addEventListener("click",()=>reserveConnection().catch(e=>toast(e.message)));
   $("cancelReservation").addEventListener("click",cancelConnectionReservation);
   $("refreshAndroidSchedule").addEventListener("click",()=>refreshAndroidSchedule().catch(error=>toast(error.message)));
