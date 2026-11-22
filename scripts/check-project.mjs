@@ -181,7 +181,7 @@ assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake l
 assert.ok(androidBuild.includes('versionName = "2.8.0-preview"'), "Android app version must be v2.8.0");
 assert.ok(androidBuild.includes("versionCode = 431"), "Android version code must be 431");
 assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v26"'), "v2.7 must update the existing v2.6 package in place");
-assert.ok(webConfig.includes('"appVersion": "2.8.0-preview"'), "Web config version must be v2.7.1");
+assert.ok(webConfig.includes('"appVersion": "2.8.0-preview"'), "Web config version must be v2.8.0");
 assert.ok(html.includes("v2.8.0 Preview"), "PWA display version must be v2.8.0");
 assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-0"'), "PWA cache key must be bumped to v2.8.0");
 assert.ok(serviceWorker.includes("noise-suppressor-processor.js"), "Audio worklet must be precached");
@@ -259,7 +259,7 @@ assert.ok(js.includes('$("micNoise").addEventListener("input"') && js.includes("
 const connectFunction = js.slice(js.indexOf("async function connect("), js.indexOf("function scheduleReconnect("));
 assert.ok(connectFunction.includes("void setWebMicEnabled(true)"), "Browser microphone must start automatically during connection setup");
 assert.ok(js.includes("sender.replaceTrack(track)") && js.includes("sender?.replaceTrack(null)") && js.includes("track.stop()"), "Web mic must attach and release real tracks");
-assert.ok(js.includes("await setWebMicEnabled(false)") && js.includes('sendControlAndWait("disconnect", { sessionId }, 800)'), "Disconnect must release the Web mic before bounded remote shutdown");
+assert.ok(js.includes("await setWebMicEnabled(false)") && js.includes('sendControlAndWait("disconnect", { sessionId, keepRecovery }, 800)'), "Disconnect must release the Web mic before bounded remote shutdown");
 assert.ok(!js.includes("pttLock") && !html.includes('id="pttLock"'), "Obsolete PTT lock UI must be removed");
 assert.ok(html.includes("接続時にマイクを開始します") || html.includes("接続時自動ON"), "UI must explain automatic Web microphone startup");
 assert.ok(main.includes("StopMonitoringReceiver.stop(this)"), "Android UI stop button must use common stop receiver");
