@@ -28,7 +28,7 @@ test("Web microphone toggle acquires, attaches and releases the browser audio tr
   assert.ok(mic.length > 0);
   assert.match(mic, /navigator\.mediaDevices\.getUserMedia/);
   assert.match(mic, /sender\.replaceTrack\(track\)/);
-  assert.match(mic, /sender\?\.replaceTrack\(null\)/);
+  assert.match(mic, /sender\.replaceTrack\(null\)/);
   assert.match(mic, /stream\?\.getTracks\(\)\.forEach\(track => track\.stop\(\)\)/);
   assert.match(mic, /requestId !== S\.pttRequestId/);
   assert.equal(html.includes('id="pttLock"'), false);
@@ -184,7 +184,7 @@ test("stalled WebRTC setup is bounded, invalidated and retried without stacked t
   assert.match(web, /function api\(action, data = \{\}, timeoutMs = null\)/);
   assert.match(web, /consecutiveFailures >= 3/);
   assert.match(web, /if \(S\.connecting\) \{/);
-  assert.match(web, /++S\.connectionAttemptId/);
+  assert.ok(web.includes("++S.connectionAttemptId"));
   const disconnect = web.slice(web.indexOf("async function disconnect("), web.indexOf("async function loadSettings("));
   assert.match(disconnect, /S\.connectionAttemptWatchdog = null/);
   assert.match(disconnect, /S\.connecting = false/);
