@@ -120,7 +120,7 @@ class RtcEngine(
     )
 
     private data class CameraOption(
-        val id: String, val facing: String, val focalLength: Float?
+        val id: String, val facing: String, val focalLength: Float?, val horizontalFovDegrees: Float?
     )
 
     private fun cameraOptions(): List<CameraOption> {
@@ -134,15 +134,19 @@ class RtcEngine(
                     CameraCharacteristics.LENS_FACING_FRONT -> "front"
                     else -> return@mapNotNull null
                 }
-                val focal = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
-                    ?.minOrNull()
-                CameraOption(id, facing, focal)
+                val focal = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.minOrNull()
+                val sensorWidthMm = chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)?.width
+                val horizontalFov = if (sensorWidthMm != null && focal != null && focal > 0f) {
+                    Math.toDegrees(2.0 * kotlin.math.atan(sensorWidthMm.toDouble() / (2.0 * focal.toDouble()))).toFloat()
+                } else null
+                CameraOption(id, facing, focal, horizontalFov)
             } catch (e: Exception) {
                 Log.w("RemoteCameraRTC", "Could not inspect camera $id", e)
                 null
             }
         }.sortedWith(
             compareBy<CameraOption> { if (it.facing == "back") 0 else 1 }
+                .thenByDescending { it.horizontalFovDegrees ?: Float.NEGATIVE_INFINITY }
                 .thenBy { it.focalLength ?: Float.MAX_VALUE }
         )
     }
@@ -152,9 +156,11 @@ class RtcEngine(
         val rear = all.filter { it.facing == "back" }.sortedBy { it.focalLength ?: Float.MAX_VALUE }
         if (rear.size <= 1) return "背面カメラ"
         val focal = option.focalLength ?: return "背面カメラ"
-        val shortest = rear.firstNotNullOfOrNull { it.focalLength } ?: focal
+        val shortest = rear.mapNotNull { it.focalLength }.minOrNull() ?: focal
         val ratio = focal / shortest.coerceAtLeast(0.01f)
         return when {
+            (option.horizontalFovDegrees ?: 0f) >= 90f -> "背面・超広角"
+            (option.horizontalFovDegrees ?: 0f) >= 72f -> "背面・広角"
             ratio <= 1.15f -> "背面・広角"
             ratio >= 1.65f -> "背面・望遠"
             else -> "背面・標準"
@@ -168,7 +174,9 @@ class RtcEngine(
             json.put(JSONObject()
                 .put("id", option.id)
                 .put("facing", option.facing)
-                .put("label", cameraLabel(option, all)))
+                .put("label", cameraLabel(option, all))
+                .put("focalLengthMm", option.focalLength?.toDouble() ?: JSONObject.NULL)
+                .put("horizontalFovDegrees", option.horizontalFovDegrees?.toDouble() ?: JSONObject.NULL))
         }
         sendControl(sessionId, JSONObject()
             .put("type", "camera_capabilities")
@@ -420,10 +428,10 @@ class RtcEngine(
                     onConnectionState(sessionId,state.name)
                     if (state == PeerConnection.IceConnectionState.DISCONNECTED) {
                         scope.launch {
-                            delay(8000L)
+                            delay(5000L)
                             if (peers[sessionId] === peer &&
                                 peer.iceConnectionState() == PeerConnection.IceConnectionState.DISCONNECTED) {
-                                failSession(sessionId, peer, "ICE disconnected for 8 seconds")
+                                failSession(sessionId, peer, "ICE disconnected for 5 seconds")
                             }
                         }
                     } else if (state == PeerConnection.IceConnectionState.FAILED ||
@@ -457,7 +465,12 @@ class RtcEngine(
                         channel.registerObserver(object:DataChannel.Observer {
                             override fun onBufferedAmountChange(previousAmount:Long) {}
                             override fun onStateChange() {
-                                if(channel.state()==DataChannel.State.OPEN)onConnectionState(sessionId,"DATA_CHANNEL_OPEN")
+                                if (controlChannels[sessionId] !== channel) return
+                                when (channel.state()) {
+                                    DataChannel.State.OPEN -> onConnectionState(sessionId, "DATA_CHANNEL_OPEN")
+                                    DataChannel.State.CLOSED -> onConnectionState(sessionId, "DATA_CHANNEL_CLOSED")
+                                    else -> Unit
+                                }
                             }
                             override fun onMessage(buffer:DataChannel.Buffer) {
                                 if(buffer.binary)return

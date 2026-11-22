@@ -87,6 +87,7 @@ class MonitorService : Service() {
     private var lastTrafficRx = 0L
     private var lastTrafficAt = 0L
     private var lastNetworkError = ""
+    @Volatile private var recoveryPollUntil = 0L
     private val apiReady = CompletableDeferred<Unit>()
     private var streamWakeLock: PowerManager.WakeLock? = null
     private var streamWifiLock: WifiManager.WifiLock? = null
@@ -291,6 +292,7 @@ class MonitorService : Service() {
             while (scope.isActive) {
                 sampleTrafficUsage()
                 val controlOpen = rtc?.hasOpenControlChannel() == true
+                val recoveryActive = System.currentTimeMillis() < recoveryPollUntil || (rtc?.peerCount() ?: 0) > 0
                 if (!controlOpen && (rtc?.peerCount() ?: 0) == 0) {
                     // Reset the app-wide traffic baseline only after the last
                     // viewer leaves, not whenever another viewer connects.
@@ -314,6 +316,13 @@ class MonitorService : Service() {
                     val untilNextPoll = activePollInterval - elapsed
                     if (untilNextPoll > 0L) {
                         delay(minOf(5000L, untilNextPoll))
+                        continue
+                    }
+                } else if (recoveryActive) {
+                    val elapsed = System.currentTimeMillis() - lastDevicePollAt
+                    val untilNextPoll = 1000L - elapsed
+                    if (untilNextPoll > 0L) {
+                        delay(minOf(250L, untilNextPoll))
                         continue
                     }
                 }
@@ -454,6 +463,7 @@ class MonitorService : Service() {
     private fun onRtcConnectionState(sessionId:String,state:String) {
         when(state) {
             "DATA_CHANNEL_OPEN" -> {
+                recoveryPollUntil = 0L
                 updateStreamWakeLock(true)
                 if (trafficBaselineTx < 0L || trafficBaselineRx < 0L) {
                     trafficBaselineTx=TrafficStats.getUidTxBytes(Process.myUid())
@@ -471,8 +481,10 @@ class MonitorService : Service() {
                     }
                 }
             }
-            "FAILED", "CLOSED", "SESSION_REMOVED" -> {
-                lastNetworkError = "WebRTC ICE状態: " + state
+            "FAILED", "CLOSED", "SESSION_REMOVED", "DATA_CHANNEL_CLOSED" -> {
+                recoveryPollUntil = System.currentTimeMillis() + 45000L
+                lastDevicePollAt = 0L
+                lastNetworkError = "WebRTC / DataChannel state: " + state
                 // Defer disposal out of the WebRTC observer callback. FAILED is
                 // immediately removed by RtcEngine; SESSION_REMOVED is the final cleanup signal.
                 scope.launch(Dispatchers.IO) {
@@ -484,10 +496,11 @@ class MonitorService : Service() {
                 }
             }
             "DISCONNECTED" -> {
-                // RtcEngine gives ICE a recovery window. If the same session is
-                // still disconnected after the grace period, close it as an orphan.
+                recoveryPollUntil = System.currentTimeMillis() + 45000L
+                lastDevicePollAt = 0L
+                // Poll for a replacement offer while ICE gets a short recovery grace period.
                 scope.launch {
-                    delay(15000L)
+                    delay(9000L)
                     val engine = rtc
                     if (engine != null && engine.hasSession(sessionId) &&
                         engine.iceConnectionState(sessionId) == "DISCONNECTED") {
