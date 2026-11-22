@@ -15,7 +15,6 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.Gravity
-import android.view.WindowManager
 import android.text.InputType
 import android.text.Editable
 import android.text.TextWatcher
@@ -46,7 +45,6 @@ class MainActivity : Activity() {
     private lateinit var startButton: Button
     private lateinit var refreshCodeButton: Button
     private lateinit var stopButton: Button
-    private lateinit var keepAwakeButton: Button
     private lateinit var pollIntervalInput: EditText
     private lateinit var qualitySpinner: Spinner
     private lateinit var fpsSpinner: Spinner
@@ -99,23 +97,6 @@ class MainActivity : Activity() {
             text = "監視待機を停止"
             isEnabled = false
             setOnClickListener { stopMonitoring() }
-        }
-        keepAwakeButton = Button(this).apply {
-            setOnClickListener {
-                val enabled = !prefs.getBoolean("androidKeepScreenAwake", false)
-                prefs.edit().putBoolean("androidKeepScreenAwake", enabled).apply()
-                if (prefs.getBoolean("monitoringEnabled", false)) {
-                    try {
-                        startService(Intent(this@MainActivity, MonitorService::class.java).apply {
-                            action = MonitorService.ACTION_DISPLAY_AWAKE
-                            putExtra("enabled", enabled)
-                        })
-                    } catch (error: Exception) {
-                        Toast.makeText(this@MainActivity, "待機サービスへ設定を送れませんでした。", Toast.LENGTH_LONG).show()
-                    }
-                }
-                applyKeepScreenAwake()
-            }
         }
         root.addView(status)
         root.addView(codeView)
@@ -203,13 +184,6 @@ class MainActivity : Activity() {
         root.addView(refreshCodeButton, LinearLayout.LayoutParams(-1, -2))
         root.addView(startButton, LinearLayout.LayoutParams(-1, -2))
         root.addView(stopButton, LinearLayout.LayoutParams(-1, -2))
-        root.addView(keepAwakeButton, LinearLayout.LayoutParams(-1, -2))
-        root.addView(TextView(this).apply {
-            text = "画面の自動消灯を抑制します。Webからも切替できますが、電池消費が増えます。AndroidのPIN・パターン・生体認証ロックを無効化する機能ではありません。"
-            textSize = 12f
-            setTextColor(0xFF66758B.toInt())
-            setPadding(0, 4, 0, 10)
-        })
         root.addView(TextView(this).apply {
             text = "開始ボタンを押すと通知欄に待機状態が表示されます。アプリを表示した状態でカメラ・マイクなどの権限を許可してから待機を開始してください。強制停止・再起動・権限取消後の自動復帰は保証されません。"
             textSize = 13f
@@ -501,13 +475,6 @@ class MainActivity : Activity() {
         refreshMonitoringButtons()
     }
 
-    private fun applyKeepScreenAwake() {
-        val enabled = prefs.getBoolean("androidKeepScreenAwake", false)
-        if (enabled) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        keepAwakeButton.text = if (enabled) "📱 自動消灯防止 ON" else "📱 自動消灯防止 OFF"
-    }
-
     private fun showSavedCode() {
         val code = prefs.getString("registrationCode", "") ?: ""
         val id = prefs.getString("deviceId", "") ?: ""
@@ -524,33 +491,24 @@ class MainActivity : Activity() {
         super.onResume()
         prefs.edit().putBoolean("mainActivityVisible", true).apply()
         val filter = android.content.IntentFilter(MonitorService.ACTION_CODE).apply {
-            addAction(ACTION_KEEP_SCREEN_AWAKE_STATE)
             addAction(ACTION_MONITOR_STOPPED)
         }
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(codeReceiver, filter, RECEIVER_NOT_EXPORTED)
         else @Suppress("DEPRECATION") registerReceiver(codeReceiver, filter)
         showSavedCode()
         refreshMonitoringButtons()
-        applyKeepScreenAwake()
     }
 
     override fun onPause() {
         prefs.edit().putBoolean("mainActivityVisible", false).apply()
-        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         try { unregisterReceiver(codeReceiver) } catch (_: Exception) {}
         super.onPause()
     }
 
     private val codeReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
-            if (intent?.action == ACTION_KEEP_SCREEN_AWAKE_STATE) {
-                prefs.edit().putBoolean("androidKeepScreenAwake", intent.getBooleanExtra("enabled", false)).apply()
-                applyKeepScreenAwake()
-                return
-            }
             if (intent?.action == ACTION_MONITOR_STOPPED) {
                 prefs.edit().putBoolean("androidKeepScreenAwake", false).apply()
-                applyKeepScreenAwake()
                 status.text = "監視待機を停止しました。カメラ・マイク・通信は終了しています。"
                 refreshMonitoringButtons()
                 return
@@ -579,7 +537,6 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        const val ACTION_KEEP_SCREEN_AWAKE_STATE = "jp.a09848281.remotecamera.KEEP_SCREEN_AWAKE_STATE"
         const val ACTION_MONITOR_STOPPED = "jp.a09848281.remotecamera.MONITOR_STOPPED"
     }
 }
