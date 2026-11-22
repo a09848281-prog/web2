@@ -25,8 +25,8 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 
 - Branch: `preview/v2.8.0-stable-reconnect`
 - PWA: `https://a09848281-prog.github.io/web2/v2.8.0/`
-- Android version: `2.8.0-preview` / versionCode `431`
-- The existing Android package ID `jp.a09848281.remotecamera.v26` is preserved for in-place updates.
+- Android version: `2.8.0-preview` / versionCode `431` / package `jp.a09848281.remotecamera.v28`
+- Android package ID: `jp.a09848281.remotecamera.v28`. It installs alongside v2.7.1 so the older app and its local data are not overwritten. Pair the new app as a new Android device in the Web UI.
 - GAS API remains `1.3.0`; the existing GAS URL and spreadsheet schema do not need to change.
 - See [V2.8.0-STABLE-RECOVERY.md](V2.8.0-STABLE-RECOVERY.md) for the recovery and FPS behavior.
 
