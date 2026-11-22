@@ -49,7 +49,7 @@ test("disconnect releases browser microphone before bounded remote acknowledgeme
   const end = web.indexOf("async function loadSettings(", start);
   const disconnect = web.slice(start, end);
   assert.ok(disconnect.indexOf("await setWebMicEnabled(false)") < disconnect.indexOf('sendControlAndWait("disconnect"'));
-  assert.match(disconnect, /sendControlAndWait\("disconnect", \{ sessionId \}, 800\)/);
+  assert.match(disconnect, /sendControlAndWait\("disconnect", \{ sessionId, keepRecovery \}, 800\)/);
   assert.match(disconnect, /void api\("send_signal"/);
   assert.equal(disconnect.includes('await api("send_signal"'), false);
 });
