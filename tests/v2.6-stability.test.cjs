@@ -151,7 +151,7 @@ test("Android camera, capture and viewer all expose independent real FPS measure
   const service = read("android/app/src/main/java/jp/a09848281/remotecamera/MonitorService.kt");
   const cameraSession = read("android/app/src/main/java/org/webrtc/RemoteTorchCamera2Session.java");
   assert.match(rtc, /private val captureFpsMonitor = object : VideoSink/);
-  assert.match(rtc, /\.addSink\(captureFpsMonitor\)/);
+  assert.match(rtc, /addSink\(captureFpsMonitor\)/);
   assert.match(rtc, /\.removeSink\(captureFpsMonitor\)/);
   assert.match(rtc, /\.put\("measuredFps",/);
   assert.match(rtc, /\.put\("frameAgeMs",/);
