@@ -31,7 +31,7 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 ## v2.6 Stability Preview
 
 - Branch: `preview/v2.6-stability`
-- Android package: `2.6.0-preview` (versionCode 427)
+- Android package: `jp.a09848281.remotecamera.v26` / `2.6.0-preview` (versionCode 427). It installs alongside v2.5 and does not overwrite or erase it.
 - PWA: `https://a09848281-prog.github.io/web2/v2.6/`
 - Android APK artifact: `remote-camera-web2-preview-v2.6.0-apk`
 - Android screen sharing and its AccessibilityService controls have been removed from this release.
