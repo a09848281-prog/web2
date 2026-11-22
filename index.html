@@ -183,7 +183,7 @@
     </div>
     <section id="screenPane" class="screenPane hidden" aria-label="Android画面共有">
       <div class="screenHeader"><div><b>Android画面</b><p id="screenStatus" aria-live="polite">画面共有は停止中です。画面タブを開くとAndroidへ要求します。</p></div><button id="screenStop" type="button" class="danger" disabled>共有を停止</button></div>
-      <div class="screenStage">
+      <div id="screenStage" class="screenStage">
         <video id="remoteScreenVideo" autoplay playsinline muted></video>
         <div id="screenTouchLayer" aria-label="Android画面操作エリア"></div>
         <div id="screenPlaceholder">Android側の許可を待っています。<small>通知をタップして画面共有を許可してください。</small></div>
