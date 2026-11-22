@@ -81,14 +81,15 @@ test("notification and Android app stop paths use direct foreground-service shut
   assert.match(service, /override fun onDestroy\(\)[\s\S]*?rtc\?\.dispose\(\)[\s\S]*?updateStreamWakeLock\(false\)[\s\S]*?updateDisplayWakeLock\(false\)/);
 });
 
-test("Android sleep prevention is Web-only, acknowledged and reports actual state", () => {
+test("Android screen sleep control is disabled in Web and cannot send remote commands", () => {
   assert.match(html, /id="androidKeepAwake"/);
-  assert.match(web, /sendControlAndWait\("android_keep_awake", \{ enabled: next \}, 2200\)/);
+  assert.match(html, /スリープ制御 無効/);
+  assert.match(html, /WebからのAndroidスリープ制御は無効/);
+  assert.doesNotMatch(web, /android_keep_awake|toggleAndroidKeepAwake|S\.androidKeepAwake/);
+  assert.match(web, /安全性と接続安定性のため、WebからのAndroidスリープ制御は無効です/);
+  // Keep the legacy Android handler for backward compatibility with older Web versions,
+  // but the current Web client must have no path that can invoke it.
   assert.match(service, /"android_keep_awake"/);
-  assert.match(service, /PowerManager\.SCREEN_BRIGHT_WAKE_LOCK/);
-  assert.match(service, /PowerManager\.ACQUIRE_CAUSES_WAKEUP/);
-  assert.match(service, /if \(!updateDisplayWakeLock\(enabled\)\)/);
-  assert.match(service, /displayWakeLock\?\.isHeld == true/);
   assert.match(service, /updateDisplayWakeLock\(false\)/);
   assert.doesNotMatch(main, /keepAwakeButton|FLAG_KEEP_SCREEN_ON|ACTION_KEEP_SCREEN_AWAKE_STATE/);
 });
