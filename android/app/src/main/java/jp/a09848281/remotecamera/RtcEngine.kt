@@ -563,6 +563,7 @@ class RtcEngine(
         .put("microphoneEnabled", microphoneEnabled)
 
     fun switchCamera(facing: String) {
+        check(cameraEnabled) { "カメラがOFFの間は切り替えできません。先にカメラをONにしてください。" }
         val camera = capturer ?: return
         val wantFront = facing == "front"
         if (wantFront == frontCamera) return
@@ -578,6 +579,7 @@ class RtcEngine(
 
     @Synchronized
     fun selectCamera(cameraId: String) {
+        check(cameraEnabled) { "カメラがOFFの間は切り替えできません。先にカメラをONにしてください。" }
         require(cameraId.isNotBlank()) { "カメラIDが空です。" }
         val all = cameraOptions()
         val option = all.firstOrNull { it.id == cameraId }

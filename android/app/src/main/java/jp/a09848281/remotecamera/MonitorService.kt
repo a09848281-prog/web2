@@ -252,13 +252,9 @@ class MonitorService : Service() {
                 }
                 if (controlOpen) {
                     sendTelemetry()
-                    // Existing viewers use DataChannel directly. Keep only the
-                    // selected low-frequency GAS check while a slot remains so
-                    // a second/third paired browser can establish its own RTC session.
-                    if ((rtc?.peerCount() ?: 0) >= 3) {
-                        delay(2000L)
-                        continue
-                    }
+                    // Keep polling even at viewer capacity: GAS may carry a
+                    // viewer's bye signal or controller revocation. RtcEngine
+                    // still rejects any new offer once the three-viewer limit is reached.
                     val elapsed = System.currentTimeMillis() - lastDevicePollAt
                     val untilNextPoll = pollIntervalSeconds * 1000L - elapsed
                     if (untilNextPoll > 0L) {
@@ -1086,11 +1082,11 @@ class MonitorService : Service() {
     override fun onDestroy() {
         pollJob?.cancel()
         locationJob?.cancel()
+        rtc?.dispose()
+        rtc = null
         try { setTorch(false) } catch (error: Exception) {
             Log.w("RemoteCameraService", "Could not turn off torch during service cleanup", error)
         }
-        rtc?.dispose()
-        rtc = null
         try { updateStreamWakeLock(false) } catch (_: Exception) {}
         try { streamWifiLock?.let { if (it.isHeld) it.release() } } catch (_: Exception) {}
         streamWifiLock = null

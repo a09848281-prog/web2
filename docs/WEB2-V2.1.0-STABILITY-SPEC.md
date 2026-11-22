@@ -1,15 +1,15 @@
-# Remote Camera Web2 v2.1.0 Preview — 統合仕様書
+# Remote Camera Web2 v2.1.1 Preview — 統合仕様書
 
 作成日：2026-11-21  
-対象ブランチ：`preview/v2.1.0-stability`  
+対象ブランチ：`preview/v2.1.1-stability`  
 対象端末：Android 13 / Galaxy A22 5G、iPad Safari PWA、PCブラウザー  
 構成：GitHub Pages + Android APK + Google Apps Script + Google Sheets + WebRTC / DataChannel
 
-## 1. v2.1.0の目的
+## 1. v2.1.1の目的
 
 v2.0.1の位置情報RTCライブ更新を維持しながら、Android側の待機設定、画質反映、端末の画面OFF時・アプリ切替時の接続維持、Webからのカメラ/マイク制御、ライトと通信量表示を改善する。
 
-`main` および旧リポジトリ `web` は変更しない。v2.1.0の変更は専用プレビュー・ブランチに分離する。
+`main` および旧リポジトリ `web` は変更しない。v2.1.1の変更は専用プレビュー・ブランチに分離する。
 
 ## 2. 実装内容
 
@@ -30,7 +30,7 @@ v2.0.1の位置情報RTCライブ更新を維持しながら、Android側の待�
 - Android音声の再生ON/OFFボタンは通常UIから外し、接続中のAndroidカメラON/OFFとAndroidマイクON/OFFをDataChannelで操作できるようにする。
 - Androidが通知する実撮影解像度/FPS、カメラ/マイク状態、7日/30日通信量を表示する。
 - ライト状態は要求送信だけではON/OFFを確定せず、Androidテレメトリーの実状態で表示する。
-- Service Workerのキャッシュキーをv2.1.0へ更新する。
+- Service Workerのキャッシュキーをv2.1.1へ更新する。
 
 ### GAS
 - GAS API v1.2.0を維持する。今回の集計・カメラON/OFF・実撮影情報はAndroid側とRTC DataChannelで処理するため、GASの再デプロイは不要。
@@ -48,7 +48,7 @@ v2.0.1の位置情報RTCライブ更新を維持しながら、Android側の待�
 - WakeLock/Wi-Fi Lockは画面OFF時の中断を減らす補助策であり、OS・メーカーの省電力制御、電池最適化、ネットワーク切替、強制停止、権限取消を無効化するものではない。
 - iPad Safariは別アプリへ切り替えた際にiOSからWebRTC/ページ処理が一時停止・制限される場合がある。Android側だけの変更でiPad Safariのバックグラウンド制限を解除することはできない。
 - AlarmManagerの`setAndAllowWhileIdle`は厳密な時刻実行を保証しない。Doze、省電力、強制停止、端末再起動後の復元制限により開始/終了が遅れる、または実行されない場合がある。アプリの強制停止中は予約実行を保証しない。
-- 7日/30日通信量はRemote CameraアプリUIDの通信量であり、Android端末の全アプリ合計ではない。集計はv2.1.0が稼働している間に記録を開始し、過去にさかのぼって復元しない。
+- 7日/30日通信量はRemote CameraアプリUIDの通信量であり、Android端末の全アプリ合計ではない。集計はv2.1.1が稼働している間に記録を開始し、過去にさかのぼって復元しない。
 - ノイズ抑制のUI値は0=OFF、1〜100=ONの要求値であり、強さを線形に調整する機能ではない。効果は端末・WebRTC音声処理モジュールに依存し、音声処理モジュールの再初期化が必要なため次回RTC接続から反映される。
 - ライトは端末カメラの使用状態やOEM制限によって点灯できない場合がある。エラーはWebへ返し、点灯したと誤表示しない。
 
@@ -57,3 +57,14 @@ v2.0.1の位置情報RTCライブ更新を維持しながら、Android側の待�
 - Firebase、課金API、録画、録音ファイル保存、静止画保存は追加しない。
 - GASの認証方式・ユーザーデータ構造・APIバージョンは変更しない。
 - `main` ブランチと旧リポジトリ `web` は変更しない。
+
+
+## 6. v2.1.1 bug fixes
+
+- Debounce viewport/fullscreen recovery. Do not dispatch a synthetic resize event from the resize handler, preventing a self-triggering timer loop.
+- Do not allow camera-facing or physical-camera switching while the Android camera is OFF. The Web camera selector is disabled until the camera is active.
+- Continue low-frequency GAS polling at the three-viewer limit so viewer `bye` signals and controller revocations can still be received. The RTC engine continues to enforce the three-viewer cap.
+- Restore the saved Android microphone preset in the Web UI. Device-originated settings are persisted to GAS without sending them back as a new DataChannel settings command.
+- Restrict Service Worker cache cleanup and offline fallback lookup to the Remote Camera Web2 preview cache namespace so unrelated pages on the same origin are not cleared.
+- Release the RTC camera engine before attempting final torch shutdown.
+- Increment Android `versionCode` to 423 and label the build `2.1.1-preview` for an in-place update path.

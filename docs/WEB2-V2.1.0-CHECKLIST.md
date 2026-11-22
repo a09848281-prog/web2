@@ -1,16 +1,16 @@
-# Remote Camera Web2 v2.1.0 Preview — 検証チェックリスト
+# Remote Camera Web2 v2.1.1 Preview — 検証チェックリスト
 
 作成日：2026-11-21  
-対象ブランチ：`preview/v2.1.0-stability`
+対象ブランチ：`preview/v2.1.1-stability`
 
 ## CI / ソース検証
 - [ ] JavaScript・GAS構文チェック
 - [ ] motion / audio / location の単体テスト
-- [ ] v2.1.0専用プロジェクト検査
+- [ ] v2.1.1専用プロジェクト検査
 - [ ] Android Gradle debug APKビルド
 - [ ] APK artifactをActionsから取得可能
-- [ ] APK versionName = 2.1.0-preview / versionCode = 422
-- [ ] PWA Service Worker cache key = v2.1.0
+- [ ] APK versionName = 2.1.0-preview / versionCode = 423
+- [ ] PWA Service Worker cache key = v2.1.1
 
 ## Android実機（Galaxy A22 5G / Android 13）
 - [ ] GAS URLが起動直後から正常に読み込まれる
@@ -31,7 +31,7 @@
 - [ ] 過去7日 / 30日通信量が増分集計される
 
 ## iPad / PC
-- [ ] GitHub Pagesでv2.1.0画面が配信される
+- [ ] GitHub Pagesでv2.1.1画面が配信される
 - [ ] Safariの旧キャッシュが更新される
 - [ ] Android接続、映像・音声受信、DataChannel操作
 - [ ] 全画面ON / OFF後も映像が復帰
@@ -46,3 +46,9 @@
 - [ ] すべて確認後に正式リリースを判断
 
 注意：CI成功はソース検査・単体テスト・ビルドの成功を示すもので、Android/iPad実機の動作安定性を保証しない。
+
+- [ ] Viewport/fullscreen recovery does not create a resize loop
+- [ ] Camera selector is unavailable while Android camera is OFF
+- [ ] GAS polling still receives disconnect/revoke events with three viewers
+- [ ] Android microphone preset survives reconnect without a settings echo loop
+- [ ] Service Worker activation preserves unrelated origin caches

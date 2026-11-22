@@ -163,8 +163,24 @@ assert.ok(gas.includes("Controllers:"), "Multi-controller storage sheet missing"
 assert.ok(gas.includes("activeControllerCount_(deviceId) >= 3"), "Three-controller pairing limit missing");
 assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi permission missing");
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
-assert.ok(androidBuild.includes('versionName = "2.1.0-preview"'), "Android app version must be v2.1.0");
-assert.ok(webConfig.includes('"appVersion": "2.1.0-preview"'), "Web config version must be v2.1.0");
+assert.ok(androidBuild.includes('versionName = "2.1.1-preview"'), "Android app version must be v2.1.1");
+assert.ok(androidBuild.includes("versionCode = 423"), "Android version code must be 423");
+assert.ok(webConfig.includes('"appVersion": "2.1.1-preview"'), "Web config version must be v2.1.1");
+assert.ok(html.includes("v2.1.1"), "PWA display version must be v2.1.1");
+assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-1-1"'), "PWA cache key must be bumped to v2.1.1");
+assert.ok(serviceWorker.includes("key.startsWith(CACHE_PREFIX)"), "Service worker must only delete its own cache namespace");
+assert.ok(!serviceWorker.includes("keys.filter(key => key !== CACHE)"), "Service worker must not delete unrelated origin caches");
+assert.ok(serviceWorker.includes("caches.open(CACHE).then(cache => cache.match(event.request))"), "Offline fallback must only read this PWA cache");
+assert.ok(js.includes("viewportRestoreTimer"), "Viewport restore debounce timer missing");
+assert.ok(!js.includes('window.dispatchEvent(new Event("resize"))'), "Viewport restore must not recursively dispatch resize");
+assert.ok(js.includes('$("camera").disabled = !open || !S.androidCameraEnabled;'), "Camera selector must be disabled when Android camera is OFF");
+assert.ok(rtc.includes('check(cameraEnabled) { "カメラがOFFの間は切り替えできません。先にカメラをONにしてください。" }'), "Camera switching must reject requests while camera is OFF");
+assert.ok(!service.includes("if ((rtc?.peerCount() ?: 0) >= 3)"), "GAS polling must continue when three viewers are connected");
+assert.ok(service.includes("Keep polling even at viewer capacity"), "Capacity polling regression guard missing");
+assert.ok(js.includes('const savedMicMode = String(settings.micMode || "balanced");'), "Saved microphone preset must be restored");
+const deviceSettingsHandler = js.slice(js.indexOf('else if(d.type==="device_settings")'), js.indexOf('else if(d.type==="location_update")'));
+assert.ok(deviceSettingsHandler.includes("queueDeviceSettingsSave(targetDevice, readSettingsFromUi())"), "Android settings should be stored without echoing a settings_update back to Android");
+assert.ok(!deviceSettingsHandler.includes("saveSettings()"), "Device settings handler must not echo settings back to Android");
 assert.ok(gas.includes("MotionEvents:"), "Motion event metadata sheet missing");
 assert.ok(gas.includes("function addMotionEvent_("), "Motion event write endpoint missing");
 assert.ok(gas.includes("function getMotionEvents_("), "Motion event history endpoint missing");
@@ -176,7 +192,7 @@ assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microp
 assert.ok(gas.includes('const version = "1.2.0"'), "GAS API version must be 1.2.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
 assert.ok(androidBuild.includes("versionCode = 422"), "Android version code must be incremented for v1.2");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.1.0 Preview", "PWA display name must match v1.2");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.1.1 Preview", "PWA display name must match v2.1.1");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 console.log("Web2 source checks passed.");
 

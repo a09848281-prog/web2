@@ -36,6 +36,7 @@ const S = {
   pttLocked: false, pttStartedAt: 0, pttTimeout: null, pttKeyActive: false,
   wakeLock: null, keepAwakeWanted: false,
   videoWatchdogTimer: null, videoFrameCallbackId: null, videoUsesFrameCallback: false,
+  viewportRestoreTimer: null,
   hasReceivedVideoFrame: false, lastVideoFrameAt: 0, connectedAt: 0, sessionTimer: null,
   statsLast: null, manualDisconnect: false, reconnectResetTimer: null,
   settingsSaveQueue: Promise.resolve()
@@ -783,6 +784,10 @@ function selectDevice(device) {
     S.followMap = true;
     S.deviceTelemetry = null;
     S.deviceDiagnostics = null;
+    S.androidCameraEnabled = true;
+    S.androidMicEnabled = true;
+    S.flashAvailable = false;
+    S.torchEnabled = false;
     if (S.map) drawMap([]);
     $("deviceTx").textContent = "送信 --";
     $("deviceRx").textContent = "受信 --";
@@ -1231,7 +1236,9 @@ async function loadSettings() {
   $("micSensitivity").value=String(settings.micSensitivity ?? 70);
   $("micGain").value=String(settings.micGain ?? 100);
   $("androidSpeakerVolume").value=String(settings.speakerVolume ?? 70);
-  $("micMode").value="balanced";
+  const savedMicMode = String(settings.micMode || "balanced");
+  $("micMode").value = ["ambient", "balanced", "voice"].includes(savedMicMode)
+    ? savedMicMode : "balanced";
   const storedReceive = localStorage.getItem("rc_receive_volume_v1");
   setReceiveVolume(storedReceive === null ? 70 : Number(storedReceive), false);
   $("nightMode").checked=localStorage.getItem(nightViewStorageKey()) === "true";
@@ -1252,10 +1259,8 @@ function queueDeviceSettingsSave(device, settings) {
   return next;
 }
 
-async function saveSettings() {
-  const device = S.device;
-  if (!device) return toast("Android端末をペアリングしてください。");
-  const settings = {
+function readSettingsFromUi() {
+  return {
     quality: $("quality").value,
     dataMode: $("dataMode").value,
     fps: Number($("fps").value),
@@ -1264,10 +1269,18 @@ async function saveSettings() {
     idleLocationEnabled: $("idleLoc").checked,
     connectedInterval: Number($("connectedInterval").value),
     idleInterval: Number($("idleInterval").value),
-    micNoise:Number($("micNoise").value), micSensitivity:Number($("micSensitivity").value),
-    micGain:Number($("micGain").value), speakerVolume:Number($("androidSpeakerVolume").value),
-    micMode:$("micMode").value
+    micNoise: Number($("micNoise").value),
+    micSensitivity: Number($("micSensitivity").value),
+    micGain: Number($("micGain").value),
+    speakerVolume: Number($("androidSpeakerVolume").value),
+    micMode: $("micMode").value
   };
+}
+
+async function saveSettings() {
+  const device = S.device;
+  if (!device) return toast("Android端末をペアリングしてください。");
+  const settings = readSettingsFromUi();
   if(S.control?.readyState==="open") {
     if (!sendControl("settings_update",settings)) throw Error("DataChannelへの設定送信に失敗しました。");
     try { localStorage.setItem("rc_live_settings_"+device.deviceId,JSON.stringify(settings)); }
@@ -1298,6 +1311,7 @@ function updateAndroidMediaButtons() {
   const open = S.control?.readyState === "open";
   $("cameraToggle").disabled = !open;
   $("micToggle").disabled = !open;
+  $("camera").disabled = !open || !S.androidCameraEnabled;
   $("cameraToggle").textContent = S.androidCameraEnabled ? "📷 Androidカメラ OFF" : "📷 Androidカメラ ON";
   $("micToggle").textContent = S.androidMicEnabled ? "🎙 Androidマイク OFF" : "🎙 Androidマイク ON";
 }
@@ -1371,10 +1385,16 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
   if(["16:9","4:3","1:1","9:16","original"].includes(String(v.aspectRatio))) $("aspectRatio").value=String(v.aspectRatio);
   if(Number.isFinite(Number(v.micNoise))) $("micNoise").value=String(v.micNoise);
   if(Number.isFinite(Number(v.speakerVolume))) $("androidSpeakerVolume").value=String(v.speakerVolume);
-   $("micMode").value="balanced";
+  if (["ambient", "balanced", "voice"].includes(String(v.micMode))) {
+    $("micMode").value = String(v.micMode);
+  }
   applyAspectRatio($("aspectRatio").value);
   updateSliderLabels();
-  saveSettings().catch(error=>toast("Android設定のWeb保存に失敗しました: "+error.message));
+  const targetDevice = S.device;
+  if (targetDevice) {
+    queueDeviceSettingsSave(targetDevice, readSettingsFromUi())
+      .catch(error => toast("Android設定のGAS保存に失敗しました: " + error.message));
+  }
  }
  else if(d.type==="location_update"){
    applyLiveLocationUpdate(d.location || d);
@@ -1908,8 +1928,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("bookmarkletOpen").addEventListener("click", openBookmarkletDialog);
   $("copyBookmarklet").addEventListener("click", copyBookmarkletCode);
   const restoreAfterViewportChange = () => {
-    setTimeout(() => {
-      window.dispatchEvent(new Event("resize"));
+    if (S.viewportRestoreTimer) clearTimeout(S.viewportRestoreTimer);
+    S.viewportRestoreTimer = setTimeout(() => {
+      S.viewportRestoreTimer = null;
+      if (S.map && !$("mapPane").classList.contains("hidden")) {
+        try { S.map.invalidateSize({ pan: false }); } catch (_) {}
+      }
       restoreRemotePlayback();
     }, 180);
   };
@@ -1977,6 +2001,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("pttLock").disabled = true;
   $("remoteMute").disabled = true;
   $("keepAwake").disabled = true;
+  $("camera").disabled = true;
   $("sessionDuration").textContent = "未接続";
   const storedVolume = localStorage.getItem("rc_receive_volume_v1");
   setReceiveVolume(storedVolume === null ? 70 : Number(storedVolume), false);

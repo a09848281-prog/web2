@@ -1,10 +1,14 @@
-const CACHE = "remote-camera-web2-preview-v2-1-0";
+const CACHE_PREFIX = "remote-camera-web2-preview-";
+const CACHE = CACHE_PREFIX + "v2-1-1";
 const SHELL = ["./", "./index.html", "./app.css", "./motion-core.js", "./audio-utils.js", "./location-utils.js", "./app.js", "./manifest.webmanifest", "./icon.svg"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));
+  event.waitUntil(caches.keys().then(keys =>
+    Promise.all(keys.filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE)
+      .map(key => caches.delete(key)))
+  ).then(() => self.clients.claim()));
 });
 self.addEventListener("fetch", event => {
   const url = new URL(event.request.url);
@@ -15,5 +19,5 @@ self.addEventListener("fetch", event => {
       caches.open(CACHE).then(cache => cache.put(event.request, copy));
     }
     return response;
-  }).catch(() => caches.match(event.request).then(cached => cached || Response.error())));
+  }).catch(() => caches.open(CACHE).then(cache => cache.match(event.request)).then(cached => cached || Response.error())));
 });
