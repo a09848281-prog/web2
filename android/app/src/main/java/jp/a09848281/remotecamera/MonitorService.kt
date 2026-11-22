@@ -721,7 +721,8 @@ class MonitorService : Service() {
             true
         } catch (error: Exception) {
             Log.w("RemoteCameraService", "Could not update Android display wake lock", error)
-            if (!enabled) displayWakeLock = null
+            // Keep the WakeLock reference if release failed so a later OFF/stop
+            // action can retry releasing it.
             false
         }
     }
