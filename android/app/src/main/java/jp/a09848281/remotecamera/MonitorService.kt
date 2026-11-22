@@ -568,28 +568,33 @@ class MonitorService : Service() {
                     }
                 }
             }
-            "FAILED", "CLOSED" -> {
-                releaseScreenRequester(sessionId)
-                lastNetworkError="WebRTC ICE状態: "+state
-                notifyState("RTC "+state+"：セッションを整理しています")
-                scope.launch {
-                    delay(20000L)
-                    val engine = rtc
-                    if (engine != null && !engine.hasPeers()) {
-                        engine.dispose()
-                        if (rtc === engine) rtc = null
-                    }
-                    updateStreamWakeLock(rtc?.hasPeers() == true)
-                }
+            "FAILED", "CLOSED", "SESSION_REMOVED" -> {
+                lastNetworkError = "WebRTC ICE状態: " + state
+                // Remove this exact viewer immediately. The last viewer's
+                // Camera capturer, microphone source and AudioDeviceModule are disposed.
+                closeRtcViewerSession(sessionId)
+                updateForegroundScreenProjection(false)
+                updateStreamWakeLock(rtc?.hasPeers() == true)
+                notifyState(if (rtc?.hasPeers() == true) "ほかのWeb端末は監視を継続中" else "監視待機中")
             }
             "DISCONNECTED" -> {
+                // RtcEngine gives ICE a recovery window. If the same session is
+                // still disconnected after the grace period, close it as an orphan.
                 scope.launch {
                     delay(15000L)
                     val engine = rtc
-                    if (engine == null || !engine.hasSession(sessionId)) {
-                        releaseScreenRequester(sessionId)
-                        updateStreamWakeLock(rtc?.hasPeers() == true)
+                    if (engine != null && engine.hasSession(sessionId) &&
+                        engine.iceConnectionState(sessionId) == PeerConnection.IceConnectionState.DISCONNECTED) {
+                        closeRtcViewerSession(sessionId)
+                    } else if (engine != null && !engine.hasPeers()) {
+                        engine.dispose()
+                        if (rtc === engine) rtc = null
+                        try { setTorch(false) } catch (error: Exception) {
+                            Log.w("RemoteCameraService", "Could not turn off torch after disconnected viewer cleanup", error)
+                        }
+                        updateForegroundScreenProjection(false)
                     }
+                    updateStreamWakeLock(rtc?.hasPeers() == true)
                 }
             }
         }
@@ -620,6 +625,10 @@ class MonitorService : Service() {
                 Log.w("RemoteCameraService", "Could not switch off flashlight after final viewer disconnected", error)
             }
             updateStreamWakeLock(false)
+            try { setTorch(false) } catch (error: Exception) {
+                Log.w("RemoteCameraService", "Could not switch off flashlight after final viewer disconnected", error)
+            }
+            updateForegroundScreenProjection(false)
         }
     }
 
@@ -805,7 +814,28 @@ class MonitorService : Service() {
     }
 
     private fun setTorch(enabled:Boolean) {
+        // Don't touch CameraManager when our flashlight is already off. This is
+        // especially important during RTC/service teardown, where the camera may
+        // have just been released and another app may now own its flash resource.
+        if (!enabled && !torchEnabled) {
+            activeTorchCameraId = null
+            return
+        }
         val manager = getSystemService(CAMERA_SERVICE) as CameraManager
+        if (!enabled && !activeTorchCameraId.isNullOrBlank()) {
+            val activeId = activeTorchCameraId!!
+            try {
+                manager.setTorchMode(activeId, false)
+            } catch (error: Exception) {
+                // The system also turns the torch off when the camera resource becomes unavailable.
+                Log.w("RemoteCameraService", "Torch already unavailable during cleanup", error)
+            }
+            activeTorchCameraId = null
+            torchEnabled = false
+            sendTelemetry()
+            return
+        }
+
         val selectedId = rtc?.currentCameraId().orEmpty()
         val candidates = manager.cameraIdList.filter { id ->
             try {
@@ -813,16 +843,17 @@ class MonitorService : Service() {
                 chars.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK &&
                     chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
             } catch (error: Exception) {
-                Log.w("RemoteCameraService", "Could not inspect flashlight camera $id", error)
+                Log.w("RemoteCameraService", "Could not inspect rear flashlight camera $id", error)
                 false
             }
-        }.sortedBy { it == selectedId } // Try another rear flash before the camera currently streaming.
+        }.sortedBy { it == selectedId } // Prefer a rear flash that isn't bound to the active video capturer.
         if (candidates.isEmpty()) error("この端末にライト対応の背面カメラがありません。")
         var lastError: Exception? = null
         for (torchId in candidates) {
             try {
                 manager.setTorchMode(torchId, enabled)
                 torchEnabled = enabled
+                activeTorchCameraId = if (enabled) torchId else null
                 sendTelemetry()
                 Log.i("RemoteCameraService", "Flashlight changed: camera=$torchId enabled=$enabled")
                 return
@@ -832,7 +863,7 @@ class MonitorService : Service() {
             }
         }
         val reason = if (enabled) {
-            "ライトを点灯できません。撮影中のカメラとライトが競合しているか、別アプリがカメラ・ライトを使用中です。カメラを使用する他のアプリを閉じて再試行してください。"
+            "ライトを点灯できません。撮影中のカメラがライト資源を使用中の可能性があります。別の背面ライトがない端末ではカメラ映像とライトを同時に使えない場合があります。"
         } else {
             "ライトを消灯できませんでした。端末のライト状態を確認してください。"
         }
@@ -962,8 +993,9 @@ class MonitorService : Service() {
         val flashAvailable = flashAvailableCache ?: try {
             val cameraManager = getSystemService(CAMERA_SERVICE) as CameraManager
             cameraManager.cameraIdList.any { cameraId ->
-                cameraManager.getCameraCharacteristics(cameraId)
-                    .get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+                val characteristics = cameraManager.getCameraCharacteristics(cameraId)
+                characteristics.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK &&
+                    characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
             }.also { flashAvailableCache = it }
         } catch (error: Exception) {
             Log.w("RemoteCameraService", "Could not query flash availability", error)
