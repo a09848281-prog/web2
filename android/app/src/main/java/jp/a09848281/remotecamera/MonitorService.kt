@@ -890,6 +890,7 @@ class MonitorService : Service() {
             .put("txBytes30d", usage[2]).put("rxBytes30d", usage[3])
             .put("captureWidth", capture.optInt("width", 0))
             .put("captureHeight", capture.optInt("height", 0))
+            .put("requestedFps", prefs.getInt("fps", 24).coerceIn(10, 60))
             .put("captureFps", capture.optInt("fps", 0))
             .put("cameraEnabled", capture.optBoolean("cameraEnabled", true))
             .put("microphoneEnabled", capture.optBoolean("microphoneEnabled", true))
