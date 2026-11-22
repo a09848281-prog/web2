@@ -1427,6 +1427,7 @@ function updateAndroidMediaButtons() {
   $("camera").disabled = !open || !S.androidCameraEnabled;
   $("cameraToggle").textContent = S.androidCameraEnabled ? "📷 Androidカメラ OFF" : "📷 Androidカメラ ON";
   $("micToggle").textContent = S.androidMicEnabled ? "🎙 Androidマイク OFF" : "🎙 Androidマイク ON";
+  updateAndroidKeepAwakeButton();
 }
 
 function updateAndroidKeepAwakeButton() {
@@ -1489,7 +1490,7 @@ function renderDeviceInfo() {
   $("deviceInfoOutput").textContent = JSON.stringify(safe, null, 2);
 }
 
-function updateSliderLabels(){ $("androidSpeakerVolumeValue").value=$("androidSpeakerVolume").value+"%"; const noiseLevel=Number($("micNoise").value); $("micNoiseValue").value=noiseLevel===0?"OFF":"端末標準ON（"+noiseLevel+"要求）"; $("micSensitivityValue").value=$("micSensitivity").value+"%"; $("micGainValue").value=$("micGain").value+"%"; $("receiveVolumeValue").value=S.receiveVolume+"%"; }
+function updateSliderLabels(){ $("androidSpeakerVolumeValue").value=$("androidSpeakerVolume").value+"%"; const noiseLevel=Number($("micNoise").value); $("micNoiseValue").value=noiseLevel===0?"OFF":"ON（"+noiseLevel+"・端末標準の抑制）"; $("micSensitivityValue").value=$("micSensitivity").value+"%"; $("micGainValue").value=$("micGain").value+"%"; $("receiveVolumeValue").value=S.receiveVolume+"%"; }
 function applyLiveLocationUpdate(raw) {
   const point = LocationUtils && LocationUtils.normalizeLiveLocation(raw);
   if (!point) { console.warn("Rejected invalid RTC location update"); return; }
@@ -2179,6 +2180,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("androidKeepAwake").addEventListener("click",toggleAndroidKeepAwake);
   $("reserveConnection").addEventListener("click",()=>reserveConnection().catch(e=>toast(e.message)));
   $("cancelReservation").addEventListener("click",cancelConnectionReservation);
+  $("micNoise").addEventListener("input", () => {
+    updateSliderLabels();
+    if (S.control?.readyState === "open") {
+      sendControl("mic_noise", { strength: Number($("micNoise").value) });
+    }
+  });
   $("micNoise").addEventListener("change", scheduleSettingsSave);
   $("micSensitivity").addEventListener("change", scheduleSettingsSave);
   $("micGain").addEventListener("change", scheduleSettingsSave);
