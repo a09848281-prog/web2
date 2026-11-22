@@ -587,6 +587,7 @@ class MonitorService : Service() {
                 // A rejected ON request is deliberately not retried after a camera
                 // change. Switching to another camera must never surprise the user
                 // by turning the flashlight on later.
+            }
             "torch" -> setTorch(payload.optBoolean("enabled",false))
             "media_toggle" -> {
                 val engine = rtc ?: error("WebRTCが終了しています。")
