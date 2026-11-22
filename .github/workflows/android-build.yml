@@ -3,7 +3,7 @@ on:
   push:
     branches: [main, "preview/v2.0-stability", "preview/v2.0.1-location-rtc", "preview/v2.1.0-stability", "preview/v2.1.2-stability", "preview/v2.5-remote-screen", "preview/v2.6-stability"]
   pull_request:
-    branches: [main, "preview/v2.0-stability", "preview/v2.1.0-stability", "preview/v2.5-remote-screen"]
+    branches: [main, "preview/v2.0-stability", "preview/v2.1.0-stability", "preview/v2.5-remote-screen", "preview/v2.6-stability"]
   workflow_dispatch:
 permissions:
   contents: read
