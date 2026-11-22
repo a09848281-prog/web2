@@ -1537,7 +1537,7 @@ async function saveSettings() {
   if (!device) return toast("Android端末をペアリングしてください。");
   const settings = readSettingsFromUi();
   if(S.control?.readyState==="open") {
-    const applied = await sendControlAndWait("settings_update", settings, 3000);
+    const applied = await sendControlAndWait("settings_update", settings, 12000);
     if (!applied.ok) throw Error("Androidへ設定を適用できませんでした: " + applied.message);
     try { localStorage.setItem("rc_live_settings_"+device.deviceId,JSON.stringify(settings)); }
     catch (storageError) { console.warn("Local setting cache unavailable", storageError); }
