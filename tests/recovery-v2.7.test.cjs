@@ -96,3 +96,13 @@ test("requested FPS choices 40, 45, 50 and 55 are present in Web and APK setting
     assert.match(fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MainActivity.kt", "utf8"), new RegExp(`${fps} FPS`));
   }
 });
+
+
+test("APK schedule synchronization retries after transient network failure", () => {
+  const main = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MainActivity.kt", "utf8");
+  assert.match(main, /scheduleSyncPending/);
+  assert.match(service, /scheduleSyncPending/);
+  assert.match(service, /lastScheduleSyncAt/);
+  assert.match(service, /60000L/);
+  assert.match(service, /syncSavedScheduleToGas\(\)/);
+});

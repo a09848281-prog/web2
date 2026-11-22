@@ -223,6 +223,9 @@ assert.ok(js.includes("S.autoConnectWanted") &&
   js.includes("(S.everConnected || S.autoConnectWanted)"), "First-connection retry guard missing");
 assert.ok(service.includes("setTorchEnabled(enabled)") && rtc.includes("TorchCaptureControl") &&
   torchSession.includes("FLASH_MODE_TORCH") && torchState.includes("CountDownLatch"), "Camera2 in-stream torch integration missing");
+assert.ok(main.includes("scheduleSyncPending") && service.includes("lastScheduleSyncAt") &&
+  service.includes("60000L"), "APK schedule sync must retry after connectivity failures");
+
 assert.ok(torchState.includes("ready = new CountDownLatch(1)"), "Torch state must support repeated camera sessions");
 assert.ok(html.includes('id="reserveAt" type="datetime-local" step="1"'), "Web schedule must accept second precision");
 assert.ok(js.includes("S.reservationTimer = setInterval(checkConnectionReservation, 250)"), "Web reservation scheduler missing");
