@@ -292,9 +292,11 @@ assert.ok(noiseProcessor.includes('registerProcessor("remote-camera-noise-gate"'
 assert.ok(js.includes("remote-camera-noise-gate") && js.includes("noiseSuppressorNode") && js.includes("setNoiseSuppressionLevel"), "Web receive audio must apply graduated software noise reduction");
 assert.ok(!service.includes('"mic_noise"') && !service.includes("setNoiseSuppressionLevel"), "Android binary noise setting must no longer control the slider");
 assert.ok(html.includes("0は完全にOFF") && html.includes("適応ノイズゲート"), "Noise UI must explain 0-100 Web noise gating");
-assert.equal([...js.matchAll(/function updateAndroidKeepAwakeButton\(/g)].length, 1, "Android display-awake helper must not be duplicated");
-assert.equal([...js.matchAll(/function toggleAndroidKeepAwake\(/g)].length, 1, "Android display-awake handler must not be duplicated");
-assert.equal([...js.matchAll(/addEventListener\("click",\s*\(\)\s*=>\s*toggleAndroidKeepAwake/g)].length, 1, "Android display-awake button listener must be registered once");
+assert.equal([...js.matchAll(/function updateAndroidKeepAwakeButton\(/g)].length, 0, "Android display-awake helper must be removed from Web");
+assert.equal([...js.matchAll(/function toggleAndroidKeepAwake\(/g)].length, 0, "Android display-awake handler must be removed from Web");
+assert.equal([...js.matchAll(/sendControlAndWait\("android_keep_awake"/g)].length, 0, "Web must never send Android display-awake commands");
+assert.equal([...js.matchAll(/id="androidKeepAwake"/g)].length, 0, "Web must not show the retired Android sleep control button");
+assert.ok(js.includes("安全性と接続安定性のため、WebからのAndroidスリープ制御は無効です"), "Retired Android sleep control must explain its disabled state");
 assert.ok(html.includes('class="settingsGroup"'), "Legacy v4.1 collapsible settings groups must be restored");
 assert.ok(html.includes('class="viewerControls"'), "Legacy v4.1 viewer toolbar must be restored");
 assert.ok(html.includes('<button id="followLocation"'), "Map follow control must be a button matching its handler");
