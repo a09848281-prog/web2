@@ -11,6 +11,8 @@ const main = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamer
 const schedule = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/ScheduleReceiver.kt", "utf8");
 const torchState = fs.readFileSync("android/app/src/main/java/org/webrtc/RemoteTorchState.java", "utf8");
 const torchSession = fs.readFileSync("android/app/src/main/java/org/webrtc/RemoteTorchCamera2Session.java", "utf8");
+const torchState = fs.readFileSync("android/app/src/main/java/org/webrtc/RemoteTorchState.java", "utf8");
+const torchSession = fs.readFileSync("android/app/src/main/java/org/webrtc/RemoteTorchCamera2Session.java", "utf8");
 const apiClient = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/ApiClient.kt", "utf8");
 const gas = fs.readFileSync("gas/Code.gs", "utf8");
 const config = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/Config.kt", "utf8");
@@ -204,9 +206,25 @@ assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from S
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.3.0"'), "GAS API version must be 1.2.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 429"), "Android version code must be 429 for v2.7");
+assert.ok(androidBuild.includes("versionCode = 430"), "Android version code must be 429 for v2.7");
 assert.equal(manifestJson.name, "Remote Camera Web2 v2.7.1 Preview", "PWA display name must match v2.7");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
+assert.ok(html.includes('id="reserveAt" type="datetime-local" step="1"'), "Web schedule must accept second precision");
+assert.ok(js.includes("S.reservationTimer = setInterval(checkConnectionReservation, 250)"), "Web reservation scheduler missing");
+assert.ok(html.includes('option value="40"') && html.includes('option value="45"') &&
+  html.includes('option value="50"') && html.includes('option value="55"'), "Web FPS 40/45/50/55 options missing");
+assert.ok(main.includes('listOf(10, 15, 20, 24, 30, 40, 45, 50, 55, 60)'), "APK FPS 40/45/50/55 options missing");
+assert.ok(schedule.includes("import android.app.AlarmManager") &&
+  schedule.includes("ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED"), "APK exact-alarm restore receiver is incomplete");
+assert.ok(gas.includes('case "save_device_schedule": return saveDeviceSchedule_(r);') &&
+  gas.includes("function saveDeviceSchedule_(r)") && gas.includes("androidSchedule"), "APK reservation sync endpoint missing");
+assert.ok(js.includes("function renderAndroidSchedule(") && js.includes('api("get_settings"') &&
+  js.includes('"refreshAndroidSchedule"'), "Web APK schedule display/refresh missing");
+assert.ok(js.includes("S.autoConnectWanted") &&
+  js.includes("(S.everConnected || S.autoConnectWanted)"), "First-connection retry guard missing");
+assert.ok(service.includes("setTorchEnabled(enabled)") && rtc.includes("TorchCaptureControl") &&
+  torchSession.includes("FLASH_MODE_TORCH") && torchState.includes("CountDownLatch"), "Camera2 in-stream torch integration missing");
+assert.ok(torchState.includes("ready = new CountDownLatch(1)"), "Torch state must support repeated camera sessions");
 assert.ok(html.includes('id="reserveAt" type="datetime-local" step="1"'), "Web schedule must accept second precision");
 assert.ok(js.includes("S.reservationTimer = setInterval(checkConnectionReservation, 250)"), "Web reservation scheduler missing");
 assert.ok(html.includes('option value="40"') && html.includes('option value="45"') &&
