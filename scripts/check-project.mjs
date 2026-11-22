@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 const html = fs.readFileSync("index.html", "utf8");
 const js = fs.readFileSync("app.js", "utf8");
+const noiseProcessor = fs.readFileSync("noise-suppressor-processor.js", "utf8");
 const rtc = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/RtcEngine.kt", "utf8");
 const service = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MonitorService.kt", "utf8");
 const manifest = fs.readFileSync("android/app/src/main/AndroidManifest.xml", "utf8");
@@ -30,7 +31,7 @@ for (const id of referencedIds) {
   assert.ok(htmlIds.has(id), "JavaScript references missing HTML id: " + id);
 }
 
-for (const id of ["micNoise", "micSensitivity", "micGain", "androidSpeakerVolume", "androidSpeakerVolumeValue", "receiveVolume", "receiveVolumeValue", "micMode", "audioLevel", "audioLevelText", "remoteMute", "pttLock", "keepAwake", "fitMode", "videoState", "audioState", "cameraFacing", "flashState", "connectionMetrics", "gasTiming", "sessionDuration", "deviceInfo", "deviceInfoDialog", "deviceInfoOutput", "followLocation", "copyCoordinates", "diagnostics", "deviceTotal", "networkSummary", "deviceHealth", "deviceTxSpeed", "deviceRxSpeed", "torch", "reserveConnection", "cancelReservation", "reservationStatus", "fps", "aspectRatio", "fullscreen", "bookmarkletOpen", "bookmarkletCode", "bookmarkDialog", "copyBookmarklet", "zoom", "zoomValue", "zoomReset", "motionEnabled", "motionSensitivity", "motionNotify", "motionHistory", "motionExport", "motionClear", "motionDialog", "motionRows", "motionStatus"]) {
+for (const id of ["micNoise", "micSensitivity", "micGain", "androidSpeakerVolume", "androidSpeakerVolumeValue", "receiveVolume", "receiveVolumeValue", "micMode", "audioLevel", "audioLevelText", "remoteMute", "keepAwake", "fitMode", "videoState", "audioState", "cameraFacing", "flashState", "connectionMetrics", "gasTiming", "sessionDuration", "deviceInfo", "deviceInfoDialog", "deviceInfoOutput", "followLocation", "copyCoordinates", "diagnostics", "deviceTotal", "networkSummary", "deviceHealth", "deviceTxSpeed", "deviceRxSpeed", "torch", "reserveConnection", "cancelReservation", "reservationStatus", "fps", "aspectRatio", "fullscreen", "bookmarkletOpen", "bookmarkletCode", "bookmarkDialog", "copyBookmarklet", "zoom", "zoomValue", "zoomReset", "motionEnabled", "motionSensitivity", "motionNotify", "motionHistory", "motionExport", "motionClear", "motionDialog", "motionRows", "motionStatus"]) {
   assert.ok(html.includes('id="' + id + '"'), "Missing HTML element: " + id);
   assert.ok(js.includes('$("' + id + '")'), "Missing JavaScript reference: " + id);
 }
@@ -60,7 +61,9 @@ assert.ok(js.includes('S.control?.readyState !== "open"'), "GAS map polling must
 assert.ok(locationUtils.includes("function normalizeLiveLocation("), "RTC location validation helper missing");
 assert.ok(locationUtils.includes("function mergeHistory("), "Location history merge helper missing");
 assert.ok(locationTests.includes("supports Unix timestamps in seconds"), "Location timestamp compatibility test missing");
-assert.equal([...js.matchAll(/function\s+ptt\s*\(/g)].length, 1, "Only one effective PTT function must exist");
+assert.equal([...js.matchAll(/function\s+setWebMicEnabled\s*\(/g)].length, 1, "Only one browser microphone toggle must exist");
+assert.ok(js.includes("setWebMicEnabled(false)") && js.includes("visibilitychange"), "Web microphone must stop on background or RTC failure");
+assert.ok(js.includes("function updateWebMicrophoneButton("), "Persistent Web microphone button missing");
 assert.ok(js.includes("disconnect(false, automatic, true)"), "Automatic reconnect must end the previous remote RTC session");
 assert.ok(js.includes("notifyRemote = sendCommand"), "Disconnect must support remote session cleanup independently from manual stop");
 assert.ok(js.includes("function showVideo()") && js.includes("restoreRemotePlayback();"), "Returning from map must restore video playback");
@@ -170,12 +173,13 @@ assert.ok(gas.includes("Controllers:"), "Multi-controller storage sheet missing"
 assert.ok(gas.includes("activeControllerCount_(deviceId) >= 3"), "Three-controller pairing limit missing");
 assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi permission missing");
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
-assert.ok(androidBuild.includes('versionName = "2.6.0-preview"'), "Android app version must be v2.6");
-assert.ok(androidBuild.includes("versionCode = 427"), "Android version code must be 427");
-assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v26"'), "v2.6 must use a side-by-side package ID to preserve v2.5 user data");
-assert.ok(webConfig.includes('"appVersion": "2.6.0-preview"'), "Web config version must be v2.6");
-assert.ok(html.includes("v2.6"), "PWA display version must be v2.6");
-assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-6-0"'), "PWA cache key must be bumped to v2.6");
+assert.ok(androidBuild.includes('versionName = "2.6.1-preview"'), "Android app version must be v2.6.1");
+assert.ok(androidBuild.includes("versionCode = 428"), "Android version code must be 428");
+assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v26"'), "v2.6.1 must update the v2.6 package in place");
+assert.ok(webConfig.includes('"appVersion": "2.6.1-preview"'), "Web config version must be v2.6.1");
+assert.ok(html.includes("v2.6.1"), "PWA display version must be v2.6.1");
+assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-6-1"'), "PWA cache key must be bumped to v2.6.1");
+assert.ok(serviceWorker.includes("noise-suppressor-processor.js"), "Audio worklet must be precached");
 assert.ok(serviceWorker.includes("key.startsWith(CACHE_PREFIX)"), "Service worker must only delete its own cache namespace");
 assert.ok(!serviceWorker.includes("keys.filter(key => key !== CACHE)"), "Service worker must not delete unrelated origin caches");
 assert.ok(serviceWorker.includes("caches.open(CACHE).then(cache => cache.match(event.request))"), "Offline fallback must only read this PWA cache");
@@ -199,8 +203,8 @@ assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from S
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.2.0"'), "GAS API version must be 1.2.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 427"), "Android version code must be 427 for v2.6");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.6 Preview", "PWA display name must match v2.6");
+assert.ok(androidBuild.includes("versionCode = 428"), "Android version code must be 428 for v2.6.1");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.6.1 Preview", "PWA display name must match v2.6.1");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 console.log("Web2 source checks passed.");
 
@@ -210,36 +214,41 @@ assert.ok(!js.includes("screen_start") && !js.includes("screen_stop") && !js.inc
 assert.ok(!rtc.includes("MediaProjection") && !rtc.includes("ScreenCapturer") && !rtc.includes("remote-screen"), "Android RTC must not create a screen-share track");
 assert.ok(!service.includes("MediaProjection") && !service.includes("screenRequesters") && !service.includes("screen_start"), "Android service must not retain screen-share lifecycle code");
 assert.ok(!manifest.includes("FOREGROUND_SERVICE_MEDIA_PROJECTION") && !manifest.includes("mediaProjection") && !manifest.includes("RemoteControlAccessibilityService"), "Manifest must not declare screen capture or accessibility control");
-assert.ok(js.includes("async function ptt(enabled)") && js.includes("navigator.mediaDevices.getUserMedia"), "PTT must acquire microphone only on explicit talk action");
-assert.ok(js.includes('$("micNoise").addEventListener("input"') && js.includes('sendControl("mic_noise"'), "Noise suppression slider must send live values as it moves");
+assert.ok(js.includes("function setWebMicEnabled(enabled)") && js.includes("navigator.mediaDevices.getUserMedia"), "Web microphone must have an explicit ON/OFF lifecycle");
+assert.ok(js.includes('$("micNoise").addEventListener("input"') && js.includes("setNoiseSuppressionLevel"), "Noise slider must apply local DSP values");
 const connectFunction = js.slice(js.indexOf("async function connect("), js.indexOf("function scheduleReconnect("));
-assert.ok(!connectFunction.includes("getUserMedia"), "Web connection must not acquire microphone while idle");
-assert.ok(js.includes("S.micSender.replaceTrack(track)") && js.includes("S.micSender?.replaceTrack(null)") && js.includes("track.stop()"), "PTT must attach and fully release microphone tracks");
-assert.ok(js.includes('await ptt(false);') && js.includes('sendControlAndWait("disconnect", { sessionId }, 800)'), "Web disconnect must release microphone before its bounded remote shutdown wait");
+assert.ok(connectFunction.includes("await setWebMicEnabled(true)"), "Browser microphone must start automatically during connection setup");
+assert.ok(js.includes("sender.replaceTrack(track)") && js.includes("sender?.replaceTrack(null)") && js.includes("track.stop()"), "Web mic must attach and release real tracks");
+assert.ok(js.includes("await setWebMicEnabled(false)") && js.includes('sendControlAndWait("disconnect", { sessionId }, 800)'), "Disconnect must release the Web mic before bounded remote shutdown");
+assert.ok(!js.includes("pttLock") && !html.includes('id="pttLock"'), "Obsolete PTT lock UI must be removed");
+assert.ok(html.includes("接続時にマイクを開始します") || html.includes("接続時自動ON"), "UI must explain automatic Web microphone startup");
 assert.ok(main.includes("StopMonitoringReceiver.stop(this)"), "Android UI stop button must use common stop receiver");
 assert.ok(fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/StopMonitoringReceiver.kt", "utf8").includes("stopService("), "Notification stop action must directly stop the foreground service");
 assert.ok(service.includes("getBroadcast(") && service.includes("待機を停止"), "Persistent notification must expose a service-independent stop action");
 assert.ok(service.includes("if (!prefs.getBoolean(\"monitoringEnabled\", false))") && service.includes("catch (cancelled: CancellationException)"), "A cancelled service must not recreate a startup-error notification or retry");
-assert.ok(service.includes("updateDisplayWakeLock(false)") && service.includes("PowerManager.SCREEN_DIM_WAKE_LOCK"), "Android display-awake lock must be reversible and released on shutdown");
-assert.ok(service.includes('"android_keep_awake"') && service.includes('"androidKeepAwake"') && service.includes("ACTION_DISPLAY_AWAKE"), "Android display-awake setting must be remotely controllable and reported");
-assert.ok(main.includes("FLAG_KEEP_SCREEN_ON") && main.includes("ACTION_KEEP_SCREEN_AWAKE_STATE"), "Android UI must include its local display-awake control");
-assert.ok(html.includes('id="androidKeepAwake"') && js.includes('sendControl("android_keep_awake"'), "Web must expose Android display-awake toggle");
-assert.ok(service.includes('if (!enabled && !torchEnabled)') && service.includes("activeTorchCameraId"), "Torch cleanup must not call CameraManager when flashlight was never enabled");
-assert.ok(service.includes("LENS_FACING_BACK") && service.includes("FLASH_INFO_AVAILABLE"), "Flash capability must match a rear camera flash");
-assert.ok(rtc.includes("module.setNoiseSuppressorEnabled(enabled)"), "Noise suppressor must support live hardware ON/OFF changes");
-assert.ok(service.includes('"mic_noise"') && service.includes("setNoiseSuppressionLevel(strength)"), "Web slider changes must be applied immediately through Android control channel");
-assert.ok(html.includes("0はOFF") && html.includes("リアルタイム"), "Noise suppression UI must explain the live binary toggle");
+assert.ok(service.includes("updateDisplayWakeLock(false)") && service.includes("PowerManager.SCREEN_BRIGHT_WAKE_LOCK") && service.includes("PowerManager.ACQUIRE_CAUSES_WAKEUP"), "Remote screen wake must turn the display on and release on stop");
+assert.ok(service.includes('"android_keep_awake"') && service.includes('"androidKeepAwake"'), "Android display-awake state must be remotely controlled and reported");
+assert.ok(!main.includes("FLAG_KEEP_SCREEN_ON") && !main.includes("keepAwakeButton") && !main.includes("ACTION_KEEP_SCREEN_AWAKE_STATE"), "Android APK must not expose a local sleep-prevention button");
+assert.ok(html.includes('id="androidKeepAwake"') && js.includes('sendControlAndWait("android_keep_awake"'), "Web must expose acknowledged Android display-awake toggle");
+assert.ok(service.includes("torchRequested") && service.includes("activeTorchCameraId") && service.includes("Torch restore after camera switch"), "Torch intent must survive camera switching");
+assert.ok(service.includes("registerTorchCallback") && service.includes("LENS_FACING_BACK") && service.includes("FLASH_INFO_AVAILABLE"), "Torch state must follow Android camera hardware reports");
+assert.ok(service.includes("CameraAccessException.CAMERA_IN_USE"), "Torch resource conflicts must be reported truthfully");
+assert.ok(rtc.includes(".setUseHardwareNoiseSuppressor(false)"), "Fixed-strength Android noise suppression must be disabled");
+assert.ok(noiseProcessor.includes('registerProcessor("remote-camera-noise-gate"') && noiseProcessor.includes("this.strength"), "Graduated Web Audio noise-gate processor missing");
+assert.ok(js.includes("remote-camera-noise-gate") && js.includes("noiseSuppressorNode") && js.includes("setNoiseSuppressionLevel"), "Web receive audio must apply graduated software noise reduction");
+assert.ok(!service.includes('"mic_noise"') && !service.includes("setNoiseSuppressionLevel"), "Android binary noise setting must no longer control the slider");
+assert.ok(html.includes("0は完全にOFF") && html.includes("適応ノイズゲート"), "Noise UI must explain 0-100 Web noise gating");
 assert.equal([...js.matchAll(/function updateAndroidKeepAwakeButton\(/g)].length, 1, "Android display-awake helper must not be duplicated");
 assert.equal([...js.matchAll(/function toggleAndroidKeepAwake\(/g)].length, 1, "Android display-awake handler must not be duplicated");
-assert.equal([...js.matchAll(/addEventListener\("click",\s*toggleAndroidKeepAwake\)/g)].length, 1, "Android display-awake button listener must be registered once");
-
+assert.equal([...js.matchAll(/addEventListener\("click",\s*\(\)\s*=>\s*toggleAndroidKeepAwake/g)].length, 1, "Android display-awake button listener must be registered once");
 assert.ok(html.includes('class="settingsGroup"'), "Legacy v4.1 collapsible settings groups must be restored");
 assert.ok(html.includes('class="viewerControls"'), "Legacy v4.1 viewer toolbar must be restored");
 assert.ok(html.includes('<button id="followLocation"'), "Map follow control must be a button matching its handler");
-assert.ok(html.includes('class="ptt pttProminent"'), "Prominent v4.1 PTT button missing");
+assert.ok(html.includes('class="ptt pttProminent"'), "Prominent microphone control missing");
+assert.ok(js.includes("startViewerPan") && js.includes("moveViewerPan") && js.includes("translate("), "Zoomed video must be pannable rather than center-only");
 assert.ok(!html.includes('id="snapshot"'), "Static image capture must remain excluded");
 assert.equal([...js.matchAll(/\$\("fitMode"\)\.addEventListener\("click"/g)].length, 1, "Fit/fill action must be registered once");
-assert.ok(!js.includes('"pointerup", "pointerleave"'), "Pointer capture must not stop PTT on pointer leave");
+assert.ok(js.includes('pointerdown", startViewerPan') && js.includes('pointermove", moveViewerPan'), "Zoom pan pointer listeners must exist");
 assert.ok(html.includes("RTC接続中はAndroidの現在地をDataChannelで直接受信"), "Location UI must explain RTC live updates");
 console.log("Web2 v2.6 stability, microphone lifecycle, notification stop, and screen-share removal checks passed.");
 
