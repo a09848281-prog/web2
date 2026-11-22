@@ -6,6 +6,7 @@ on:
       - preview/v2.6-stability
       - preview/v2.6.1-stability
       - preview/v2.7-auto-recovery
+      - preview/v2.7.1-fixes
     paths:
       - "index.html"
       - "app.js"
@@ -20,6 +21,10 @@ on:
       - "noise-suppressor-processor.js"
       - "recovery-core.js"
       - "V2.7-AUTO-RECOVERY.md"
+      - "V2.7.1-FIXES.md"
+      - "android/**"
+      - "tests/**"
+      - "scripts/**"
       - ".github/workflows/deploy-v2.6-preview.yml"
       - "V2.6-STABILITY.md"
       - "V2.6.1-STABILITY.md"
@@ -71,22 +76,28 @@ jobs:
         with:
           ref: preview/v2.7-auto-recovery
           path: v27-source
+      - name: Checkout v2.7.1 fixes preview
+        uses: actions/checkout@v4
+        with:
+          ref: preview/v2.7.1-fixes
+          path: v271-source
       - name: Assemble site without replacing the homepage
         run: |
-          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6 _site/v2.6.1 _site/v2.7
+          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6 _site/v2.6.1 _site/v2.7 _site/v2.7.1
           rsync -a --exclude='.git' base-site/ _site/
           rsync -a --exclude='.git' --exclude='.github' v21-source/ _site/v2.1/
           rsync -a --exclude='.git' --exclude='.github' v25-source/ _site/v2.5/
           rsync -a --exclude='.git' --exclude='.github' v26-source/ _site/v2.6/
           rsync -a --exclude='.git' --exclude='.github' v261-source/ _site/v2.6.1/
           rsync -a --exclude='.git' --exclude='.github' v27-source/ _site/v2.7/
+          rsync -a --exclude='.git' --exclude='.github' v271-source/ _site/v2.7.1/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          name: github-pages-v2.6
+          name: github-pages-v2.7.1
           path: _site
-      - name: Deploy v2.6 stability preview
+      - name: Deploy v2.7.1 fixes preview
         id: deployment
         uses: actions/deploy-pages@v4
         with:
-          artifact_name: github-pages-v2.6
+          artifact_name: github-pages-v2.7.1

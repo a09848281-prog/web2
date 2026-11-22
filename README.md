@@ -3,7 +3,7 @@
 Android・iPad・PC対応の個人利用向け遠隔監視カメラシステムです。
 旧web v3.8〜v4.1の画面構成とWeb2の機能を統合した独立プレビューです。
 
-- Current stability preview: `preview/v2.7-auto-recovery`
+- Current stability preview: `preview/v2.7.1-fixes`
 - PWA: GitHub Pages（iPad Safari / PC browser）
 - Android: Kotlin / Foreground Service / WebRTC
 - Signaling and history: Google Apps Script + Google Sheets
@@ -13,10 +13,10 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 
 ## Current stability preview
 
-- App version: `2.7.0-preview`
-- Android versionCode: `429`
-- PWA preview: https://a09848281-prog.github.io/web2/v2.7/
-- Branch: `preview/v2.7-auto-recovery`
+- App version: `2.7.1-preview`
+- Android versionCode: `430`
+- PWA preview: https://a09848281-prog.github.io/web2/v2.7.1/
+- Branch: `preview/v2.7.1-fixes`
 - Previous v2.6 preview remains available: https://a09848281-prog.github.io/web2/v2.6/
 - Previous v2.1 preview: https://a09848281-prog.github.io/web2/v2.1/
 
@@ -25,15 +25,15 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 1. Deploy `gas/Code.gs` as a Google Apps Script Web App.
 2. Confirm `gasUrl` in `config.json` points to the deployed `/exec` URL. Do not commit TURN credentials or other secrets.
 3. Publish the PWA with the `Deploy Remote Camera Web2 Previews to GitHub Pages` workflow. It publishes the v2.7 preview at `/v2.7/` alongside older preview folders. without replacing the older preview folders.
-4. Build the Android APK with the `Android APK Build` workflow. Download the `remote-camera-web2-preview-v2.7-apk` artifact.
+4. Build the Android APK with the `Android APK Build` workflow. Download the `remote-camera-web2-preview-v2.7.1-apk` artifact.
 5. Follow `docs/WEB2-V2.1.0-CHECKLIST.md` for Galaxy A22 5G / Android 13 and iPad Safari tests.
 
-## v2.7 Automatic Recovery Preview
+## v2.7.1 Fixes Preview
 
-- Branch: `preview/v2.7-auto-recovery`
-- Android package: `jp.a09848281.remotecamera.v26` / `2.7.0-preview` (versionCode 429). The package ID is unchanged, so Android can install it as an update to v2.6.1.
-- PWA: `https://a09848281-prog.github.io/web2/v2.7/`
-- APK artifact: `remote-camera-web2-preview-v2.7-apk`
+- Branch: `preview/v2.7.1-fixes`
+- Android package: `jp.a09848281.remotecamera.v26` / `2.7.1-preview` (versionCode 429). The package ID is unchanged, so Android can install it as an update to v2.6.1.
+- PWA: `https://a09848281-prog.github.io/web2/v2.7.1/`
+- APK artifact: `remote-camera-web2-preview-v2.7.1-apk`
 - **Web microphone:** starts automatically as the RTC connection is set up. The Web microphone button becomes an ON/OFF toggle. Permission denial does not intentionally block the camera-view setup; the user can retry from the button. Android receive audio remains active for full-duplex sound.
 - **Noise control:** the 0–100 slider is now applied in the Web Audio receive path using an adaptive noise gate. 0 bypasses the gate; larger values attenuate low-level background sound more strongly. This is software gating, not full spectral noise cancellation, and a high setting can also reduce quiet speech. The setting is stored locally in the Web viewer.
 - **Android sleep prevention:** the APK's local sleep toggle has been removed. The Web viewer is the only control surface. The Android foreground service applies a screen wake lock, reports whether the lock is actually held, and acknowledges ON/OFF changes. It does not bypass the PIN/pattern/biometric lock and can increase battery use.
@@ -61,3 +61,6 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 - iPad Safari may suspend or limit page/WebRTC activity while backgrounded.
 - STUN fallback is configured. Some NATs require a separately hosted TURN relay and credentials in GAS Script Properties.
 - The original `a09848281-prog/web` repository and the `main` branch are not modified by this preview branch.
+
+
+See [V2.7.1-FIXES.md](V2.7.1-FIXES.md) for second-precision scheduling, first-attempt recovery, Camera2 torch integration, and 40/45/50/55 FPS support. The APK must be installed and `gas/Code.gs` redeployed to API 1.3.0 for APK schedule display in the Web UI. The previous v2.7.0 preview remains available at `/v2.7/`.
