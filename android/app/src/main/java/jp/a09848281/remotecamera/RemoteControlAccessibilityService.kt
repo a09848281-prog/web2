@@ -141,8 +141,9 @@ class RemoteControlAccessibilityService : AccessibilityService() {
             "http:// または https:// から始まるURLを入力してください。"
         }
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(value)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        check(intent.resolveActivity(packageManager) != null) { "URLを開くアプリが見つかりません。" }
-        startActivity(intent)
+        try { startActivity(intent) } catch (error: android.content.ActivityNotFoundException) {
+            throw IllegalStateException("URLを開くアプリが見つかりません。", error)
+        }
     }
 
     private fun scrollFocused(action: Int) {
