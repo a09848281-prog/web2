@@ -446,7 +446,7 @@ function restoreRemotePlayback() {
 }
 
 function startVideoWatchdog(peer) {
-  if (!peer || S.pc !== peer) return;
+  if (!peer || S.pc !== peer || $("videoPane").classList.contains("hidden")) return;
   stopVideoWatchdog();
   const video = $("remoteVideo");
   S.hasReceivedVideoFrame = false;
@@ -2146,6 +2146,7 @@ function startLocationRefresh() {
   }, 30000);
 }
 function showMap() {
+  stopVideoWatchdog();
   $("videoPane").classList.add("hidden");
   $("mapPane").classList.remove("hidden");
   $("mapTab").classList.add("active");
