@@ -98,7 +98,7 @@ test("noise suppression uses a real adjustable Web Audio gate from 0 to 100", ()
   assert.match(html, /id="micNoise"[^>]*min="0"[^>]*max="100"/);
   assert.match(web, /function setNoiseSuppressionLevel\(value, persist = false\)/);
   assert.match(web, /remote-camera-noise-gate/);
-  assert.match(web, /noiseSuppressorNode\.connect\(S\.remoteAnalyser\)/);
+  assert.match(web, /suppressor\.connect\(S\.remoteAnalyser\)/);
   assert.match(worklet, /registerProcessor\("remote-camera-noise-gate"/);
   assert.match(worklet, /if \(this\.strength <= 0\)/);
   assert.match(worklet, /this\.strength = Number\.isFinite\(value\) \? Math\.max\(0, Math\.min\(100, value\)\) : 0/);
@@ -107,7 +107,7 @@ test("noise suppression uses a real adjustable Web Audio gate from 0 to 100", ()
   assert.match(html, /適応ノイズゲート/);
 });
 
-test("flashlight requests are tracked and restored after camera switching", () => {
+test("flashlight requests are tracked without delayed activation after camera switching", () => {
   assert.match(service, /torchRequested/);
   assert.match(service, /registerTorchCallback/);
   assert.match(service, /onTorchModeChanged\(cameraId: String, enabled: Boolean\)/);
