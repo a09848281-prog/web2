@@ -584,33 +584,9 @@ class MonitorService : Service() {
                 } else {
                     engine.switchCamera(payload.optString("facing", cameraId.ifBlank { "back" }))
                 }
-                // Some Android camera HALs reject setTorchMode while the active
-                // rear Camera2 stream owns that sensor. Retry after the camera session
-                // settles, while preserving the user's explicit ON/OFF intent.
-                if (torchRequested) {
-                    var restored = false
-                    var restoreError: Exception? = null
-                    val retryDelays = longArrayOf(250L, 500L, 900L)
-                    for ((attempt, waitMs) in retryDelays.withIndex()) {
-                        if (!torchRequested) break
-                        delay(waitMs)
-                        try {
-                            setTorch(true)
-                            restored = torchEnabled
-                            if (restored) break
-                        } catch (error: Exception) {
-                            restoreError = error
-                            Log.w("RemoteCameraService", "Torch restore attempt ${attempt + 1} after camera switch failed", error)
-                        }
-                    }
-                    if (!restored && torchRequested) {
-                        notifyState(
-                            "カメラ切替後もライトを点灯できませんでした。Androidのカメラ資源がライトとの同時使用を拒否している可能性があります。" +
-                                (restoreError?.message?.let { " " + it } ?: "")
-                        )
-                    }
-                }
-            }
+                // A rejected ON request is deliberately not retried after a camera
+                // change. Switching to another camera must never surprise the user
+                // by turning the flashlight on later.
             "torch" -> setTorch(payload.optBoolean("enabled",false))
             "media_toggle" -> {
                 val engine = rtc ?: error("WebRTCが終了しています。")
