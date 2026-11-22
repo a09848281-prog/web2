@@ -107,14 +107,15 @@ test("noise suppression uses a real adjustable Web Audio gate from 0 to 100", ()
   assert.match(html, /適応ノイズゲート/);
 });
 
-test("flashlight reports actual state and clears a rejected ON request", () => {
-  assert.match(service, /torchRequested = enabled/);
-  assert.match(service, /registerTorchCallback/);
-  assert.match(service, /onTorchModeChanged\(cameraId: String, enabled: Boolean\)/);
-  assert.match(service, /sortedByDescending \{ it == selectedId \}/);
-  assert.match(service, /if \(enabled\) torchRequested = false/);
-  assert.match(service, /activeTorchCameraId/);
-  assert.match(service, /CameraAccessException\.CAMERA_IN_USE/);
+test("flashlight is controlled by the active Camera2 video capture request", () => {
+  const torchState = read("android/app/src/main/java/org/webrtc/RemoteTorchState.java");
+  const torchSession = read("android/app/src/main/java/org/webrtc/RemoteTorchCamera2Session.java");
+  assert.match(rtc, /torchRequested = enabled/);
+  assert.match(rtc, /TorchCaptureControl/);
+  assert.match(rtc, /setTorchEnabled\(false\)/);
+  assert.match(service, /engine\.setTorchEnabled\(enabled\)/);
+  assert.match(torchState, /FLASH_MODE_TORCH/);
+  assert.match(torchSession, /FLASH_MODE_TORCH/);
   assert.match(service, /\.put\("flashEnabled",torchEnabled\)/);
   const cameraStart = service.indexOf('"camera" -> {');
   const torchStart = service.indexOf('"torch" -> setTorch', cameraStart);
@@ -138,11 +139,11 @@ test("v2.7 Android, PWA and service-worker versions stay synchronized", () => {
   const config = read("config.json");
   const sw = read("sw.js");
   const pwa = JSON.parse(read("manifest.webmanifest"));
-  assert.match(build, /versionCode = 429/);
-  assert.match(build, /versionName = "2\.7\.0-preview"/);
+  assert.match(build, /versionCode = 430/);
+  assert.match(build, /versionName = "2\.7\.1-preview"/);
   assert.match(build, /applicationId = "jp\.a09848281\.remotecamera\.v26"/);
-  assert.match(config, /"appVersion": "2\.7\.0-preview"/);
-  assert.match(sw, /v2-7/);
+  assert.match(config, /"appVersion": "2\.7\.1-preview"/);
+  assert.match(sw, /v2-7-1/);
   assert.match(sw, /noise-suppressor-processor\.js/);
-  assert.equal(pwa.name, "Remote Camera Web2 v2.7.0 Preview");
+  assert.equal(pwa.name, "Remote Camera Web2 v2.7.1 Preview");
 });

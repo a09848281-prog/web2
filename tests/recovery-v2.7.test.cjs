@@ -72,7 +72,7 @@ test("Web UI exposes synchronized APK schedule timestamps", () => {
 
 test("first ICE/DataChannel failure retries even before the first successful connection", () => {
   assert.match(web, /S\.everConnected \|\| S\.autoConnectWanted/);
-  assert.match(web, /S\.autoConnectWanted: S\.autoConnectWanted/);
+  assert.match(web, /autoConnectWanted: S\.autoConnectWanted/);
 });
 
 test("second precision Web and APK schedule sync path exists", () => {
