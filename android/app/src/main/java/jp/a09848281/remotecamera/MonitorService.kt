@@ -119,6 +119,11 @@ class MonitorService : Service() {
             stopMonitoringNow(startId)
             return START_NOT_STICKY
         }
+        // Ignore a delayed/stale START intent after the user has explicitly stopped waiting.
+        if (action == ACTION_START && !prefs.getBoolean("monitoringEnabled", false)) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         if (intent != null && action != ACTION_START && action != ACTION_REFRESH_CODE && action != ACTION_VIDEO_SETTINGS) {
             stopSelf(startId)
             return START_NOT_STICKY
