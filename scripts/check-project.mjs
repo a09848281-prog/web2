@@ -297,7 +297,7 @@ assert.equal([...js.matchAll(/function toggleAndroidKeepAwake\(/g)].length, 0, "
 assert.equal([...js.matchAll(/sendControlAndWait\("android_keep_awake"/g)].length, 0, "Web must never send Android display-awake commands");
 assert.equal([...html.matchAll(/id="androidKeepAwake"/g)].length, 1, "Keep the original button slot to preserve viewer layout");
 assert.ok(js.includes("安全性と接続安定性のため、WebからのAndroidスリープ制御は無効です"), "Retired Android sleep control must explain its disabled state");
-assert.equal([...js.matchAll(/id="androidKeepAwake"/g)].length, 0, "Android sleep button must not have a live Web action");
+assert.ok(js.includes('$("androidKeepAwake").addEventListener("click", () => toast('), "Sleep-control slot must only display an informational message and must not send an Android command");
 assert.ok(html.includes('class="settingsGroup"'), "Legacy v4.1 collapsible settings groups must be restored");
 assert.ok(html.includes('class="viewerControls"'), "Legacy v4.1 viewer toolbar must be restored");
 assert.ok(html.includes('<button id="followLocation"'), "Map follow control must be a button matching its handler");
