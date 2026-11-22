@@ -37,7 +37,7 @@ const S = {
   adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 },
   audioContext: null, remoteGain: null, remoteAudioSource: null, remoteAnalyser: null,
   flashAvailable: false,
-  androidCameraEnabled: true, androidMicEnabled: true, androidKeepAwake: false,
+  androidCameraEnabled: true, androidMicEnabled: true, androidKeepAwake: false, androidKeepAwake: false,
   audioMeterFrame: null, receiveVolume: 70, remoteAudioMuted: false,
   pttLocked: false, pttStartedAt: 0, pttTimeout: null, pttKeyActive: false,
   wakeLock: null, keepAwakeWanted: false,
@@ -1275,6 +1275,7 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
   $("pttLock").disabled = !S.device;
   $("keepAwake").disabled = !S.device;
   updateAndroidKeepAwakeButton();
+  updateAndroidKeepAwakeButton();
 }
 async function loadSettings() {
   const device = S.device;
@@ -1428,6 +1429,24 @@ function updateAndroidMediaButtons() {
   $("camera").disabled = !open || !S.androidCameraEnabled;
   $("cameraToggle").textContent = S.androidCameraEnabled ? "📷 Androidカメラ OFF" : "📷 Androidカメラ ON";
   $("micToggle").textContent = S.androidMicEnabled ? "🎙 Androidマイク OFF" : "🎙 Androidマイク ON";
+}
+
+function updateAndroidKeepAwakeButton() {
+  const button = $("androidKeepAwake");
+  if (!button) return;
+  button.textContent = S.androidKeepAwake ? "📱 Android自動消灯防止 ON" : "📱 Android自動消灯防止 OFF";
+  button.classList.toggle("active", S.androidKeepAwake);
+  button.disabled = !S.pc || S.control?.readyState !== "open";
+}
+
+function toggleAndroidKeepAwake() {
+  const next = !S.androidKeepAwake;
+  if (!sendControl("android_keep_awake", { enabled: next })) return;
+  S.androidKeepAwake = next;
+  updateAndroidKeepAwakeButton();
+  toast(next
+    ? "Androidの自動消灯防止を有効にしました（アプリ画面が前面の間）。"
+    : "Androidの自動消灯防止を解除しました。");
 }
 
 function updateAndroidKeepAwakeButton() {
@@ -2179,6 +2198,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   $("cameraToggle").addEventListener("click",toggleAndroidCamera);
   $("micToggle").addEventListener("click",toggleAndroidMicrophone);
+  $("androidKeepAwake").addEventListener("click",toggleAndroidKeepAwake);
   $("androidKeepAwake").addEventListener("click",toggleAndroidKeepAwake);
   $("reserveConnection").addEventListener("click",()=>reserveConnection().catch(e=>toast(e.message)));
   $("cancelReservation").addEventListener("click",cancelConnectionReservation);
