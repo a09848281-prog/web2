@@ -8,6 +8,7 @@ on:
       - preview/v2.7-auto-recovery
       - preview/v2.7.1-fixes
       - preview/v2.8.0-stable-reconnect
+      - preview/v2.8.1-web-style-preserved
     paths:
       - "index.html"
       - "app.js"
@@ -24,6 +25,7 @@ on:
       - "V2.7-AUTO-RECOVERY.md"
       - "V2.7.1-FIXES.md"
       - "V2.8.0-STABLE-RECOVERY.md"
+      - "V2.8.1-WEB-STYLE-PRESERVED.md"
       - "android/**"
       - "tests/**"
       - "scripts/**"
@@ -88,9 +90,14 @@ jobs:
         with:
           ref: preview/v2.8.0-stable-reconnect
           path: v280-source
+      - name: Checkout v2.8.1 Web style preserved preview
+        uses: actions/checkout@v4
+        with:
+          ref: preview/v2.8.1-web-style-preserved
+          path: v281-source
       - name: Assemble site without replacing the homepage
         run: |
-          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6 _site/v2.6.1 _site/v2.7 _site/v2.7.1 _site/v2.8.0
+          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6 _site/v2.6.1 _site/v2.7 _site/v2.7.1 _site/v2.8.0 _site/v2.8.1
           rsync -a --exclude='.git' base-site/ _site/
           rsync -a --exclude='.git' --exclude='.github' v21-source/ _site/v2.1/
           rsync -a --exclude='.git' --exclude='.github' v25-source/ _site/v2.5/
@@ -99,13 +106,14 @@ jobs:
           rsync -a --exclude='.git' --exclude='.github' v27-source/ _site/v2.7/
           rsync -a --exclude='.git' --exclude='.github' v271-source/ _site/v2.7.1/
           rsync -a --exclude='.git' --exclude='.github' v280-source/ _site/v2.8.0/
+          rsync -a --exclude='.git' --exclude='.github' v281-source/ _site/v2.8.1/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          name: github-pages-v2.8.0
+          name: github-pages-v2.8.1
           path: _site
-      - name: Deploy v2.8.0 stable reconnect preview
+      - name: Deploy v2.8.1 Web style preserved preview
         id: deployment
         uses: actions/deploy-pages@v4
         with:
-          artifact_name: github-pages-v2.8.0
+          artifact_name: github-pages-v2.8.1
