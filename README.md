@@ -1,9 +1,9 @@
-# Remote Camera Web2 v2.1.1 Preview
+# Remote Camera Web2
 
 Android・iPad・PC対応の個人利用向け遠隔監視カメラシステムです。
 旧web v3.8〜v4.1の画面構成とWeb2の機能を統合した独立プレビューです。
 
-- Preview branch: `preview/v2.1.0-stability`
+- Current stability preview: `preview/v2.6-stability`
 - PWA: GitHub Pages（iPad Safari / PC browser）
 - Android: Kotlin / Foreground Service / WebRTC
 - Signaling and history: Google Apps Script + Google Sheets
@@ -11,20 +11,21 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 - Firebase / FCM / paid AI API / VPS: not used
 - No video recording, audio recording, or still-image saving
 
-## Current preview
+## Current stability preview
 
-- App version: `2.1.1-preview`
-- Android versionCode: `423`
-- PWA preview: https://a09848281-prog.github.io/web2/v2.1/
-- Branch: `preview/v2.1.0-stability`
-- Bug fixes: viewport recovery loop, camera-OFF switching, viewer-capacity polling, microphone preset synchronization, Service Worker cache isolation, and camera shutdown order.
+- App version: `2.6.0-preview`
+- Android versionCode: `427`
+- PWA preview: https://a09848281-prog.github.io/web2/v2.6/
+- Branch: `preview/v2.6-stability`
+- Previous v2.1 preview: https://a09848281-prog.github.io/web2/v2.1/
+- v2.6 prioritizes notification/foreground-service shutdown, Web PTT microphone release, camera/flashlight cleanup, and display-awake control.
 
 ## Setup
 
 1. Deploy `gas/Code.gs` as a Google Apps Script Web App.
 2. Confirm `gasUrl` in `config.json` points to the deployed `/exec` URL. Do not commit TURN credentials or other secrets.
-3. Publish the PWA with the `Deploy v2.1.0 Preview to GitHub Pages` workflow.
-4. Build the Android APK with the `Android APK Build` workflow. Download the `remote-camera-web2-preview-v2.1.1-apk` artifact.
+3. Publish the PWA with the `Deploy v2.6 Preview to GitHub Pages` workflow. The workflow preserves the root site and v2.1/v2.5 preview paths.
+4. Build the Android APK with the `Android APK Build` workflow. Download the `remote-camera-web2-preview-v2.6.0-apk` artifact.
 5. Follow `docs/WEB2-V2.1.0-CHECKLIST.md` for the Galaxy A22 5G / Android 13 and iPad Safari checks.
 
 ## v2.6 Stability Preview
