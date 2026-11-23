@@ -139,7 +139,7 @@ test("v2.8.4 FPS, battery and pairing preview stays synchronized with compatible
   const pwa = JSON.parse(read("manifest.webmanifest"));
   assert.match(build, /versionCode = 433/);
   assert.match(build, /versionName = "2\.8\.4-preview"/);
-  assert.match(build, /applicationId = "jp\.a09848281\.remotecamera\.v28"/);
+  assert.match(build, /applicationId = "jp\.a09848281\.remotecamera\.v29"/);
   assert.match(config, /"appVersion": "2\.8\.4-preview"/);
   assert.match(sw, /v2-8-4/);
   assert.match(sw, /noise-suppressor-processor\.js/);

@@ -24,7 +24,7 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 
 - Branch: `preview/v2.8.4-battery-pairing-layout-stability`
 - PWA: `https://a09848281-prog.github.io/web2/v2.8.4/`
-- Android: `2.8.4-preview` / versionCode `433` / package `jp.a09848281.remotecamera.v28` (same package ID as v2.8.3 for an in-place update).
+- Android: `2.8.4-preview` / versionCode `433` / package `jp.a09848281.remotecamera.v29` (separate install so v2.8.3 `.v28` stays installed and its local settings are not removed). The new app has a fresh device ID and must be paired again in Web.
 - Pairing-code lifetime is selected on Android: 10 minutes, 20 minutes, 30 minutes, 1 hour, or 2 hours. GAS validates the selected value and stores the corresponding expiry. Legacy clients without a duration still receive the 10-minute default.
 - Battery auto-disconnect is opt-in and defaults OFF. When enabled, the user selects a 5–50% cutoff (default 20%). While not charging and at/below the threshold, the camera/microphone WebRTC session is closed and the torch is switched off.
 - After cutoff, the wait toggle controls the behavior: ON keeps a foreground standby service and low-rate GAS polling active; OFF stops the service. Standby resumes after charging begins or battery rises at least 5 points above the threshold. Web reconnect is manual after standby, preventing surprise reconnect loops.
