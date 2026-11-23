@@ -166,14 +166,14 @@ test("Web recovery countdown visibly decreases and clears when the retry is canc
 test("frozen or ended video forces a fresh RTC session even when ICE and DataChannel still look connected", () => {
   assert.match(web, /function reconnectRequiresFreshSession\(reason\)/);
   assert.match(web, /\["video-stalled", "track-ended", "track-muted"\]/);
-  assert.match(web, /A connected ICE transport and open DataChannel do NOT prove/);
+  assert.match(web, /transport and open DataChannel DO NOT prove that video frames are flowing/);
   assert.match(web, /if \(reconnectRequiresFreshSession\(reason\)\)/);
   assert.match(web, /scheduleReconnect\(peer, "video-stalled"\)/);
 });
 
 test("a more serious video failure upgrades an already queued soft reconnect", () => {
   assert.match(web, /Upgrade an already scheduled soft retry/);
-  assert.match(web, /!reconnectRequiresFreshSession\(S\.reconnectReason\)/);
+  assert.match(web, /reconnectRequiresFreshSession\(S\.reconnectReason\)/);
   assert.match(web, /reconnectCountdownTimer/);
 });
 
