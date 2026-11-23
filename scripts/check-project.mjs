@@ -199,7 +199,7 @@ assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi perm
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
 assert.ok(androidBuild.includes('versionName = "2.8.4-preview"'), "Android app version must be v2.8.4");
 assert.ok(androidBuild.includes("versionCode = 433"), "Android version code must be 433");
-assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v28"'), "v2.8 uses a separate package so v2.7 data and install remain intact");
+assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v29"'), "v2.8 uses a separate package so v2.7 data and install remain intact");
 assert.ok(webConfig.includes('"appVersion": "2.8.4-preview"'), "Web config version must be v2.8.4");
 assert.ok(html.includes("v2.8.4 Preview"), "PWA display version must be v2.8.4");
 assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-4"'), "PWA cache key must be bumped to v2.8.4");

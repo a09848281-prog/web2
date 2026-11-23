@@ -11,14 +11,13 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 - Firebase / FCM / paid AI API / VPS: not used
 - No video recording, audio recording, or still-image saving
 
-## Current stability preview
+## Previous stability baseline (v2.8.3)
 
 - Version: `2.8.3-preview`
 - PWA preview: https://a09848281-prog.github.io/web2/v2.8.3/
 - Branch: `preview/v2.8.3-fps-reconnect-stability`
 - Android package: `jp.a09848281.remotecamera.v28` / versionCode 432
-- Existing v2.8.0 APK can be updated in place by installing v2.8.3.
-- Previous versions remain available; this branch does not overwrite main.
+- The v2.8.3 installation remains available as a fallback. v2.8.4 uses a separate package ID to preserve it.
 
 ## v2.8.4 Battery, Pairing and Layout Stability Preview
 
