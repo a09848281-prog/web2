@@ -248,7 +248,8 @@ assert.ok(html.includes('id="batteryForecast"') && js.includes("renderBatteryFor
 assert.ok(js.includes('d.type==="battery_standby"'), "Web must stop automatic reconnect on battery standby");
 assert.ok(js.includes("function updateReconnectCountdown(") && js.includes("setInterval(updateReconnectCountdown, 200)"), "Reconnect countdown must visibly tick down");
 assert.ok(js.includes("function reconnectRequiresFreshSession(") && js.includes('"video-stalled"'), "Frozen video must force a new RTC session even when the control channel remains open");
-assert.ok(js.includes("A connected ICE transport and open DataChannel DO NOT prove"), "RTC connected state must not suppress video-stall recovery");
+assert.ok(js.includes("if (reconnectRequiresFreshSession(reason))") &&
+  js.includes("RemoteCameraRecovery.shouldRecoverVideo({"), "RTC connected state must not suppress a verified video-stall recovery");
 assert.ok(service.includes('rtc?.hasHealthyControlChannel() == true -> "監視中・WebRTC制御接続中"') && rtc.includes("fun hasHealthyControlChannel()"), "Android foreground status must require a live DataChannel and connected ICE state");
 assert.ok(service.includes("WebRTC切断を検知・自動復旧中"), "Android must report a detected WebRTC disconnect immediately");
 assert.ok(gas.includes('case "save_device_schedule": return saveDeviceSchedule_(r);') &&
