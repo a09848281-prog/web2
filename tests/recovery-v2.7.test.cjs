@@ -166,7 +166,7 @@ test("Web recovery countdown visibly decreases and clears when the retry is canc
 test("frozen or ended video forces a fresh RTC session even when ICE and DataChannel still look connected", () => {
   assert.match(web, /function reconnectRequiresFreshSession\(reason\)/);
   assert.match(web, /\["video-stalled", "track-ended", "track-muted"\]/);
-  assert.match(web, /A connected ICE transport and open DataChannel DO NOT prove/);
+  assert.match(web, /A connected ICE transport and open DataChannel do NOT prove/);
   assert.match(web, /if \(reconnectRequiresFreshSession\(reason\)\)/);
   assert.match(web, /scheduleReconnect\(peer, "video-stalled"\)/);
 });
