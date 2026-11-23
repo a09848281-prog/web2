@@ -34,7 +34,9 @@ const S = {
   followMap: true,
   locationRefreshTimer: null,
   deviceTelemetry: null,
-  deviceDiagnostics: null, control: null, statsTimer: null, statsLast: null, reconnectTimer: null, reconnectAttempts: 0, everConnected: false, autoConnectWanted: false, torchEnabled: false, reservationTimer: null,
+  deviceDiagnostics: null, control: null, statsTimer: null, statsLast: null, reconnectTimer: null,
+  reconnectCountdownTimer: null, reconnectDeadlineAt: 0, reconnectReason: "", reconnectExpectedPc: null,
+  reconnectAttempts: 0, everConnected: false, autoConnectWanted: false, torchEnabled: false, reservationTimer: null,
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   motion: { enabled: false, sensitivity: 3, timer: null, previous: null, streak: 0, lastEventAt: 0, sendingDevices: new Set(), retryTimer: null },
   adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 },
@@ -1054,6 +1056,7 @@ function selectDevice(device) {
     S.autoConnectWanted = false;
     if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
     S.reconnectTimer = null;
+    clearReconnectCountdown();
     S.history = [];
     S.lastLocation = null;
     S.deviceTelemetry = null;
@@ -1185,6 +1188,7 @@ function markRtcStable(peer) {
   clearConnectionTimeout(peer);
   if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
   S.reconnectTimer = null;
+  clearReconnectCountdown();
   if (S.reconnectResetTimer) clearTimeout(S.reconnectResetTimer);
   S.reconnectResetTimer = setTimeout(() => {
     if (S.pc === peer && peer.connectionState === "connected" && S.control?.readyState === "open") S.reconnectAttempts = 0;
@@ -1267,6 +1271,7 @@ async function connect(automatic = false) {
     clearTimeout(S.reconnectTimer);
     S.reconnectTimer = null;
   }
+  clearReconnectCountdown();
   S.connecting = true;
   $("connect").disabled = true;
   S.connectionAttemptWatchdog = setTimeout(
@@ -1351,6 +1356,11 @@ async function connect(automatic = false) {
       if (S.pc === pc && !S.manualDisconnect && pc.connectionState !== "closed") {
         console.warn("Unexpected DataChannel error");
         $("streamState").textContent = "制御チャネルで通信エラーが発生しました";
+        setTimeout(() => {
+          if (S.pc === pc && control.readyState !== "open" && !S.manualDisconnect) {
+            scheduleReconnect(pc, "datachannel-error");
+          }
+        }, 1500);
       }
     };
 
@@ -1467,36 +1477,121 @@ async function connect(automatic = false) {
     }
   }
 }
+function clearReconnectCountdown() {
+  if (S.reconnectCountdownTimer) clearInterval(S.reconnectCountdownTimer);
+  S.reconnectCountdownTimer = null;
+  S.reconnectDeadlineAt = 0;
+  S.reconnectReason = "";
+  S.reconnectExpectedPc = null;
+}
+
+function updateReconnectCountdown() {
+  if (!S.reconnectTimer || !S.reconnectDeadlineAt) return;
+  const remainingMs = Math.max(0, S.reconnectDeadlineAt - Date.now());
+  if (remainingMs <= 0) {
+    $("streamState").textContent = "自動復旧を開始しています…";
+    return;
+  }
+  $("streamState").textContent =
+    "自動復旧 " + (S.reconnectAttempts + 1) + "回目・" +
+    (remainingMs / 1000).toFixed(1) + "秒後";
+}
+
+function reconnectRequiresFreshSession(reason) {
+  return ["video-stalled", "track-ended", "track-muted"].includes(String(reason));
+}
+
 function scheduleReconnect(expectedPc, reason = "disconnected") {
   if (!RemoteCameraRecovery.shouldRetry({
     manualDisconnect: S.manualDisconnect, hasDevice: !!S.device, everConnected: S.everConnected,
     autoConnectWanted: S.autoConnectWanted
-  }) || S.reconnectTimer) return;
+  })) return;
   if (navigator.onLine === false) {
+    if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
+    S.reconnectTimer = null;
+    clearReconnectCountdown();
     status("ネットワーク切断・復旧待機中");
     $("streamState").textContent = "ネットワーク復旧を待っています";
     return;
   }
+  // A frozen/ended video track can leave ICE and DataChannel looking healthy.
+  // Upgrade an already scheduled soft retry to a full RTC-session rebuild.
+  if (S.reconnectTimer) {
+    if (!reconnectRequiresFreshSession(reason) || reconnectRequiresFreshSession(S.reconnectReason)) return;
+    clearTimeout(S.reconnectTimer);
+    S.reconnectTimer = null;
+    clearReconnectCountdown();
+  }
   if (S.connecting) {
-    // The active attempt has a hard watchdog. Do not stack retry timers behind it;
-    // that was allowing a stalled SDP/GAS operation to leave reconnect apparently frozen.
+    // The active attempt has a hard watchdog. Do not stack retry timers behind it.
     $("streamState").textContent = "接続処理の応答待ち・停止時は自動でリセットします";
     return;
   }
   const attempt = S.reconnectAttempts + 1;
   const wait = RemoteCameraRecovery.retryDelay(attempt, reason);
+  S.reconnectReason = reason;
+  S.reconnectExpectedPc = expectedPc;
+  S.reconnectDeadlineAt = Date.now() + wait;
   status("自動復旧を準備中");
-  $("streamState").textContent = "自動復旧 " + attempt + "回目・" + (wait / 1000).toFixed(1) + "秒後";
+  updateReconnectCountdown();
+  S.reconnectCountdownTimer = setInterval(updateReconnectCountdown, 200);
   S.reconnectTimer = setTimeout(async () => {
     S.reconnectTimer = null;
-    if (S.manualDisconnect || !S.device || (expectedPc && S.pc !== expectedPc)) return;
+    clearReconnectCountdown();
+    $("streamState").textContent = "自動復旧を開始しています…";
+    if (S.manualDisconnect || !S.device) {
+      $("streamState").textContent = "手動切断中";
+      return;
+    }
+    if (expectedPc && S.pc !== expectedPc) {
+      const currentIsHealthy = S.pc?.connectionState === "connected" && S.control?.readyState === "open";
+      $("streamState").textContent = currentIsHealthy ? "映像・制御接続は継続中" : "接続状態が更新されました";
+      return;
+    }
     if (navigator.onLine === false) {
       status("ネットワーク切断・復旧待機中");
       $("streamState").textContent = "ネットワーク復旧を待っています";
       return;
     }
-    if (expectedPc && expectedPc.connectionState === "connected" && S.control?.readyState === "open") return;
-    if (S.connecting) return;
+    // Only skip a retry if the exact failure has recovered. A connected ICE
+    // transport and open DataChannel do NOT prove that video frames are flowing.
+    if (expectedPc && expectedPc.connectionState === "connected" && S.control?.readyState === "open") {
+      if (reconnectRequiresFreshSession(reason)) {
+        if (reason === "video-stalled" && !RemoteCameraRecovery.shouldRecoverVideo({
+          now: Date.now(),
+          cameraEnabled: S.androidCameraEnabled,
+          videoVisible: !$("videoPane").classList.contains("hidden"),
+          manualDisconnect: S.manualDisconnect,
+          graceUntil: S.videoWatchdogGraceUntil,
+          lastFrameAt: S.lastVideoFrameAt,
+          hasReceivedFrame: S.hasReceivedVideoFrame,
+          startupMs: 18000,
+          freezeMs: 15000
+        })) {
+          status("監視中", true);
+          $("streamState").textContent = "映像が再開しました。接続を維持しています";
+          return;
+        }
+        if (reason === "track-muted" && S.lastVideoFrameAt > Date.now() - 15000) {
+          status("監視中", true);
+          $("streamState").textContent = "映像が再開しました。接続を維持しています";
+          return;
+        }
+        if (reason === "track-ended" && S.remoteVideoStream?.getVideoTracks().some(track => track.readyState === "live")) {
+          status("監視中", true);
+          $("streamState").textContent = "映像トラックが復帰しました。接続を維持しています";
+          return;
+        }
+      } else {
+        status("監視中", true);
+        $("streamState").textContent = "接続が自然復旧したため再接続を取り消しました";
+        return;
+      }
+    }
+    if (S.connecting) {
+      $("streamState").textContent = "別の接続処理が進行中です";
+      return;
+    }
     S.reconnectAttempts = attempt;
     const ok = await connect(true);
     if (!ok && !S.reconnectTimer && !S.connecting) scheduleReconnect(null, "connect-error");
@@ -1556,6 +1651,7 @@ async function disconnect(sendCommand = true, preserveMic = false, notifyRemote 
     S.reconnectAttempts = 0;
     if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
     S.reconnectTimer = null;
+    clearReconnectCountdown();
     if (S.reconnectResetTimer) clearTimeout(S.reconnectResetTimer);
     S.reconnectResetTimer = null;
   }
@@ -2035,6 +2131,7 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
   setAutoReconnectIntent(S.device, false);
   if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
   S.reconnectTimer = null;
+  clearReconnectCountdown();
   if (S.reconnectResetTimer) clearTimeout(S.reconnectResetTimer);
   S.reconnectResetTimer = null;
   stopMotionDetection("電池保護待機中");
@@ -2808,6 +2905,7 @@ window.addEventListener("online", () => {
   if ((!S.everConnected && !S.autoConnectWanted) || S.manualDisconnect || !S.device) return;
   if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
   S.reconnectTimer = null;
+  clearReconnectCountdown();
   scheduleReconnect(S.pc, "online");
 });
 document.addEventListener("visibilitychange", () => {

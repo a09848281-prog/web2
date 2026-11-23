@@ -197,12 +197,12 @@ assert.ok(gas.includes("Controllers:"), "Multi-controller storage sheet missing"
 assert.ok(gas.includes("activeControllerCount_(deviceId) >= 3"), "Three-controller pairing limit missing");
 assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi permission missing");
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
-assert.ok(androidBuild.includes('versionName = "2.8.4-preview"'), "Android app version must be v2.8.4");
-assert.ok(androidBuild.includes("versionCode = 433"), "Android version code must be 433");
-assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v29"'), "v2.8 uses a separate package so v2.7 data and install remain intact");
-assert.ok(webConfig.includes('"appVersion": "2.8.4-preview"'), "Web config version must be v2.8.4");
-assert.ok(html.includes("v2.8.4 Preview"), "PWA display version must be v2.8.4");
-assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-4"'), "PWA cache key must be bumped to v2.8.4");
+assert.ok(androidBuild.includes('versionName = "2.8.5-preview"'), "Android app version must be v2.8.5");
+assert.ok(androidBuild.includes("versionCode = 434"), "Android version code must be 434");
+assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v30"'), "v2.8 uses a separate package so v2.7 data and install remain intact");
+assert.ok(webConfig.includes('"appVersion": "2.8.5-preview"'), "Web config version must be v2.8.5");
+assert.ok(html.includes("v2.8.5 Preview"), "PWA display version must be v2.8.5");
+assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-5"'), "PWA cache key must be bumped to v2.8.5");
 assert.ok(serviceWorker.includes("noise-suppressor-processor.js"), "Audio worklet must be precached");
 assert.ok(serviceWorker.includes("key.startsWith(CACHE_PREFIX)"), "Service worker must only delete its own cache namespace");
 assert.ok(!serviceWorker.includes("keys.filter(key => key !== CACHE)"), "Service worker must not delete unrelated origin caches");
@@ -227,8 +227,8 @@ assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from S
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.4.0"'), "GAS API version must be 1.4.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 433"), "Android version code must be 433 for v2.8.3");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.4 Preview", "PWA display name must match v2.8.4");
+assert.ok(androidBuild.includes("versionCode = 434"), "Android version code must be 434 for v2.8.5");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.5 Preview", "PWA display name must match v2.8.4");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 assert.ok(html.includes('id="reserveAt" type="datetime-local" step="1"'), "Web schedule must accept second precision");
 assert.ok(js.includes("S.reservationTimer = setInterval(checkConnectionReservation, 250)"), "Web reservation scheduler missing");
@@ -246,6 +246,11 @@ assert.ok(service.includes("batteryForecastMinutes"), "Battery runtime estimate 
 assert.ok(html.includes('id="toggleSettings"') && js.includes("setSettingsCollapsed("), "Collapsible Web settings panel missing");
 assert.ok(html.includes('id="batteryForecast"') && js.includes("renderBatteryForecast("), "Web battery estimate chip missing");
 assert.ok(js.includes('d.type==="battery_standby"'), "Web must stop automatic reconnect on battery standby");
+assert.ok(js.includes("function updateReconnectCountdown(") && js.includes("setInterval(updateReconnectCountdown, 200)"), "Reconnect countdown must visibly tick down");
+assert.ok(js.includes("function reconnectRequiresFreshSession(") && js.includes('"video-stalled"'), "Frozen video must force a new RTC session even when the control channel remains open");
+assert.ok(js.includes("A connected ICE transport and open DataChannel DO NOT prove"), "RTC connected state must not suppress video-stall recovery");
+assert.ok(service.includes('rtc?.hasHealthyControlChannel() == true -> "監視中・WebRTC制御接続中"') && rtc.includes("fun hasHealthyControlChannel()"), "Android foreground status must require a live DataChannel and connected ICE state");
+assert.ok(service.includes("WebRTC切断を検知・自動復旧中"), "Android must report a detected WebRTC disconnect immediately");
 assert.ok(gas.includes('case "save_device_schedule": return saveDeviceSchedule_(r);') &&
   gas.includes("function saveDeviceSchedule_(r)") && gas.includes("androidSchedule"), "APK reservation sync endpoint missing");
 assert.ok(js.includes("function renderAndroidSchedule(") && js.includes('api("get_settings"') &&

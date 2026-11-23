@@ -12,6 +12,7 @@ on:
       - preview/v2.8.2-command-stability
       - preview/v2.8.3-fps-reconnect-stability
       - preview/v2.8.4-battery-pairing-layout-stability
+      - preview/v2.8.5-reconnect-watchdog
     paths:
       - "index.html"
       - "app.js"
@@ -32,6 +33,7 @@ on:
       - "V2.8.2-COMMAND-STABILITY.md"
       - "V2.8.3-FPS-RECONNECT-STABILITY.md"
       - "V2.8.4-BATTERY-PAIRING-LAYOUT-STABILITY.md"
+      - "V2.8.5-RECONNECT-WATCHDOG.md"
       - "android/**"
       - "tests/**"
       - "scripts/**"
@@ -116,8 +118,13 @@ jobs:
         with:
           ref: preview/v2.8.4-battery-pairing-layout-stability
           path: v284-source
+      - name: Checkout v2.8.5 reconnect watchdog preview
+        uses: actions/checkout@v4
+        with:
+          ref: preview/v2.8.5-reconnect-watchdog
+          path: v285-source
       - name: Run JavaScript regression and project checks
-        working-directory: v284-source
+        working-directory: v285-source
         run: |
           node --check app.js
           node --check recovery-core.js
@@ -125,7 +132,7 @@ jobs:
           node scripts/check-project.mjs
       - name: Assemble site without replacing the homepage
         run: |
-          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6 _site/v2.6.1 _site/v2.7 _site/v2.7.1 _site/v2.8.0 _site/v2.8.1 _site/v2.8.2 _site/v2.8.3 _site/v2.8.4
+          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6 _site/v2.6.1 _site/v2.7 _site/v2.7.1 _site/v2.8.0 _site/v2.8.1 _site/v2.8.2 _site/v2.8.3 _site/v2.8.4 _site/v2.8.5
           rsync -a --exclude='.git' base-site/ _site/
           rsync -a --exclude='.git' --exclude='.github' v21-source/ _site/v2.1/
           rsync -a --exclude='.git' --exclude='.github' v25-source/ _site/v2.5/
@@ -138,13 +145,14 @@ jobs:
           rsync -a --exclude='.git' --exclude='.github' v282-source/ _site/v2.8.2/
           rsync -a --exclude='.git' --exclude='.github' v283-source/ _site/v2.8.3/
           rsync -a --exclude='.git' --exclude='.github' v284-source/ _site/v2.8.4/
+          rsync -a --exclude='.git' --exclude='.github' v285-source/ _site/v2.8.5/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          name: github-pages-v2.8.4
+          name: github-pages-v2.8.5
           path: _site
-      - name: Deploy v2.8.4 battery, pairing and layout stability preview
+      - name: Deploy v2.8.5 reconnect watchdog preview
         id: deployment
         uses: actions/deploy-pages@v4
         with:
-          artifact_name: github-pages-v2.8.4
+          artifact_name: github-pages-v2.8.5

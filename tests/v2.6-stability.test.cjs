@@ -132,18 +132,18 @@ test("zoomed video can be dragged in both directions and reset", () => {
   assert.match(html, /ドラッグして表示位置を移動できます/);
 });
 
-test("v2.8.4 FPS, battery and pairing preview stays synchronized with compatible Android package", () => {
+test("v2.8.5 reconnect watchdog preview stays synchronized with compatible Android package", () => {
   const build = read("android/app/build.gradle.kts");
   const config = read("config.json");
   const sw = read("sw.js");
   const pwa = JSON.parse(read("manifest.webmanifest"));
-  assert.match(build, /versionCode = 433/);
-  assert.match(build, /versionName = "2\.8\.4-preview"/);
-  assert.match(build, /applicationId = "jp\.a09848281\.remotecamera\.v29"/);
-  assert.match(config, /"appVersion": "2\.8\.4-preview"/);
-  assert.match(sw, /v2-8-4/);
+  assert.match(build, /versionCode = 434/);
+  assert.match(build, /versionName = "2\.8\.5-preview"/);
+  assert.match(build, /applicationId = "jp\.a09848281\.remotecamera\.v30"/);
+  assert.match(config, /"appVersion": "2\.8\.5-preview"/);
+  assert.match(sw, /v2-8-5/);
   assert.match(sw, /noise-suppressor-processor\.js/);
-  assert.equal(pwa.name, "Remote Camera Web2 v2.8.4 Preview");
+  assert.equal(pwa.name, "Remote Camera Web2 v2.8.5 Preview");
 });
 
 test("Android camera, capture and viewer all expose independent real FPS measurements", () => {

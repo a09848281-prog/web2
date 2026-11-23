@@ -661,6 +661,20 @@ class RtcEngine(
     fun currentCameraFacing(): String = if (frontCamera) "前面" else "背面"
     fun currentCameraId(): String = selectedCameraId
     fun hasOpenControlChannel():Boolean=controlChannels.values.any{it.state()==DataChannel.State.OPEN}
+
+    // A retained PeerConnection or an OPEN DataChannel alone is not proof that
+    // ICE is still usable. Use this stricter state for Android's user-facing status.
+    fun hasHealthyControlChannel(): Boolean = controlChannels.entries.any { entry ->
+        try {
+            val iceState = peers[entry.key]?.iceConnectionState()?.name
+            entry.value.state() == DataChannel.State.OPEN &&
+                (iceState == "CONNECTED" || iceState == "COMPLETED")
+        } catch (error: Exception) {
+            Log.w("RemoteCameraRTC", "Could not read ICE health for " + entry.key, error)
+            false
+        }
+    }
+
     fun sendControl(sessionId:String,message:JSONObject):Boolean {
         val channel=controlChannels[sessionId]?:return false
         return try{if(channel.state()!=DataChannel.State.OPEN)return false

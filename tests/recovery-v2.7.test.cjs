@@ -152,3 +152,35 @@ test("APK schedule synchronization retries after transient network failure", () 
   assert.match(service, /60000L/);
   assert.match(service, /syncSavedScheduleToGas\(\)/);
 });
+
+
+test("Web recovery countdown visibly decreases and clears when the retry is cancelled or fired", () => {
+  assert.match(web, /reconnectDeadlineAt = Date\.now\(\) \+ wait/);
+  assert.match(web, /setInterval\(updateReconnectCountdown, 200\)/);
+  assert.match(web, /clearReconnectCountdown\(\)/);
+  assert.match(web, /remainingMs \/ 1000\)\.toFixed\(1\)/);
+  assert.match(web, /自動復旧を開始しています/);
+});
+
+test("frozen or ended video forces a fresh RTC session even when ICE and DataChannel still look connected", () => {
+  assert.match(web, /function reconnectRequiresFreshSession\(reason\)/);
+  assert.match(web, /\["video-stalled", "track-ended", "track-muted"\]/);
+  assert.match(web, /A connected ICE transport and open DataChannel DO NOT prove/);
+  assert.match(web, /if \(reconnectRequiresFreshSession\(reason\)\)/);
+  assert.match(web, /scheduleReconnect\(peer, "video-stalled"\)/);
+});
+
+test("a more serious video failure upgrades an already queued soft reconnect", () => {
+  assert.match(web, /Upgrade an already scheduled soft retry/);
+  assert.match(web, /!reconnectRequiresFreshSession\(S\.reconnectReason\)/);
+  assert.match(web, /reconnectCountdownTimer/);
+});
+
+test("Android recovery status distinguishes an active foreground service from a live RTC control channel", () => {
+  assert.match(service, /rtc\?\.hasHealthyControlChannel\(\) == true -> "監視中・WebRTC制御接続中"/);
+  assert.match(rtc, /fun hasHealthyControlChannel\(\)/);
+  assert.match(rtc, /iceState == "CONNECTED" \|\| iceState == "COMPLETED"/);
+  assert.match(service, /WebRTC再接続待機中（監視サービス稼働）/);
+  assert.match(service, /WebRTC切断を検知・自動復旧中（Android監視サービスは稼働中）/);
+  assert.doesNotMatch(service, /rtc\?\.hasPeers\(\) == true -> "監視中・接続済み"/);
+});

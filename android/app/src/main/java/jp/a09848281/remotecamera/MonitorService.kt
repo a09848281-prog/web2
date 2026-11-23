@@ -239,8 +239,9 @@ class MonitorService : Service() {
     private fun updateForegroundNotification() {
         val notificationText = when {
             prefs.getBoolean("batteryStandbyActive", false) -> "電池保護待機中（充電または残量回復待ち）"
-            rtc?.hasPeers() == true -> "監視接続中"
-            else -> "監視待機中（接続要求を確認しています）"
+            rtc?.hasHealthyControlChannel() == true -> "監視中・WebRTC制御接続中"
+            (rtc?.peerCount() ?: 0) > 0 -> "WebRTC再接続待機中（監視サービス稼働）"
+            else -> "監視待機中（Webからの接続要求を確認しています）"
         }
         val foregroundNotification = notification(notificationText)
         if (Build.VERSION.SDK_INT >= 29) {
@@ -471,8 +472,9 @@ class MonitorService : Service() {
                         prefs.edit().putInt("afterSeq", afterSeq).apply()
                         notifyState(when {
                             batteryStandby -> "電池保護待機中：カメラ接続を停止しています"
-                            rtc?.hasPeers() == true -> "監視中・接続済み"
-                            else -> "監視待機中"
+                            rtc?.hasHealthyControlChannel() == true -> "監視中・WebRTC制御接続中"
+                            (rtc?.peerCount() ?: 0) > 0 -> "WebRTC再接続待機中（監視サービスは稼働中）"
+                            else -> "監視待機中：Webからの接続要求を確認しています"
                         })
                     }
                 } catch (cancelled: CancellationException) {
@@ -542,7 +544,8 @@ class MonitorService : Service() {
                     trafficBaselineRx=TrafficStats.getUidRxBytes(Process.myUid())
                     lastTrafficTx=0L;lastTrafficRx=0L;lastTrafficAt=System.currentTimeMillis()
                 }
-                notifyState("監視中・DataChannel直接通信")
+                notifyState("監視中・WebRTC制御接続中")
+                updateForegroundNotification()
                 rtc?.sendCameraCapabilities(sessionId)
                 sendDeviceSettings(sessionId)
                 if (lastNetworkError.isNotBlank()) {
@@ -564,12 +567,24 @@ class MonitorService : Service() {
                     closeRtcViewerSession(sessionId)
                     updateForegroundNotification()
                     updateStreamWakeLock(prefs.getBoolean("rtcRecoveryArmed", false) || rtc?.hasPeers() == true)
-                    notifyState(if (rtc?.hasPeers() == true) "ほかのWeb端末は監視を継続中" else "監視待機中")
+                    notifyState(when {
+                        rtc?.hasHealthyControlChannel() == true -> "監視中・WebRTC制御接続中"
+                        (rtc?.peerCount() ?: 0) > 0 -> "WebRTC再接続待機中（監視サービスは稼働中）"
+                        else -> "監視待機中：Webからの再接続を待っています"
+                    })
+                }
+            }
+            "CONNECTED", "COMPLETED" -> {
+                if (rtc?.hasHealthyControlChannel() == true) {
+                    notifyState("監視中・WebRTC制御接続中")
+                    updateForegroundNotification()
                 }
             }
             "DISCONNECTED" -> {
                 prefs.edit().putBoolean("rtcRecoveryArmed", true).apply()
                 lastDevicePollAt = 0L
+                updateForegroundNotification()
+                notifyState("WebRTC切断を検知・自動復旧中（Android監視サービスは稼働中）")
                 // Poll for a replacement offer while ICE gets a short recovery grace period.
                 scope.launch {
                     delay(9000L)

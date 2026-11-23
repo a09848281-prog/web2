@@ -3,7 +3,7 @@
 Android・iPad・PC対応の個人利用向け遠隔監視カメラシステムです。
 旧web v3.8〜v4.1の画面構成とWeb2の機能を統合した独立プレビューです。
 
-- Current Web / Android stability preview: `preview/v2.8.4-battery-pairing-layout-stability`
+- Current Web / Android stability preview: `preview/v2.8.5-reconnect-watchdog`
 - PWA: GitHub Pages（iPad Safari / PC browser）
 - Android: Kotlin / Foreground Service / WebRTC
 - Signaling and history: Google Apps Script + Google Sheets
@@ -18,6 +18,19 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 - Branch: `preview/v2.8.3-fps-reconnect-stability`
 - Android package: `jp.a09848281.remotecamera.v28` / versionCode 432
 - The v2.8.3 installation remains available as a fallback. v2.8.4 uses a separate package ID to preserve it.
+
+## v2.8.5 Reconnect Watchdog Preview
+
+- Branch: `preview/v2.8.5-reconnect-watchdog`
+- PWA: `https://a09848281-prog.github.io/web2/v2.8.5/`
+- Android: `2.8.5-preview` / versionCode `434` / package `jp.a09848281.remotecamera.v30` (separate install to preserve v2.8.4 `.v29`; new install needs fresh pairing).
+- Web reconnect countdown now visibly updates; stale 8-second text is cleared on cancellation, success, offline state and retry start.
+- A frozen/ended/muted video track forces a new RTC session even if the PeerConnection still says connected and DataChannel stays open. This fixes the false healthy check that previously cancelled a video-stall recovery.
+- A more serious video failure upgrades an already queued soft reconnect instead of being ignored.
+- Android distinguishes a live DataChannel from a stale PeerConnection entry. It reports WebRTC recovery as "再接続待機中" while keeping the foreground monitoring service running.
+- Automatic recovery closes the old per-viewer RTC session and submits a fresh offer. It does not restart the whole Android foreground service unless explicitly stopped.
+- GAS API and URL are unchanged. No GAS redeployment is required for this version.
+- See [V2.8.5-RECONNECT-WATCHDOG.md](V2.8.5-RECONNECT-WATCHDOG.md) for details.
 
 ## v2.8.4 Battery, Pairing and Layout Stability Preview
 
