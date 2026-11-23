@@ -20,7 +20,8 @@ test("retry has no fixed attempt ceiling and manual disconnect prevents reconnec
   assert.match(web, /RemoteCameraRecovery\.retryDelay/);
   assert.doesNotMatch(web, /自動再接続を5回試しました/);
   assert.match(web, /S\.manualDisconnect = true/);
-  assert.match(web, /S\.reconnectTimer\) return/);
+  assert.match(web, /if \(S\.reconnectTimer\) \{/);
+  assert.match(web, /reconnectRequiresFreshSession\(reason\)/);
 });
 
 test("connection setup timeout clears after a healthy channel and when disconnecting", () => {
