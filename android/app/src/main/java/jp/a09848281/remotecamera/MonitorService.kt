@@ -1383,6 +1383,10 @@ class MonitorService : Service() {
 
     private suspend fun locationLoop() {
         while (scope.isActive) {
+            if (prefs.getBoolean("batteryStandbyActive", false)) {
+                delay(15000L)
+                continue
+            }
             try {
                 val connected = rtc?.hasPeers() == true
                 val enabled = if (connected) connectedLocationEnabled else idleLocationEnabled
@@ -1396,6 +1400,7 @@ class MonitorService : Service() {
     }
 
     private suspend fun requestLocation(mode: String) {
+        if (prefs.getBoolean("batteryStandbyActive", false)) return
         val granted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
             checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!granted) {
@@ -1434,6 +1439,7 @@ class MonitorService : Service() {
     }
 
     private suspend fun saveLocation(location: Location, mode: String) {
+        if (prefs.getBoolean("batteryStandbyActive", false)) return
         val point = JSONObject()
             .put("lat", location.latitude)
             .put("lng", location.longitude)
