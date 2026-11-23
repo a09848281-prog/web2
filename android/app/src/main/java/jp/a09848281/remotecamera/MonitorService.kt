@@ -46,11 +46,14 @@ class MonitorService : Service() {
         const val ACTION_STOP = "jp.a09848281.remotecamera.STOP"
         const val ACTION_VIDEO_SETTINGS = "jp.a09848281.remotecamera.VIDEO_SETTINGS"
         const val ACTION_DISPLAY_AWAKE = "jp.a09848281.remotecamera.DISPLAY_AWAKE"
+        const val ACTION_BATTERY_SETTINGS = "jp.a09848281.remotecamera.BATTERY_SETTINGS"
         const val ACTION_CODE = "jp.a09848281.remotecamera.CODE"
         const val EXTRA_GAS_URL = "gas_url"
         const val EXTRA_POLL_INTERVAL_SECONDS = "poll_interval_seconds"
         const val EXTRA_CODE = "registration_code"
         const val EXTRA_DEVICE_ID = "device_id"
+        const val EXTRA_CODE_EXPIRES_AT = "code_expires_at"
+        const val EXTRA_PAIRING_DURATION_MINUTES = "pairing_duration_minutes"
         private const val CHANNEL = "remote_camera_monitor"
         private const val NOTIFICATION_ID = 7301
     }
@@ -91,6 +94,8 @@ class MonitorService : Service() {
     private var streamWifiLock: WifiManager.WifiLock? = null
     private var displayWakeLock: PowerManager.WakeLock? = null
     private var lastUsageSampleAt = 0L
+    private var lastBatterySampleAt = 0L
+    private var batteryEstimateMinutes = -1
     private var powerSaveActive = false
     private var criticalThermalProtection = false
     private var torchEnabled = false
@@ -125,7 +130,8 @@ class MonitorService : Service() {
             stopSelf(startId)
             return START_NOT_STICKY
         }
-        if (intent != null && action != ACTION_START && action != ACTION_REFRESH_CODE && action != ACTION_VIDEO_SETTINGS && action != ACTION_DISPLAY_AWAKE) {
+        if (intent != null && action != ACTION_START && action != ACTION_REFRESH_CODE &&
+            action != ACTION_VIDEO_SETTINGS && action != ACTION_DISPLAY_AWAKE && action != ACTION_BATTERY_SETTINGS) {
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -145,7 +151,12 @@ class MonitorService : Service() {
             prefs.getInt("pollIntervalSeconds", AppConfig.POLL_SECONDS.toInt())
         ) ?: prefs.getInt("pollIntervalSeconds", AppConfig.POLL_SECONDS.toInt())
         pollIntervalSeconds = requestedPoll.coerceIn(AppConfig.MIN_POLL_SECONDS,AppConfig.MAX_POLL_SECONDS).toLong()
-        prefs.edit().putInt("pollIntervalSeconds",pollIntervalSeconds.toInt()).apply()
+        val requestedPairingMinutes = intent?.getIntExtra(
+            EXTRA_PAIRING_DURATION_MINUTES, prefs.getInt("pairingDurationMinutes", 10)
+        ) ?: prefs.getInt("pairingDurationMinutes", 10)
+        val safePairingMinutes = requestedPairingMinutes.takeIf { it in setOf(10, 20, 30, 60, 120) } ?: 10
+        prefs.edit().putInt("pollIntervalSeconds",pollIntervalSeconds.toInt())
+            .putInt("pairingDurationMinutes", safePairingMinutes).apply()
         // Restore the saved next-connection camera profile before the first RTC offer.
         currentQuality = (prefs.getString("requestedQuality", "720") ?: "720").let { if (it in setOf("360", "480", "720", "1080")) it else "720" }
         currentDataMode = "standard"
@@ -159,6 +170,23 @@ class MonitorService : Service() {
 
         if (pollJob?.isActive != true) pollJob = scope.launch { pollLoop() }
         if (locationJob?.isActive != true) locationJob = scope.launch { locationLoop() }
+
+        if (action == ACTION_BATTERY_SETTINGS) {
+            val battery = readBatteryState()
+            val threshold = prefs.getInt("batteryCutoffPercent", 20).coerceIn(5, 50)
+            val autoEnabled = prefs.getBoolean("batteryAutoDisconnectEnabled", false)
+            val waitEnabled = prefs.getBoolean("batteryWaitEnabled", true)
+            if (prefs.getBoolean("batteryStandbyActive", false) && !waitEnabled) {
+                stopMonitoringNow(startId)
+                return START_NOT_STICKY
+            }
+            if (!autoEnabled || battery.second || battery.first >= threshold + 5) {
+                prefs.edit().putBoolean("batteryStandbyActive", false).apply()
+                updateForegroundNotification()
+                notifyState("バッテリー設定を更新しました。監視待機を再開できます。")
+            }
+            return START_STICKY
+        }
 
         if (action == ACTION_DISPLAY_AWAKE) {
             val enabled = intent?.getBooleanExtra("enabled", false) == true
@@ -209,7 +237,11 @@ class MonitorService : Service() {
     }
 
     private fun updateForegroundNotification() {
-        val notificationText = if (rtc?.hasPeers() == true) "監視接続中" else "監視待機中（接続要求を確認しています）"
+        val notificationText = when {
+            prefs.getBoolean("batteryStandbyActive", false) -> "電池保護待機中（充電または残量回復待ち）"
+            rtc?.hasPeers() == true -> "監視接続中"
+            else -> "監視待機中（接続要求を確認しています）"
+        }
         val foregroundNotification = notification(notificationText)
         if (Build.VERSION.SDK_INT >= 29) {
             // Keep camera/microphone service types declared from the user-initiated
@@ -266,11 +298,12 @@ class MonitorService : Service() {
         updateDisplayWakeLock(false)
         prefs.edit().putBoolean("monitoringEnabled", false)
             .putBoolean("androidKeepScreenAwake", false)
+            .putBoolean("batteryStandbyActive", false)
             .putBoolean("rtcRecoveryArmed", false)
             .apply()
         stopForeground(STOP_FOREGROUND_REMOVE)
         getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
-        stopSelf(startId)
+        if (startId > 0) stopSelf(startId) else stopSelf()
     }
 
     private fun notifyState(text: String) {
@@ -295,6 +328,10 @@ class MonitorService : Service() {
                     syncSavedScheduleToGas()
                 }
                 sampleTrafficUsage()
+                val battery = readBatteryState()
+                batteryEstimateMinutes = recordBatterySampleAndEstimate(battery.first, battery.second)
+                evaluateBatteryStandby(battery.first, battery.second)
+                val batteryStandby = prefs.getBoolean("batteryStandbyActive", false)
                 val controlOpen = rtc?.hasOpenControlChannel() == true
                 val recoveryActive = prefs.getBoolean("rtcRecoveryArmed", false) || (rtc?.peerCount() ?: 0) > 0
                 // Hold partial CPU + Wi-Fi locks during recovery polling too; otherwise
@@ -352,7 +389,8 @@ class MonitorService : Service() {
                         rtc = null
                         updateStreamWakeLock(false)
                         val pairingCodeActive = response.optBoolean("pairingCodeActive", false)
-                        if (!pairingCodeActive || System.currentTimeMillis() - lastCodeRefresh > 8 * 60 * 1000L) {
+                        val savedCodeExpiry = prefs.getLong("codeExpiresAt", 0L)
+                        if (!pairingCodeActive || savedCodeExpiry <= System.currentTimeMillis()) {
                             refreshCode()
                         }
                         notifyState("Android端末の登録待ち：Webに8桁コードを入力")
@@ -373,7 +411,8 @@ class MonitorService : Service() {
                                 rtc = null
                                 updateStreamWakeLock(false)
                             }
-                            if (System.currentTimeMillis() - lastCodeRefresh > 8 * 60 * 1000L) {
+                            val savedCodeExpiry = prefs.getLong("codeExpiresAt", 0L)
+                            if (!codeActive || savedCodeExpiry <= System.currentTimeMillis()) {
                                 refreshCode()
                             }
                         } else if (!codeActive && (prefs.getString("registrationCode", "") ?: "").isNotBlank()) {
@@ -382,7 +421,7 @@ class MonitorService : Service() {
                         }
                         applySettings(response.optJSONObject("settings") ?: JSONObject())
                         // Ignore pending offers/commands once all Web controllers have been revoked.
-                        val signals = if (needsPairing) JSONArray() else (response.optJSONArray("signals") ?: JSONArray())
+                        val signals = if (needsPairing || batteryStandby) JSONArray() else (response.optJSONArray("signals") ?: JSONArray())
                         for (i in 0 until signals.length()) {
                             val signal = signals.optJSONObject(i) ?: continue
                             when (signal.optString("kind")) {
@@ -425,12 +464,16 @@ class MonitorService : Service() {
                                 }
                             }
                         }
-                        val commands = if (needsPairing) JSONArray() else (response.optJSONArray("commands") ?: JSONArray())
+                        val commands = if (needsPairing || batteryStandby) JSONArray() else (response.optJSONArray("commands") ?: JSONArray())
                         for (i in 0 until commands.length()) processCommand(commands.optJSONObject(i) ?: continue)
                         // Advance only after this poll's signals and commands have been handed to the handlers.
                         afterSeq = maxOf(afterSeq, response.optInt("latestSeq", afterSeq))
                         prefs.edit().putInt("afterSeq", afterSeq).apply()
-                        notifyState(if (rtc?.hasPeers() == true) "監視中・接続済み" else "監視待機中")
+                        notifyState(when {
+                            batteryStandby -> "電池保護待機中：カメラ接続を停止しています"
+                            rtc?.hasPeers() == true -> "監視中・接続済み"
+                            else -> "監視待機中"
+                        })
                     }
                 } catch (cancelled: CancellationException) {
                     // Explicit stop cancels this job. Never convert that into an error
@@ -456,6 +499,7 @@ class MonitorService : Service() {
                 // Connected mode uses a short scheduler tick, then the
                 // elapsed-time gate above enforces the configured 1–50s interval.
                 delay(when {
+                    batteryStandby -> maxOf(pollIntervalSeconds * 1000L, 30000L)
                     rtc?.hasOpenControlChannel() == true -> 250L
                     prefs.getBoolean("rtcRecoveryArmed", false) -> recoveryPollIntervalMs
                     else -> pollIntervalSeconds * 1000L
@@ -481,6 +525,14 @@ class MonitorService : Service() {
 
 
     private fun onRtcConnectionState(sessionId:String,state:String) {
+        if (prefs.getBoolean("batteryStandbyActive", false)) {
+            prefs.edit().putBoolean("rtcRecoveryArmed", false).apply()
+            updateStreamWakeLock(false)
+            if (state == "CLOSED" || state == "FAILED" || state == "SESSION_REMOVED") {
+                updateForegroundNotification()
+            }
+            return
+        }
         when(state) {
             "DATA_CHANNEL_OPEN" -> {
                 prefs.edit().putBoolean("rtcRecoveryArmed", false).apply()
@@ -732,6 +784,125 @@ class MonitorService : Service() {
         }
     }
 
+
+    private fun readBatteryState(): Pair<Int, Boolean> {
+        val sticky = registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val level = sticky?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = sticky?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        val fallbackPercent = if (level >= 0 && scale > 0) (level * 100 / scale).coerceIn(0, 100) else -1
+        val capacity = (getSystemService(BATTERY_SERVICE) as BatteryManager)
+            .getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        val percent = if (capacity in 0..100) capacity else fallbackPercent
+        val state = sticky?.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN)
+            ?: BatteryManager.BATTERY_STATUS_UNKNOWN
+        val charging = state == BatteryManager.BATTERY_STATUS_CHARGING ||
+            state == BatteryManager.BATTERY_STATUS_FULL
+        return Pair(percent, charging)
+    }
+
+    private fun recordBatterySampleAndEstimate(percent: Int, charging: Boolean): Int {
+        val now = System.currentTimeMillis()
+        if (charging) {
+            prefs.edit().remove("batteryDischargeSamples").apply()
+            lastBatterySampleAt = now
+            return -1
+        }
+        if (percent !in 0..100) return -1
+        if (lastBatterySampleAt == 0L || now - lastBatterySampleAt >= 60000L) {
+            lastBatterySampleAt = now
+            val previous = try {
+                JSONArray(prefs.getString("batteryDischargeSamples", "[]") ?: "[]")
+            } catch (_: Exception) { JSONArray() }
+            val recent = JSONArray()
+            for (i in 0 until previous.length()) {
+                val item = previous.optJSONObject(i) ?: continue
+                val timestamp = item.optLong("t", 0L)
+                if (timestamp in (now - 6L * 60L * 60L * 1000L)..now) recent.put(item)
+            }
+            recent.put(JSONObject().put("t", now).put("p", percent))
+            val bounded = JSONArray()
+            val start = (recent.length() - 120).coerceAtLeast(0)
+            for (i in start until recent.length()) bounded.put(recent.get(i))
+            prefs.edit().putString("batteryDischargeSamples", bounded.toString()).apply()
+        }
+        val samples = try {
+            JSONArray(prefs.getString("batteryDischargeSamples", "[]") ?: "[]")
+        } catch (_: Exception) { JSONArray() }
+        return estimateBatteryMinutes_(samples, percent)
+    }
+
+    private fun estimateBatteryMinutes_(samples: JSONArray, currentPercent: Int): Int {
+        if (samples.length() < 2) return -1
+        val first = samples.optJSONObject(0) ?: return -1
+        val last = samples.optJSONObject(samples.length() - 1) ?: return -1
+        val elapsedMs = last.optLong("t", 0L) - first.optLong("t", 0L)
+        val drop = first.optInt("p", currentPercent) - last.optInt("p", currentPercent)
+        if (elapsedMs < 10L * 60L * 1000L || drop < 1) return -1
+        val target = if (prefs.getBoolean("batteryAutoDisconnectEnabled", false)) {
+            prefs.getInt("batteryCutoffPercent", 20).coerceIn(5, 50)
+        } else 0
+        val remainingPercent = (currentPercent - target).coerceAtLeast(0)
+        if (remainingPercent == 0) return 0
+        val minutesPerPercent = elapsedMs.toDouble() / 60000.0 / drop.toDouble()
+        return (remainingPercent * minutesPerPercent).toLong().coerceIn(0L, 7L * 24L * 60L).toInt()
+    }
+
+    private fun evaluateBatteryStandby(percent: Int, charging: Boolean) {
+        val autoEnabled = prefs.getBoolean("batteryAutoDisconnectEnabled", false)
+        val threshold = prefs.getInt("batteryCutoffPercent", 20).coerceIn(5, 50)
+        val waitEnabled = prefs.getBoolean("batteryWaitEnabled", true)
+        val active = prefs.getBoolean("batteryStandbyActive", false)
+        if (active) {
+            if (!waitEnabled) {
+                stopMonitoringNow(0)
+                return
+            }
+            if (!autoEnabled || charging || percent >= threshold + 5) {
+                prefs.edit().putBoolean("batteryStandbyActive", false)
+                    .putBoolean("rtcRecoveryArmed", false).apply()
+                updateForegroundNotification()
+                notifyState("バッテリーが回復しました。監視接続を再開できます。")
+            }
+            return
+        }
+        if (!autoEnabled || charging || percent !in 0..threshold) return
+        prefs.edit().putBoolean("batteryStandbyActive", true)
+            .putBoolean("rtcRecoveryArmed", false).apply()
+        val engine = rtc
+        val waitAfterCutoff = waitEnabled
+        val thresholdAtCutoff = threshold
+        val estimate = batteryEstimateMinutes
+        scope.launch(Dispatchers.IO) {
+            try {
+                engine?.sendControlToOpenDataChannels(
+                    JSONObject().put("type", "battery_standby")
+                        .put("batteryPercent", percent)
+                        .put("thresholdPercent", thresholdAtCutoff)
+                        .put("forecastMinutes", estimate)
+                        .put("waitEnabled", waitAfterCutoff)
+                )
+                delay(350L)
+                try { engine?.setTorchEnabled(false) } catch (error: Exception) {
+                    Log.w("RemoteCameraBattery", "Could not switch off the torch before battery standby", error)
+                }
+                try { engine?.dispose() } catch (error: Exception) {
+                    Log.e("RemoteCameraBattery", "RTC shutdown during battery standby failed", error)
+                }
+                if (rtc === engine) rtc = null
+                torchEnabled = false
+                updateStreamWakeLock(false)
+                updateDisplayWakeLock(false)
+                prefs.edit().putBoolean("androidKeepScreenAwake", false)
+                    .putBoolean("rtcRecoveryArmed", false).apply()
+                updateForegroundNotification()
+                notifyState("電池保護待機中：残量 " + percent + "%")
+                if (!waitAfterCutoff) stopMonitoringNow(0)
+            } catch (error: Exception) {
+                Log.e("RemoteCameraBattery", "Battery standby transition failed", error)
+            }
+        }
+    }
+
     private fun updateStreamWakeLock(active: Boolean) {
         try {
             val power = getSystemService(POWER_SERVICE) as PowerManager
@@ -870,14 +1041,12 @@ class MonitorService : Service() {
         val txSpeed=if(tx>=0)((tx-lastTrafficTx).coerceAtLeast(0L)*1000L/elapsed) else -1L
         val rxSpeed=if(rx>=0)((rx-lastTrafficRx).coerceAtLeast(0L)*1000L/elapsed) else -1L
         lastTrafficTx=tx.coerceAtLeast(0L);lastTrafficRx=rx.coerceAtLeast(0L);lastTrafficAt=now
-        val battery=getSystemService(BATTERY_SERVICE) as BatteryManager
-        val percent=battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-        val intent=registerReceiver(null,android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        val rawTemp=intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE,-1)?:-1
-        val temp=if(rawTemp>=0)rawTemp/10.0 else -1.0
-        val batteryStatus=intent?.getIntExtra(BatteryManager.EXTRA_STATUS,BatteryManager.BATTERY_STATUS_UNKNOWN)
-            ?: BatteryManager.BATTERY_STATUS_UNKNOWN
-        val charging=batteryStatus==BatteryManager.BATTERY_STATUS_CHARGING || batteryStatus==BatteryManager.BATTERY_STATUS_FULL
+        val batterySnapshot = readBatteryState()
+        val percent = batterySnapshot.first
+        val charging = batterySnapshot.second
+        val batteryIntent = registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val rawTemp = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+        val temp = if (rawTemp >= 0) rawTemp / 10.0 else -1.0
         val thermal=if(Build.VERSION.SDK_INT>=29)(getSystemService(POWER_SERVICE) as PowerManager).currentThermalStatus else -1
         // Protect the device without dropping a normal 30 FPS request to 10 FPS.
         // Low battery and SEVERE thermal status reduce resolution/bitrate first;
@@ -928,7 +1097,14 @@ class MonitorService : Service() {
             .put("micNoise", prefs.getInt("micNoise", 70))
             .put("androidKeepAwake", displayWakeLock?.isHeld == true)
             .put("batteryPercent",percent)
-            .put("batteryCharging",charging).put("batteryTempC",temp).put("thermalStatus",thermal)
+            .put("batteryCharging",charging)
+            .put("batteryForecastMinutes", batteryEstimateMinutes)
+            .put("batteryForecastTargetPercent", if (prefs.getBoolean("batteryAutoDisconnectEnabled", false)) prefs.getInt("batteryCutoffPercent", 20).coerceIn(5, 50) else 0)
+            .put("batteryAutoDisconnectEnabled", prefs.getBoolean("batteryAutoDisconnectEnabled", false))
+            .put("batteryCutoffPercent", prefs.getInt("batteryCutoffPercent", 20).coerceIn(5, 50))
+            .put("batteryStandby", prefs.getBoolean("batteryStandbyActive", false))
+            .put("batteryWaitEnabled", prefs.getBoolean("batteryWaitEnabled", true))
+            .put("batteryTempC",temp).put("thermalStatus",thermal)
             .put("androidVersion",Build.VERSION.RELEASE).put("deviceModel",Build.MODEL ?: "Android")
             .put("cameraFacing",rtc?.currentCameraFacing() ?: "未接続")
             .put("cameraId",rtc?.currentCameraId() ?: "")
@@ -965,16 +1141,19 @@ class MonitorService : Service() {
         var secret = prefs.getString("deviceSecret", "") ?: ""
         if (id.isBlank() || secret.isBlank()) {
             id = UUID.randomUUID().toString()
-            val response = api!!.call("device_begin", JSONObject().put("deviceId", id).put("deviceName", Build.MODEL ?: "Android"))
+            val duration = prefs.getInt("pairingDurationMinutes", 10).takeIf { it in setOf(10, 20, 30, 60, 120) } ?: 10
+            val response = api!!.call("device_begin", JSONObject()
+                .put("deviceId", id).put("deviceName", Build.MODEL ?: "Android")
+                .put("durationMinutes", duration))
             secret = response.getString("deviceSecret")
             prefs.edit().putString("deviceId", id).putString("deviceSecret", secret)
                 .putBoolean("serverPaired", false).putInt("afterSeq", 0).apply()
             afterSeq = 0
-            showPairingCode(response.optString("registrationCode"), id)
+            showPairingCode(response.optString("registrationCode"), id, response.optString("expiresAt"))
         } else {
             afterSeq = prefs.getInt("afterSeq", 0)
             val saved = prefs.getString("registrationCode", "") ?: ""
-            if (saved.isNotBlank()) broadcastCode(saved, id)
+            if (saved.isNotBlank()) broadcastCode(saved, id, prefs.getLong("codeExpiresAt", 0L))
         }
     }
 
@@ -983,21 +1162,31 @@ class MonitorService : Service() {
             "device_refresh_code",
             JSONObject().put("deviceId", prefs.getString("deviceId", ""))
                 .put("deviceSecret", prefs.getString("deviceSecret", ""))
+                .put("durationMinutes", prefs.getInt("pairingDurationMinutes", 10))
         )
-        showPairingCode(response.optString("registrationCode"), prefs.getString("deviceId", "") ?: "")
+        showPairingCode(response.optString("registrationCode"), prefs.getString("deviceId", "") ?: "", response.optString("expiresAt"))
     }
 
-    private fun showPairingCode(code: String, id: String) {
+    private fun parseExpiryMillis(value: String): Long {
+        return try { java.time.Instant.parse(value).toEpochMilli() } catch (_: Exception) { 0L }
+    }
+
+    private fun showPairingCode(code: String, id: String, expiresAtIso: String) {
         lastCodeRefresh = System.currentTimeMillis()
-        prefs.edit().putString("registrationCode", code).putLong("codeRefreshedAt", lastCodeRefresh).apply()
-        broadcastCode(code, id)
+        val expiry = parseExpiryMillis(expiresAtIso).takeIf { it > 0L }
+            ?: lastCodeRefresh + prefs.getInt("pairingDurationMinutes", 10).coerceIn(10, 120) * 60000L
+        prefs.edit().putString("registrationCode", code)
+            .putLong("codeRefreshedAt", lastCodeRefresh)
+            .putLong("codeExpiresAt", expiry).apply()
+        broadcastCode(code, id, expiry)
         notifyState("端末登録待ち：8桁コードをWebへ入力")
     }
 
-    private fun broadcastCode(code: String, id: String) {
+    private fun broadcastCode(code: String, id: String, expiresAt: Long = prefs.getLong("codeExpiresAt", 0L)) {
         sendBroadcast(
             Intent(ACTION_CODE).setPackage(packageName)
                 .putExtra(EXTRA_CODE, code).putExtra(EXTRA_DEVICE_ID, id)
+                .putExtra(EXTRA_CODE_EXPIRES_AT, expiresAt)
         )
     }
 

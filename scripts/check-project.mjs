@@ -197,12 +197,12 @@ assert.ok(gas.includes("Controllers:"), "Multi-controller storage sheet missing"
 assert.ok(gas.includes("activeControllerCount_(deviceId) >= 3"), "Three-controller pairing limit missing");
 assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi permission missing");
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
-assert.ok(androidBuild.includes('versionName = "2.8.3-preview"'), "Android app version must be v2.8.3");
-assert.ok(androidBuild.includes("versionCode = 432"), "Android version code must be 432");
+assert.ok(androidBuild.includes('versionName = "2.8.4-preview"'), "Android app version must be v2.8.3");
+assert.ok(androidBuild.includes("versionCode = 433"), "Android version code must be 432");
 assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v28"'), "v2.8 uses a separate package so v2.7 data and install remain intact");
-assert.ok(webConfig.includes('"appVersion": "2.8.3-preview"'), "Web config version must be v2.8.3");
-assert.ok(html.includes("v2.8.3 Preview"), "PWA display version must be v2.8.3");
-assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-3"'), "PWA cache key must be bumped to v2.8.3");
+assert.ok(webConfig.includes('"appVersion": "2.8.4-preview"'), "Web config version must be v2.8.3");
+assert.ok(html.includes("v2.8.4 Preview"), "PWA display version must be v2.8.3");
+assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-4"'), "PWA cache key must be bumped to v2.8.3");
 assert.ok(serviceWorker.includes("noise-suppressor-processor.js"), "Audio worklet must be precached");
 assert.ok(serviceWorker.includes("key.startsWith(CACHE_PREFIX)"), "Service worker must only delete its own cache namespace");
 assert.ok(!serviceWorker.includes("keys.filter(key => key !== CACHE)"), "Service worker must not delete unrelated origin caches");
@@ -225,10 +225,10 @@ assert.ok(gas.includes("crossViewerDuplicate") && gas.includes("<= 3000"), "Moti
 assert.ok(gas.includes("function iceServers_("), "GAS ICE/TURN configuration missing");
 assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from Script Properties");
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
-assert.ok(gas.includes('const version = "1.3.0"'), "GAS API version must be 1.3.0");
+assert.ok(gas.includes('const version = "1.4.0"'), "GAS API version must be 1.4.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 432"), "Android version code must be 432 for v2.8.3");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.3 Preview", "PWA display name must match v2.8.3");
+assert.ok(androidBuild.includes("versionCode = 433"), "Android version code must be 432 for v2.8.3");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.4 Preview", "PWA display name must match v2.8.3");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 assert.ok(html.includes('id="reserveAt" type="datetime-local" step="1"'), "Web schedule must accept second precision");
 assert.ok(js.includes("S.reservationTimer = setInterval(checkConnectionReservation, 250)"), "Web reservation scheduler missing");
@@ -237,6 +237,15 @@ assert.ok(html.includes('option value="40"') && html.includes('option value="45"
 assert.ok(main.includes('listOf(10, 15, 20, 24, 30, 40, 45, 50, 55, 60)'), "APK FPS 40/45/50/55 options missing");
 assert.ok(schedule.includes("import android.app.AlarmManager") &&
   schedule.includes("ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED"), "APK exact-alarm restore receiver is incomplete");
+assert.ok(gas.includes("ALLOWED_PAIRING_DURATIONS = [10, 20, 30, 60, 120]"), "GAS must accept only supported pairing durations");
+assert.ok(gas.includes("pairingDurationMinutes_(r.durationMinutes)"), "GAS must validate Android-selected pairing duration");
+assert.ok(main.includes("pairingDurationSpinner") && main.includes("EXTRA_PAIRING_DURATION_MINUTES"), "Android pairing duration selector must be wired to the service");
+assert.ok(service.includes("evaluateBatteryStandby(battery.first, battery.second)"), "Android battery cutoff evaluator missing");
+assert.ok(service.includes("batteryStandbyActive") && service.includes("batteryWaitEnabled"), "Battery standby state and wait toggle missing");
+assert.ok(service.includes("batteryForecastMinutes"), "Battery runtime estimate telemetry missing");
+assert.ok(html.includes('id="toggleSettings"') && js.includes("setSettingsCollapsed("), "Collapsible Web settings panel missing");
+assert.ok(html.includes('id="batteryForecast"') && js.includes("renderBatteryForecast("), "Web battery estimate chip missing");
+assert.ok(js.includes('d.type==="battery_standby"'), "Web must stop automatic reconnect on battery standby");
 assert.ok(gas.includes('case "save_device_schedule": return saveDeviceSchedule_(r);') &&
   gas.includes("function saveDeviceSchedule_(r)") && gas.includes("androidSchedule"), "APK reservation sync endpoint missing");
 assert.ok(js.includes("function renderAndroidSchedule(") && js.includes('api("get_settings"') &&

@@ -14,7 +14,8 @@ const TABLES = {
   MotionEvents: ["eventId","deviceId","detectedAt","motionScore","sensitivity","source"]
 };
 const SESSION_DAYS = 7;
-const CODE_MINUTES = 10;
+const DEFAULT_CODE_MINUTES = 10;
+const ALLOWED_PAIRING_DURATIONS = [10, 20, 30, 60, 120];
 const COMMAND_MINUTES = 3;
 const SIGNAL_MINUTES = 3;
 const PAIR_FAIL_LIMIT = 25;
@@ -30,7 +31,7 @@ function doGet() {
 }
 
 function health_() {
-  const version = "1.3.0";
+  const version = "1.4.0";
   const spreadsheetId = PropertiesService.getScriptProperties().getProperty("DB_SPREADSHEET_ID");
   if (!spreadsheetId) {
     return {
@@ -320,12 +321,22 @@ function authController_(r) {
 }
 function ownerController_(r) { return authController_(r); }
 
+function pairingDurationMinutes_(value) {
+  const minutes = value === undefined || value === null || value === "" ?
+    DEFAULT_CODE_MINUTES : Number(value);
+  if (ALLOWED_PAIRING_DURATIONS.indexOf(minutes) === -1) {
+    throw Error("コード有効時間は10分・20分・30分・1時間・2時間から選択してください。");
+  }
+  return minutes;
+}
+
 function deviceBegin_(r) {
   const id = String(r.deviceId || Utilities.getUuid());
   const name = String(r.deviceName || "Android端末").slice(0, 40);
   const secret = randomToken_();
   const code = newCode_();
-  const expiry = new Date(Date.now() + CODE_MINUTES * 60000);
+  const durationMinutes = pairingDurationMinutes_(r.durationMinutes);
+  const expiry = new Date(Date.now() + durationMinutes * 60000);
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
@@ -336,14 +347,15 @@ function deviceBegin_(r) {
     lock.releaseLock();
   }
   log_(id, "device_begin", true, "Android device initialized");
-  return { ok: true, deviceId: id, deviceSecret: secret, registrationCode: code, expiresAt: expiry.toISOString() };
+  return { ok: true, deviceId: id, deviceSecret: secret, registrationCode: code, expiresAt: expiry.toISOString(), codeDurationMinutes: durationMinutes };
 }
 
 function refreshDeviceCode_(r) {
   const id = String(r.deviceId || "");
   const device = authDevice_(id, String(r.deviceSecret || ""));
   const code = newCode_();
-  const expiry = new Date(Date.now() + CODE_MINUTES * 60000);
+  const durationMinutes = pairingDurationMinutes_(r.durationMinutes);
+  const expiry = new Date(Date.now() + durationMinutes * 60000);
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
@@ -354,7 +366,7 @@ function refreshDeviceCode_(r) {
     lock.releaseLock();
   }
   log_(id, "pair_code_refresh", true, "pairing code refreshed");
-  return { ok: true, registrationCode: code, expiresAt: expiry.toISOString() };
+  return { ok: true, registrationCode: code, expiresAt: expiry.toISOString(), codeDurationMinutes: durationMinutes };
 }
 
 function claimDevice_(r) {

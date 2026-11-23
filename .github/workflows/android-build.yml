@@ -1,7 +1,7 @@
 name: Android APK Build
 on:
   push:
-    branches: [main, "preview/v2.0-stability", "preview/v2.0.1-location-rtc", "preview/v2.1.0-stability", "preview/v2.1.2-stability", "preview/v2.5-remote-screen", "preview/v2.6-stability", "preview/v2.6.1-stability", "preview/v2.7-auto-recovery", "preview/v2.7.1-fixes", "preview/v2.8.0-stable-reconnect", "preview/v2.8.3-fps-reconnect-stability"]
+    branches: [main, "preview/v2.0-stability", "preview/v2.0.1-location-rtc", "preview/v2.1.0-stability", "preview/v2.1.2-stability", "preview/v2.5-remote-screen", "preview/v2.6-stability", "preview/v2.6.1-stability", "preview/v2.7-auto-recovery", "preview/v2.7.1-fixes", "preview/v2.8.0-stable-reconnect", "preview/v2.8.3-fps-reconnect-stability", "preview/v2.8.4-battery-pairing-layout-stability"]
   pull_request:
     branches: [main, "preview/v2.0-stability", "preview/v2.1.0-stability", "preview/v2.5-remote-screen", "preview/v2.6-stability", "preview/v2.6.1-stability", "preview/v2.7-auto-recovery", "preview/v2.7.1-fixes", "preview/v2.8.0-stable-reconnect"]
   workflow_dispatch:
@@ -39,7 +39,7 @@ jobs:
         run: gradle --no-daemon :app:assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: remote-camera-web2-preview-v2.8.3-apk
+          name: remote-camera-web2-preview-v2.8.4-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

@@ -1,7 +1,7 @@
 {
   "gasUrl": "https://script.google.com/macros/s/AKfycby3lsSw8oKBpqpLDP4F3NZgKwfZke6AJJRQaF4erb3AVHEMW3k06I7nVEwUkjDditToow/exec",
-  "appVersion": "2.8.3-preview",
-  "apiVersion": "1.3.0",
+  "appVersion": "2.8.4-preview",
+  "apiVersion": "1.4.0",
   "pollIntervalMs": 2500,
   "pollIntervalSeconds": 10,
   "minPollIntervalSeconds": 1,

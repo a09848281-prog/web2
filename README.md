@@ -3,7 +3,7 @@
 Android・iPad・PC対応の個人利用向け遠隔監視カメラシステムです。
 旧web v3.8〜v4.1の画面構成とWeb2の機能を統合した独立プレビューです。
 
-- Current Web / Android stability preview: `preview/v2.8.3-fps-reconnect-stability`
+- Current Web / Android stability preview: `preview/v2.8.4-battery-pairing-layout-stability`
 - PWA: GitHub Pages（iPad Safari / PC browser）
 - Android: Kotlin / Foreground Service / WebRTC
 - Signaling and history: Google Apps Script + Google Sheets
@@ -19,6 +19,19 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 - Android package: `jp.a09848281.remotecamera.v28` / versionCode 432
 - Existing v2.8.0 APK can be updated in place by installing v2.8.3.
 - Previous versions remain available; this branch does not overwrite main.
+
+## v2.8.4 Battery, Pairing and Layout Stability Preview
+
+- Branch: `preview/v2.8.4-battery-pairing-layout-stability`
+- PWA: `https://a09848281-prog.github.io/web2/v2.8.4/`
+- Android: `2.8.4-preview` / versionCode `433` / package `jp.a09848281.remotecamera.v28` (same package ID as v2.8.3 for an in-place update).
+- Pairing-code lifetime is selected on Android: 10 minutes, 20 minutes, 30 minutes, 1 hour, or 2 hours. GAS validates the selected value and stores the corresponding expiry. Legacy clients without a duration still receive the 10-minute default.
+- Battery auto-disconnect is opt-in and defaults OFF. When enabled, the user selects a 5–50% cutoff (default 20%). While not charging and at/below the threshold, the camera/microphone WebRTC session is closed and the torch is switched off.
+- After cutoff, the wait toggle controls the behavior: ON keeps a foreground standby service and low-rate GAS polling active; OFF stops the service. Standby resumes after charging begins or battery rises at least 5 points above the threshold. Web reconnect is manual after standby, preventing surprise reconnect loops.
+- Remaining battery time is estimated from actual battery percentage samples; it is hidden as “計測中” until there is at least 10 minutes of history and a measurable discharge. Charging clears the previous discharge estimate. It is an estimate, not a guaranteed runtime.
+- Web keeps the left settings panel and right live viewer. The left panel can collapse, with its state remembered in the browser. A small battery/remaining-time indicator sits above the viewer controls.
+- GAS API: `1.4.0`. The GAS script must be redeployed after replacing `gas/Code.gs`; the existing GAS URL and spreadsheet schema remain unchanged.
+- See [V2.8.4-BATTERY-PAIRING-LAYOUT-STABILITY.md](V2.8.4-BATTERY-PAIRING-LAYOUT-STABILITY.md) for details and test limits.
 
 ## v2.8.3 FPS and Reconnect Stability Preview
 

@@ -4,6 +4,7 @@ const $ = id => document.getElementById(id);
 const STORAGE_KEY = "rc_paired_devices_v1";
 const SELECTED_KEY = "rc_selected_device_v1";
 const AUTO_RECONNECT_PREFIX = "rc_auto_reconnect_v1_";
+const SETTINGS_COLLAPSED_KEY = "rc_settings_collapsed_v1";
 let settingsChangeTimer = null;
 let micNoiseLiveTimer = null;
 const S = {
@@ -837,6 +838,59 @@ function applyNightViewFilter() {
     : "";
 }
 
+function setSettingsCollapsed(collapsed, persist = true) {
+  const app = document.querySelector(".app");
+  const button = $("toggleSettings");
+  if (!app || !button) return;
+  app.classList.toggle("settings-collapsed", !!collapsed);
+  button.setAttribute("aria-expanded", String(!collapsed));
+  button.textContent = collapsed ? "⚙ 設定を表示" : "⚙ 設定を隠す";
+  if (persist) {
+    try { localStorage.setItem(SETTINGS_COLLAPSED_KEY, collapsed ? "1" : "0"); }
+    catch (error) { console.warn("Could not save settings panel state", error); }
+  }
+}
+
+function formatBatteryTime(minutes) {
+  const value = Number(minutes);
+  if (!Number.isFinite(value) || value < 0) return "計測中";
+  if (value === 0) return "まもなく";
+  const total = Math.max(1, Math.round(value));
+  const hours = Math.floor(total / 60);
+  const mins = total % 60;
+  if (hours >= 24) return Math.floor(hours / 24) + "日 " + (hours % 24) + "時間";
+  if (hours > 0) return hours + "時間 " + mins + "分";
+  return Math.max(1, mins) + "分";
+}
+
+function renderBatteryForecast(data) {
+  const element = $("batteryForecast");
+  if (!element) return;
+  const percent = Number(data.batteryPercent);
+  const autoCutoff = data.batteryAutoDisconnectEnabled === true;
+  const threshold = Math.max(5, Math.min(50, Number(data.batteryCutoffPercent) || 20));
+  const charging = data.batteryCharging === true;
+  const standby = data.batteryStandby === true;
+  const minutes = Number(data.batteryForecastMinutes);
+  if (standby) {
+    element.dataset.state = "standby";
+    element.textContent = "🔋 電池保護待機中 · " +
+      (Number.isFinite(percent) && percent >= 0 ? percent + "%" : "--") +
+      " · " + (data.batteryWaitEnabled === false ? "サービス停止" : "充電／残量回復待ち");
+    return;
+  }
+  if (charging) {
+    element.dataset.state = "normal";
+    element.textContent = "🔋 電池 " + (Number.isFinite(percent) && percent >= 0 ? percent + "%" : "--") + " · 充電中";
+    return;
+  }
+  const targetText = autoCutoff ? "自動切断 " + threshold + "%まで" : "電池切れまで";
+  const estimateText = Number.isFinite(minutes) && minutes >= 0 ? "約" + formatBatteryTime(minutes) : "計測中";
+  element.dataset.state = autoCutoff && Number.isFinite(percent) && percent <= threshold + 5 ? "warning" : "normal";
+  element.textContent = "🔋 電池 " + (Number.isFinite(percent) && percent >= 0 ? percent + "%" : "--") +
+    " · " + targetText + " " + estimateText;
+}
+
 function status(text, online = false) {
   $("status").textContent = text;
   $("status").className = "pill" + (online ? " online" : "");
@@ -1002,6 +1056,8 @@ function selectDevice(device) {
     S.reconnectTimer = null;
     S.history = [];
     S.lastLocation = null;
+    S.deviceTelemetry = null;
+    renderBatteryForecast({});
     S.followMap = true;
     S.deviceTelemetry = null;
     S.deviceDiagnostics = null;
@@ -1877,6 +1933,10 @@ function renderDeviceInfo() {
     model: telemetry.deviceModel || network.deviceModel || "取得不可",
     batteryPercent: telemetry.batteryPercent ?? "取得不可",
     batteryCharging: telemetry.batteryCharging === true,
+    batteryForecastMinutes: telemetry.batteryForecastMinutes ?? "計測中",
+    batteryAutoDisconnectEnabled: telemetry.batteryAutoDisconnectEnabled === true,
+    batteryCutoffPercent: telemetry.batteryCutoffPercent ?? 20,
+    batteryStandby: telemetry.batteryStandby === true,
     batteryTemperatureC: telemetry.batteryTempC ?? "取得不可",
     thermalStatus: telemetry.thermalStatus ?? "取得不可",
     cameraFacing: telemetry.cameraFacing || "取得不可",
@@ -1968,6 +2028,39 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
     }
   }
  }
+ else if(d.type==="battery_standby"){
+  S.manualDisconnect = true;
+  S.autoConnectWanted = false;
+  S.everConnected = false;
+  setAutoReconnectIntent(S.device, false);
+  if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
+  S.reconnectTimer = null;
+  if (S.reconnectResetTimer) clearTimeout(S.reconnectResetTimer);
+  S.reconnectResetTimer = null;
+  stopMotionDetection("電池保護待機中");
+  const batteryState = Object.assign({}, S.deviceTelemetry || {}, {
+    batteryPercent: Number(d.batteryPercent),
+    batteryForecastMinutes: Number(d.forecastMinutes),
+    batteryCutoffPercent: Number(d.thresholdPercent),
+    batteryAutoDisconnectEnabled: true,
+    batteryStandby: true,
+    batteryWaitEnabled: d.waitEnabled !== false,
+    batteryCharging: false
+  });
+  S.deviceTelemetry = batteryState;
+  renderBatteryForecast(batteryState);
+  status("電池保護待機中");
+  $("streamState").textContent = d.waitEnabled === false
+    ? "電池保護により監視サービスを停止しました"
+    : "電池保護により映像接続を終了・充電待機中";
+  void disconnect(false, false, false, false).then(() => {
+    status("電池保護待機中");
+    $("streamState").textContent = d.waitEnabled === false
+      ? "電池保護により監視サービスを停止しました"
+      : "電池保護により映像接続を終了・充電待機中";
+  });
+  toast("Androidの電池残量が設定値に達したため、カメラ接続を停止しました。");
+ }
  else if(d.type==="location_update"){
    applyLiveLocationUpdate(d.location || d);
  }
@@ -1992,6 +2085,7 @@ function handleControlMessage(raw){let d;try{d=JSON.parse(raw);}catch(_){return;
  }
  else if(d.type==="telemetry"){
   S.deviceTelemetry = d;
+  renderBatteryForecast(d);
   S.androidCameraEnabled = d.cameraEnabled !== false;
   S.androidMicEnabled = d.microphoneEnabled !== false;
   updateAndroidMediaButtons();
@@ -2481,6 +2575,12 @@ function checkConnectionReservation(){
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  let collapsed = false;
+  try { collapsed = localStorage.getItem(SETTINGS_COLLAPSED_KEY) === "1"; } catch (_) {}
+  setSettingsCollapsed(collapsed, false);
+  $("toggleSettings").addEventListener("click", () => {
+    setSettingsCollapsed(!$("appRoot").classList.contains("settings-collapsed"));
+  });
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(error => console.warn("PWA service worker unavailable", error));
   $("refresh").addEventListener("click", refreshDeviceList);
   $("pair").addEventListener("click", () => $("pairDialog").showModal());

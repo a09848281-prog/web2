@@ -8,24 +8,24 @@
 <link rel="icon" href="./icon.svg" type="image/svg+xml">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Remote Camera Web2 v2.8.3 Preview</title>
-<link rel="stylesheet" href="./app.css?v=2.8.2-preview">
+<title>Remote Camera Web2 v2.8.4 Preview</title>
+<link rel="stylesheet" href="./app.css?v=2.8.4-preview">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous">
 <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
-<script defer src="./motion-core.js?v=2.8.2-preview"></script>
-<script defer src="./audio-utils.js?v=2.8.2-preview"></script>
-<script defer src="./location-utils.js?v=2.8.2-preview"></script>
-<script defer src="./recovery-core.js?v=2.8.2-preview"></script>
-<script defer src="./app.js?v=2.8.2-preview"></script>
+<script defer src="./motion-core.js?v=2.8.4-preview"></script>
+<script defer src="./audio-utils.js?v=2.8.4-preview"></script>
+<script defer src="./location-utils.js?v=2.8.4-preview"></script>
+<script defer src="./recovery-core.js?v=2.8.4-preview"></script>
+<script defer src="./app.js?v=2.8.4-preview"></script>
 </head>
 <body>
 <header class="top">
-  <div class="brand"><b>● Remote Camera</b><small> Android ⇄ iPad / PC · Web2 v2.8.3 Preview</small></div>
+  <div class="brand"><b>● Remote Camera</b><small> Android ⇄ iPad / PC · Web2 v2.8.4 Preview</small></div>
   <div class="topStatus"><span id="status" class="pill">未接続</span><span id="sessionDuration" class="sessionDuration">接続時間 00:00:00</span></div>
 </header>
 
-<main class="app">
-  <aside class="side">
+<main class="app" id="appRoot">
+  <aside class="side" id="settingsPanel">
     <section class="deviceCard">
       <div class="sideTitle"><h3>接続端末</h3><button id="refresh" type="button" aria-label="端末一覧を更新">↻</button></div>
       <div id="devices"><p class="muted">登録済み端末はありません。</p></div>
@@ -144,6 +144,7 @@
     <div class="viewhead">
       <div><small>LIVE VIEW</small><h2 id="deviceName">Android端末をペアリングしてください</h2><p id="deviceMeta">待機中</p></div>
       <div class="viewHeaderActions">
+        <button id="toggleSettings" type="button" class="smallAction" aria-expanded="true" aria-controls="settingsPanel">⚙ 設定を隠す</button>
         <div class="monitorButtons">
           <button id="connect" type="button" class="primary" disabled>▶ 接続する</button>
           <button id="disconnect" type="button" disabled>■ 切断</button>
@@ -152,6 +153,7 @@
       </div>
     </div>
 
+    <div class="batteryForecast" id="batteryForecast" role="status" aria-live="polite">🔋 電池情報を待っています</div>
     <div class="viewerControls">
       <button id="ptt" type="button" class="ptt pttProminent" disabled>🎙 Webマイク OFF（開始）</button>
       <span class="audioControlHint">接続時にマイクを開始します。ボタンでON/OFFできます。</span>
@@ -200,7 +202,7 @@
 
 <dialog id="pairDialog"><form method="dialog" class="dialog">
   <button type="button" class="close" id="closePairDialog" aria-label="閉じる">×</button><h2>Androidをペアリング</h2>
-  <p>Androidアプリに表示された8桁コードを入力してください。コードは10分で期限切れになります。</p>
+  <p>Androidアプリに表示された8桁コードを入力してください。有効期限はAndroid側で発行時に選択した時間です。</p>
   <label>登録コード<input id="pairCode" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" autocomplete="one-time-code" required></label>
   <label>端末名（任意）<input id="pairName" maxlength="40" placeholder="例：Androidカメラ"></label>
   <button id="claim" type="button" class="primary wide">ペアリングする</button><p id="pairMessage" aria-live="polite"></p>

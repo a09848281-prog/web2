@@ -215,3 +215,33 @@
  .videoPane{max-height:calc(100dvh - 160px)}
  .videoPane video{max-height:calc(100dvh - 160px)}
 }
+
+
+/* v2.8.4: collapsible left settings panel and compact battery estimate */
+.app.settings-collapsed{grid-template-columns:minmax(0,1fr)}
+.app.settings-collapsed>.side{display:none}
+.app.settings-collapsed>.view{min-width:0}
+.app.settings-collapsed .videoPane{height:min(78vh,1000px);min-height:480px}
+.batteryForecast{
+ display:inline-flex;align-items:center;gap:7px;width:max-content;max-width:100%;
+ margin:7px 0 8px;padding:6px 10px;border:1px solid #dce5ef;border-radius:9px;
+ background:#f7faff;color:#435873;font-size:11px;font-weight:700;
+ font-variant-numeric:tabular-nums;overflow-wrap:anywhere
+}
+.batteryForecast[data-state="warning"]{background:#fff8e9;border-color:#f0d69b;color:#805b16}
+.batteryForecast[data-state="standby"]{background:#fff1f0;border-color:#f0c8c5;color:#9a3434}
+#toggleSettings{white-space:nowrap}
+@media(min-width:701px) and (max-width:900px){
+ .app{grid-template-columns:minmax(215px,30vw) minmax(0,1fr);align-items:start}
+ .app>.side{grid-column:1;grid-row:1;position:sticky;top:65px;max-height:calc(100dvh - 80px);overflow:auto}
+ .app>.view{grid-column:2;grid-row:1;min-height:calc(100dvh - 80px);padding:11px}
+ .app .videoPane{min-height:48vh;height:min(58vh,700px)}
+ .app.settings-collapsed{grid-template-columns:minmax(0,1fr)}
+ .app.settings-collapsed>.view{grid-column:1}
+}
+@media(max-width:700px){
+ .app.settings-collapsed>.side{display:none}
+ .app.settings-collapsed>.view{min-height:calc(100dvh - 70px)}
+ .app.settings-collapsed .videoPane{min-height:52vh;height:58vh}
+ .batteryForecast{font-size:10px}
+}

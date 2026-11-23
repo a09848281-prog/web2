@@ -25,6 +25,8 @@ import android.widget.LinearLayout
 import android.widget.NumberPicker
 import android.widget.ScrollView
 import android.widget.Spinner
+import android.widget.Switch
+import android.widget.SeekBar
 import android.widget.ArrayAdapter
 import android.widget.AdapterView
 import android.widget.TextView
@@ -49,6 +51,10 @@ class MainActivity : Activity() {
     private lateinit var pollIntervalInput: EditText
     private lateinit var qualitySpinner: Spinner
     private lateinit var fpsSpinner: Spinner
+    private lateinit var pairingDurationSpinner: Spinner
+    private lateinit var batteryAutoDisconnectSwitch: Switch
+    private lateinit var batteryWaitSwitch: Switch
+    private lateinit var batteryThresholdLabel: TextView
     private lateinit var scheduleStartButton: Button
     private lateinit var scheduleEndButton: Button
     private lateinit var scheduleStatus: TextView
@@ -82,8 +88,32 @@ class MainActivity : Activity() {
             text = "ペアリングコード：--"
             textSize = 22f
             setTextColor(0xFF2862C8.toInt())
-            setPadding(0, 12, 0, 24)
+            setPadding(0, 12, 0, 12)
         }
+        root.addView(status)
+        root.addView(codeView)
+        root.addView(TextView(this).apply {
+            text = "ペアリングコードの有効時間"
+            textSize = 14f
+            setTextColor(0xFF586980.toInt())
+            setPadding(0, 4, 0, 4)
+        })
+        pairingDurationSpinner = Spinner(this)
+        val pairingDurations = listOf(10, 20, 30, 60, 120)
+        pairingDurationSpinner.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item,
+            listOf("10分", "20分", "30分", "1時間", "2時間")
+        )
+        pairingDurationSpinner.setSelection(
+            pairingDurations.indexOf(prefs.getInt("pairingDurationMinutes", 10)).coerceAtLeast(0)
+        )
+        pairingDurationSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+            override fun onItemSelected(parent: AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                prefs.edit().putInt("pairingDurationMinutes", pairingDurations.getOrElse(position) { 10 }).apply()
+            }
+        }
+        root.addView(pairingDurationSpinner, LinearLayout.LayoutParams(-1, -2))
 
         refreshCodeButton = Button(this).apply {
             text = "ペアリングコードを発行・再発行"
@@ -100,8 +130,6 @@ class MainActivity : Activity() {
             isEnabled = false
             setOnClickListener { stopMonitoring() }
         }
-        root.addView(status)
-        root.addView(codeView)
         root.addView(TextView(this).apply {
             text = "GASへの問い合わせ間隔（1～50秒）"
             textSize = 14f
@@ -186,6 +214,61 @@ class MainActivity : Activity() {
         root.addView(refreshCodeButton, LinearLayout.LayoutParams(-1, -2))
         root.addView(startButton, LinearLayout.LayoutParams(-1, -2))
         root.addView(stopButton, LinearLayout.LayoutParams(-1, -2))
+
+        root.addView(TextView(this).apply {
+            text = "バッテリー保護"
+            textSize = 16f
+            setTextColor(0xFF17243A.toInt())
+            setPadding(0, 22, 0, 6)
+        })
+        batteryAutoDisconnectSwitch = Switch(this).apply {
+            text = "指定残量でカメラ接続を自動切断"
+            isChecked = prefs.getBoolean("batteryAutoDisconnectEnabled", false)
+        }
+        root.addView(batteryAutoDisconnectSwitch, LinearLayout.LayoutParams(-1, -2))
+        batteryThresholdLabel = TextView(this).apply {
+            textSize = 13f
+            setTextColor(0xFF586980.toInt())
+            setPadding(0, 5, 0, 2)
+        }
+        root.addView(batteryThresholdLabel, LinearLayout.LayoutParams(-1, -2))
+        val batteryThreshold = SeekBar(this).apply {
+            max = 45
+            progress = (prefs.getInt("batteryCutoffPercent", 20).coerceIn(5, 50) - 5)
+            isEnabled = batteryAutoDisconnectSwitch.isChecked
+        }
+        root.addView(batteryThreshold, LinearLayout.LayoutParams(-1, -2))
+        batteryThresholdLabel.text = "切断する電池残量：${batteryThreshold.progress + 5}%"
+        batteryThreshold.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val value = progress + 5
+                batteryThresholdLabel.text = "切断する電池残量：${value}%"
+                if (fromUser) prefs.edit().putInt("batteryCutoffPercent", value).apply()
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) { applyBatteryOptionsToService() }
+        })
+        batteryAutoDisconnectSwitch.setOnCheckedChangeListener { _, checked ->
+            batteryThreshold.isEnabled = checked
+            prefs.edit().putBoolean("batteryAutoDisconnectEnabled", checked).apply()
+            applyBatteryOptionsToService()
+        }
+        batteryWaitSwitch = Switch(this).apply {
+            text = "切断後も待機を続ける（充電・残量回復を監視）"
+            isChecked = prefs.getBoolean("batteryWaitEnabled", true)
+            setOnCheckedChangeListener { _, checked ->
+                prefs.edit().putBoolean("batteryWaitEnabled", checked).apply()
+                applyBatteryOptionsToService()
+            }
+        }
+        root.addView(batteryWaitSwitch, LinearLayout.LayoutParams(-1, -2))
+        root.addView(TextView(this).apply {
+            text = "自動切断は充電中には動作しません。待機ONではカメラ・マイク・WebRTCを停止し、軽い監視待機だけを続けます。待機OFFではサービス自体を停止します。"
+            textSize = 12f
+            setTextColor(0xFF66758B.toInt())
+            setPadding(0, 2, 0, 8)
+        })
+
         root.addView(TextView(this).apply {
             text = "開始ボタンを押すと通知欄に待機状態が表示されます。アプリを表示した状態でカメラ・マイクなどの権限を許可してから待機を開始してください。強制停止・再起動・権限取消後の自動復帰は保証されません。"
             textSize = 13f
@@ -460,10 +543,14 @@ class MainActivity : Activity() {
             .putInt("pollIntervalSeconds", requestedSeconds)
             .putBoolean("monitoringEnabled", true)
             .apply()
+        val selectedPairingMinutes = listOf(10, 20, 30, 60, 120)
+            .getOrElse(pairingDurationSpinner.selectedItemPosition) { 10 }
+        prefs.edit().putInt("pairingDurationMinutes", selectedPairingMinutes).apply()
         val intent = Intent(this, MonitorService::class.java).apply {
             action = MonitorService.ACTION_START
             putExtra(MonitorService.EXTRA_GAS_URL, gasUrl)
             putExtra(MonitorService.EXTRA_POLL_INTERVAL_SECONDS, requestedSeconds)
+            putExtra(MonitorService.EXTRA_PAIRING_DURATION_MINUTES, selectedPairingMinutes)
         }
         try {
             ContextCompat.startForegroundService(this, intent)
@@ -494,15 +581,32 @@ class MainActivity : Activity() {
             requestStart()
             return
         }
+        val selectedPairingMinutes = listOf(10, 20, 30, 60, 120)
+            .getOrElse(pairingDurationSpinner.selectedItemPosition) { 10 }
+        prefs.edit().putInt("pairingDurationMinutes", selectedPairingMinutes).apply()
         val intent = Intent(this, MonitorService::class.java).apply {
             action = MonitorService.ACTION_REFRESH_CODE
             putExtra(MonitorService.EXTRA_GAS_URL, gasUrl)
+            putExtra(MonitorService.EXTRA_PAIRING_DURATION_MINUTES, selectedPairingMinutes)
         }
         try {
             ContextCompat.startForegroundService(this, intent)
             Toast.makeText(this, "ペアリングコードを発行・再発行しています。", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Toast.makeText(this, "再発行できません：" + (e.message ?: "エラー"), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun applyBatteryOptionsToService() {
+        if (!prefs.getBoolean("monitoringEnabled", false) || gasUrl.isBlank()) return
+        try {
+            val update = Intent(this, MonitorService::class.java).apply {
+                action = MonitorService.ACTION_BATTERY_SETTINGS
+                putExtra(MonitorService.EXTRA_GAS_URL, gasUrl)
+            }
+            ContextCompat.startForegroundService(this, update)
+        } catch (error: Exception) {
+            Log.w("RemoteCameraBattery", "Could not update battery guard immediately; saved preferences will apply on next start", error)
         }
     }
 
@@ -517,7 +621,13 @@ class MainActivity : Activity() {
         val id = prefs.getString("deviceId", "") ?: ""
         codeView.text = when {
             id.isBlank() -> "ペアリングコード：--"
-            code.isNotBlank() -> "ペアリングコード：$code\n端末ID：$id"
+            code.isNotBlank() -> {
+                val expiry = prefs.getLong("codeExpiresAt", 0L)
+                val expiryLabel = if (expiry > System.currentTimeMillis()) {
+                    "\n有効期限：" + SimpleDateFormat("HH:mm", Locale.JAPAN).format(Date(expiry))
+                } else "\n有効期限切れ・再発行してください"
+                "ペアリングコード：$code\n端末ID：$id$expiryLabel"
+            }
             prefs.getBoolean("serverPaired", false) ->
                 "GASでペアリング確認済み\n端末ID：$id"
             else -> "端末情報あり・GAS確認待ち\n端末ID：$id"
@@ -561,8 +671,11 @@ class MainActivity : Activity() {
             }
             val code = intent?.getStringExtra(MonitorService.EXTRA_CODE) ?: return
             val id = intent.getStringExtra(MonitorService.EXTRA_DEVICE_ID) ?: ""
+            val expiresAt = intent.getLongExtra(MonitorService.EXTRA_CODE_EXPIRES_AT, 0L)
+            prefs.edit().putLong("codeExpiresAt", expiresAt).apply()
             if (code.isNotBlank()) {
-                codeView.text = "ペアリングコード：$code\n端末ID：$id"
+                codeView.text = "ペアリングコード：$code\n端末ID：$id\n有効期限：" +
+                    if (expiresAt > 0L) SimpleDateFormat("HH:mm", Locale.JAPAN).format(Date(expiresAt)) else "不明"
             } else {
                 showSavedCode()
             }
