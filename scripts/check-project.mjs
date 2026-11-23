@@ -184,7 +184,7 @@ for (const shutdown of [stopShutdown, destroyShutdown]) {
     "Active Camera2 capture must switch its in-stream torch off before RTC resources are disposed");
 }
 assert.ok(service.includes("if (needsPairing)") && service.includes("rtc?.dispose()"), "No-controller state must close orphan camera sessions");
-assert.ok(service.includes('val signals = if (needsPairing) JSONArray()'), "No-controller state must ignore stale offers");
+assert.ok(service.includes('val signals = if (needsPairing || batteryStandby) JSONArray()'), "Unpaired and battery-standby states must ignore stale offers");
 assert.ok(service.includes('val sessionId = payload.optString("sessionId", "")'), "Disconnect commands must be viewer-session scoped");
 assert.ok(js.includes("payload:{sessionId:sessionId}"), "Web disconnect fallback must include its session ID");
 assert.ok(js.includes("void api(\"send_signal\""), "Web disconnect must send the GAS bye signal without blocking local cleanup");
@@ -197,12 +197,12 @@ assert.ok(gas.includes("Controllers:"), "Multi-controller storage sheet missing"
 assert.ok(gas.includes("activeControllerCount_(deviceId) >= 3"), "Three-controller pairing limit missing");
 assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi permission missing");
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
-assert.ok(androidBuild.includes('versionName = "2.8.4-preview"'), "Android app version must be v2.8.3");
-assert.ok(androidBuild.includes("versionCode = 433"), "Android version code must be 432");
+assert.ok(androidBuild.includes('versionName = "2.8.4-preview"'), "Android app version must be v2.8.4");
+assert.ok(androidBuild.includes("versionCode = 433"), "Android version code must be 433");
 assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v28"'), "v2.8 uses a separate package so v2.7 data and install remain intact");
-assert.ok(webConfig.includes('"appVersion": "2.8.4-preview"'), "Web config version must be v2.8.3");
-assert.ok(html.includes("v2.8.4 Preview"), "PWA display version must be v2.8.3");
-assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-4"'), "PWA cache key must be bumped to v2.8.3");
+assert.ok(webConfig.includes('"appVersion": "2.8.4-preview"'), "Web config version must be v2.8.4");
+assert.ok(html.includes("v2.8.4 Preview"), "PWA display version must be v2.8.4");
+assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-4"'), "PWA cache key must be bumped to v2.8.4");
 assert.ok(serviceWorker.includes("noise-suppressor-processor.js"), "Audio worklet must be precached");
 assert.ok(serviceWorker.includes("key.startsWith(CACHE_PREFIX)"), "Service worker must only delete its own cache namespace");
 assert.ok(!serviceWorker.includes("keys.filter(key => key !== CACHE)"), "Service worker must not delete unrelated origin caches");
@@ -227,8 +227,8 @@ assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from S
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.4.0"'), "GAS API version must be 1.4.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 433"), "Android version code must be 432 for v2.8.3");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.4 Preview", "PWA display name must match v2.8.3");
+assert.ok(androidBuild.includes("versionCode = 433"), "Android version code must be 433 for v2.8.3");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.4 Preview", "PWA display name must match v2.8.4");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 assert.ok(html.includes('id="reserveAt" type="datetime-local" step="1"'), "Web schedule must accept second precision");
 assert.ok(js.includes("S.reservationTimer = setInterval(checkConnectionReservation, 250)"), "Web reservation scheduler missing");
