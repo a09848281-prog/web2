@@ -154,6 +154,22 @@
     </div>
 
     <div class="batteryForecast" id="batteryForecast" role="status" aria-live="polite">🔋 電池情報を待っています</div>
+    <label class="batteryForecastTarget">予測目標残量
+      <select id="batteryForecastTarget" disabled>
+        <option value="0">0%（電池切れ）</option><option value="5">5%まで</option>
+        <option value="10">10%まで</option><option value="15">15%まで</option>
+        <option value="20" selected>20%まで</option><option value="25">25%まで</option>
+        <option value="30">30%まで</option><option value="35">35%まで</option>
+        <option value="40">40%まで</option><option value="45">45%まで</option>
+        <option value="50">50%まで</option><option value="55">55%まで</option>
+        <option value="60">60%まで</option><option value="65">65%まで</option>
+        <option value="70">70%まで</option><option value="75">75%まで</option>
+        <option value="80">80%まで</option><option value="85">85%まで</option>
+        <option value="90">90%まで</option><option value="95">95%まで</option>
+        <option value="100">100%まで</option>
+      </select>
+    </label>
+    <small class="hint batteryForecastHint">予測目標は自動切断設定とは別です。選択しても監視接続は切断されません。</small>
     <div class="viewerControls">
       <button id="ptt" type="button" class="ptt pttProminent" disabled>🎙 Webマイク OFF（開始）</button>
       <span class="audioControlHint">接続時にマイクを開始します。ボタンでON/OFFできます。</span>

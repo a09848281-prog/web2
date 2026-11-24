@@ -636,6 +636,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // MonitorService owns RTC/media; returning to the UI must not restart the service.
         prefs.edit().putBoolean("mainActivityVisible", true).apply()
         val filter = android.content.IntentFilter(MonitorService.ACTION_CODE).apply {
             addAction(ACTION_MONITOR_STOPPED)
@@ -656,6 +657,7 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        // Lock-screen authentication and Activity transitions are UI-only, never a disconnect.
         prefs.edit().putBoolean("mainActivityVisible", false).apply()
         try { unregisterReceiver(codeReceiver) } catch (_: Exception) {}
         super.onPause()

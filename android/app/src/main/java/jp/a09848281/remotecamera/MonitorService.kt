@@ -671,6 +671,14 @@ class MonitorService : Service() {
     }
     private suspend fun executeDataChannelCommand(sessionId:String,name:String,payload:JSONObject):String {
         when(name) {
+            "battery_forecast_target" -> {
+                val target = payload.optInt("targetPercent", 20).coerceIn(0, 100)
+                prefs.edit().putInt("batteryForecastTargetPercent", target).apply()
+                val battery = readBatteryState()
+                batteryEstimateMinutes = recordBatterySampleAndEstimate(battery.first, battery.second)
+                sendTelemetry()
+                return "バッテリー予測の目標を" + target + "%に設定しました。"
+            }
             "camera" -> {
                 val engine = rtc ?: error("WebRTCが終了しています。")
                 val cameraId = payload.optString("cameraId", "")
@@ -825,41 +833,84 @@ class MonitorService : Service() {
         if (percent !in 0..100) return -1
         if (lastBatterySampleAt == 0L || now - lastBatterySampleAt >= 60000L) {
             lastBatterySampleAt = now
-            val previous = try {
-                JSONArray(prefs.getString("batteryDischargeSamples", "[]") ?: "[]")
-            } catch (_: Exception) { JSONArray() }
+            val manager = getSystemService(BATTERY_SERVICE) as BatteryManager
+            val chargeCounter = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
+            val currentAverage = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
+            val previous = try { JSONArray(prefs.getString("batteryDischargeSamples", "[]") ?: "[]") }
+                catch (_: Exception) { JSONArray() }
             val recent = JSONArray()
             for (i in 0 until previous.length()) {
                 val item = previous.optJSONObject(i) ?: continue
                 val timestamp = item.optLong("t", 0L)
                 if (timestamp in (now - 6L * 60L * 60L * 1000L)..now) recent.put(item)
             }
-            recent.put(JSONObject().put("t", now).put("p", percent))
+            recent.put(JSONObject().put("t", now).put("p", percent).put("q", chargeCounter).put("c", currentAverage))
             val bounded = JSONArray()
             val start = (recent.length() - 120).coerceAtLeast(0)
             for (i in start until recent.length()) bounded.put(recent.get(i))
             prefs.edit().putString("batteryDischargeSamples", bounded.toString()).apply()
         }
-        val samples = try {
-            JSONArray(prefs.getString("batteryDischargeSamples", "[]") ?: "[]")
-        } catch (_: Exception) { JSONArray() }
-        return estimateBatteryMinutes_(samples, percent)
+        val samples = try { JSONArray(prefs.getString("batteryDischargeSamples", "[]") ?: "[]") }
+            catch (_: Exception) { JSONArray() }
+        val target = prefs.getInt("batteryForecastTargetPercent", 20).coerceIn(0, 100)
+        estimateBatteryFromFuelGauge(samples, percent, target)?.let { return it }
+        val historical = estimateBatteryMinutes_(samples, percent, target)
+        if (historical >= 0) return historical
+        val firstAt = samples.optJSONObject(0)?.optLong("t", 0L) ?: 0L
+        return if (firstAt > 0L && now - firstAt >= 30L * 60L * 1000L) -2 else -1
     }
 
-    private fun estimateBatteryMinutes_(samples: JSONArray, currentPercent: Int): Int {
-        if (samples.length() < 2) return -1
-        val first = samples.optJSONObject(0) ?: return -1
-        val last = samples.optJSONObject(samples.length() - 1) ?: return -1
-        val elapsedMs = last.optLong("t", 0L) - first.optLong("t", 0L)
-        val drop = first.optInt("p", currentPercent) - last.optInt("p", currentPercent)
-        if (elapsedMs < 10L * 60L * 1000L || drop < 1) return -1
-        val target = if (prefs.getBoolean("batteryAutoDisconnectEnabled", false)) {
-            prefs.getInt("batteryCutoffPercent", 20).coerceIn(5, 50)
-        } else 0
-        val remainingPercent = (currentPercent - target).coerceAtLeast(0)
-        if (remainingPercent == 0) return 0
-        val minutesPerPercent = elapsedMs.toDouble() / 60000.0 / drop.toDouble()
-        return (remainingPercent * minutesPerPercent).toLong().coerceIn(0L, 7L * 24L * 60L).toInt()
+    private fun estimateBatteryFromFuelGauge(samples: JSONArray, percent: Int, target: Int): Int? {
+        if (percent !in 1..100) return null
+        if (percent <= target) return 0
+        return try {
+            val manager = getSystemService(BATTERY_SERVICE) as BatteryManager
+            val chargeNow = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
+            if (chargeNow <= 0) return null
+            val currentReadings = mutableListOf<Long>()
+            for (index in (samples.length() - 12).coerceAtLeast(0) until samples.length()) {
+                val raw = samples.optJSONObject(index)?.optLong("c", Long.MIN_VALUE) ?: Long.MIN_VALUE
+                val discharge = kotlin.math.abs(raw)
+                if (raw != Long.MIN_VALUE && discharge in 10000L..5000000L) currentReadings.add(discharge)
+            }
+            if (currentReadings.size < 3) return null
+            currentReadings.sort()
+            val medianCurrentMicroA = currentReadings[currentReadings.size / 2]
+            val remainingChargeMicroAh = chargeNow.toDouble() * (percent - target).toDouble() / percent.toDouble()
+            val minutes = remainingChargeMicroAh / medianCurrentMicroA.toDouble() * 60.0
+            if (!minutes.isFinite() || minutes < 0.0) null
+            else minutes.toLong().coerceIn(0L, 7L * 24L * 60L).toInt()
+        } catch (error: Exception) {
+            Log.w("RemoteCameraBattery", "Fuel-gauge forecast unavailable; using battery history", error)
+            null
+        }
+    }
+
+    private fun estimateBatteryMinutes_(samples: JSONArray, currentPercent: Int, targetPercent: Int): Int {
+        if (currentPercent <= targetPercent) return 0
+        val points = mutableListOf<Pair<Double, Double>>()
+        val cutoff = System.currentTimeMillis() - 2L * 60L * 60L * 1000L
+        for (index in 0 until samples.length()) {
+            val item = samples.optJSONObject(index) ?: continue
+            val timestamp = item.optLong("t", 0L)
+            val value = item.optInt("p", -1)
+            if (timestamp >= cutoff && value in 0..100) points.add(Pair(timestamp.toDouble(), value.toDouble()))
+        }
+        if (points.size < 10 || points.last().first - points.first().first < 20.0 * 60.0 * 1000.0) return -1
+        val meanX = points.map { it.first }.average()
+        val meanY = points.map { it.second }.average()
+        var covariance = 0.0
+        var variance = 0.0
+        for ((x, y) in points) {
+            covariance += (x - meanX) * (y - meanY)
+            variance += (x - meanX) * (x - meanX)
+        }
+        if (variance <= 0.0) return -1
+        val dischargePerMinute = -(covariance / variance) * 60000.0
+        if (!dischargePerMinute.isFinite() || dischargePerMinute <= 0.0001) return -1
+        val minutes = (currentPercent - targetPercent).toDouble() / dischargePerMinute
+        if (!minutes.isFinite()) return -1
+        return minutes.toLong().coerceIn(0L, 7L * 24L * 60L).toInt()
     }
 
     private fun evaluateBatteryStandby(percent: Int, charging: Boolean) {
@@ -1114,7 +1165,8 @@ class MonitorService : Service() {
             .put("batteryPercent",percent)
             .put("batteryCharging",charging)
             .put("batteryForecastMinutes", batteryEstimateMinutes)
-            .put("batteryForecastTargetPercent", if (prefs.getBoolean("batteryAutoDisconnectEnabled", false)) prefs.getInt("batteryCutoffPercent", 20).coerceIn(5, 50) else 0)
+            .put("cameraRecoveryActive", rtc?.isCameraRecoveryActive() == true)
+            .put("batteryForecastTargetPercent", prefs.getInt("batteryForecastTargetPercent", 20).coerceIn(0, 100))
             .put("batteryAutoDisconnectEnabled", prefs.getBoolean("batteryAutoDisconnectEnabled", false))
             .put("batteryCutoffPercent", prefs.getInt("batteryCutoffPercent", 20).coerceIn(5, 50))
             .put("batteryStandby", prefs.getBoolean("batteryStandbyActive", false))

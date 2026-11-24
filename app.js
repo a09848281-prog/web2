@@ -870,10 +870,14 @@ function renderBatteryForecast(data) {
   if (!element) return;
   const percent = Number(data.batteryPercent);
   const autoCutoff = data.batteryAutoDisconnectEnabled === true;
-  const threshold = Math.max(5, Math.min(50, Number(data.batteryCutoffPercent) || 20));
+  const cutoff = Math.max(5, Math.min(50, Number(data.batteryCutoffPercent) || 20));
+  const rawTarget = Number(data.batteryForecastTargetPercent);
+  const target = Number.isFinite(rawTarget) ? Math.max(0, Math.min(100, Math.round(rawTarget / 5) * 5)) : 20;
   const charging = data.batteryCharging === true;
   const standby = data.batteryStandby === true;
   const minutes = Number(data.batteryForecastMinutes);
+  const selector = $("batteryForecastTarget");
+  if (selector && document.activeElement !== selector) selector.value = String(target);
   if (standby) {
     element.dataset.state = "standby";
     element.textContent = "🔋 電池保護待機中 · " +
@@ -886,11 +890,13 @@ function renderBatteryForecast(data) {
     element.textContent = "🔋 電池 " + (Number.isFinite(percent) && percent >= 0 ? percent + "%" : "--") + " · 充電中";
     return;
   }
-  const targetText = autoCutoff ? "自動切断 " + threshold + "%まで" : "電池切れまで";
-  const estimateText = Number.isFinite(minutes) && minutes >= 0 ? "約" + formatBatteryTime(minutes) : "計測中";
-  element.dataset.state = autoCutoff && Number.isFinite(percent) && percent <= threshold + 5 ? "warning" : "normal";
+  const estimateText = Number.isFinite(minutes) && minutes >= 0
+    ? "約" + formatBatteryTime(minutes)
+    : (minutes === -2 ? "推定データ不足" : "計測データ収集中");
+  const cutoffText = autoCutoff ? " · 自動切断 " + cutoff + "%" : "";
+  element.dataset.state = autoCutoff && Number.isFinite(percent) && percent <= cutoff + 5 ? "warning" : "normal";
   element.textContent = "🔋 電池 " + (Number.isFinite(percent) && percent >= 0 ? percent + "%" : "--") +
-    " · " + targetText + " " + estimateText;
+    " · 予測 " + target + "%まで " + estimateText + cutoffText;
 }
 
 function status(text, online = false) {
@@ -1553,6 +1559,17 @@ function scheduleReconnect(expectedPc, reason = "disconnected") {
       $("streamState").textContent = "ネットワーク復旧を待っています";
       return;
     }
+    // Lock-screen biometric authentication can temporarily reserve the Android camera.
+    // Preserve the existing RTC control channel while Android is recovering the capturer.
+    if (reason === "video-stalled" && S.deviceTelemetry?.cameraRecoveryActive === true &&
+        Date.now() - (S.lastVideoFrameAt || 0) < 45000) {
+      $("streamState").textContent = "Androidカメラ復旧中・RTC制御通信を維持しています";
+      S.reconnectTimer = setTimeout(() => {
+        S.reconnectTimer = null;
+        scheduleReconnect(expectedPc, reason);
+      }, 5000);
+      return;
+    }
     // Only skip a retry if the exact failure has recovered. A connected ICE
     // transport and open DataChannel do NOT prove that video frames are flowing.
     if (expectedPc && expectedPc.connectionState === "connected" && S.control?.readyState === "open") {
@@ -1966,6 +1983,8 @@ function settlePendingControlAcks(message = "制御チャネルが閉じられ�
 }
 function updateAndroidMediaButtons() {
   const open = S.control?.readyState === "open";
+  const batteryTarget = $("batteryForecastTarget");
+  if (batteryTarget) batteryTarget.disabled = !open || batteryTarget.dataset.pending === "true";
   $("cameraToggle").disabled = !open || $("cameraToggle").dataset.pending === "true";
   $("micToggle").disabled = !open || $("micToggle").dataset.pending === "true";
   $("camera").disabled = !open || !S.androidCameraEnabled;
@@ -2812,6 +2831,31 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("receiveVolume").addEventListener("input", event => setReceiveVolume(event.target.value, true));
   $("micMode").addEventListener("change", scheduleSettingsSave);
   $("diagnostics").addEventListener("click",()=>command("diagnostics").catch(e=>toast(e.message)));
+  $("batteryForecastTarget").addEventListener("change", async event => {
+    const select = event.currentTarget;
+    const targetPercent = Math.max(0, Math.min(100, Math.round(Number(select.value) / 5) * 5));
+    if (!S.control || S.control.readyState !== "open") {
+      toast("バッテリー予測設定にはAndroidとの接続が必要です。");
+      const saved = Number(S.deviceTelemetry?.batteryForecastTargetPercent);
+      select.value = String(Number.isFinite(saved) ? saved : 20);
+      return;
+    }
+    select.dataset.pending = "true";
+    updateAndroidMediaButtons();
+    try {
+      const result = await sendControlAndWait("battery_forecast_target", { targetPercent }, 8000);
+      if (!result.ok) throw new Error(result.message || "Androidから応答がありません。");
+      S.deviceTelemetry = Object.assign({}, S.deviceTelemetry || {}, { batteryForecastTargetPercent: targetPercent });
+      renderBatteryForecast(S.deviceTelemetry);
+      toast("予測目標を" + targetPercent + "%に設定しました。");
+    } catch (error) {
+      toast("予測目標を保存できませんでした: " + error.message);
+      renderBatteryForecast(S.deviceTelemetry || {});
+    } finally {
+      select.dataset.pending = "false";
+      updateAndroidMediaButtons();
+    }
+  });
   $("torch").addEventListener("click",()=>{
     const desired=!S.torchEnabled;
     command("torch",{enabled:desired})

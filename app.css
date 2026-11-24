@@ -245,3 +245,8 @@
  .app.settings-collapsed .videoPane{min-height:52vh;height:58vh}
  .batteryForecast{font-size:10px}
 }
+
+.batteryForecastTarget{display:inline-flex;align-items:center;gap:7px;margin:5px 8px 8px 0;font-size:12px;font-weight:700;color:#435873}
+.batteryForecastTarget select{min-width:105px;padding:6px 8px;border:1px solid #dce5ef;border-radius:8px;background:#fff;color:#26364b;font:inherit}
+.batteryForecastTarget select:disabled{opacity:.55}
+.batteryForecastHint{display:block;margin:0 0 8px}
