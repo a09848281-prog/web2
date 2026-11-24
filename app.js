@@ -932,7 +932,7 @@ async function loadConfig() {
   // When embedded by the bookmarklet, GAS replies are routed through the host page.
   const params = new URLSearchParams(window.location.search);
   const embedHostOrigin = params.get("hostOrigin") || "";
-  if (params.get("embed") === "1" && /^https:\/\/[a-z0-9.-]+(?::\\d{1,5})?$/i.test(embedHostOrigin)) {
+  if (params.get("embed") === "1" && /^https:\/\/[a-z0-9.-]+(?::\d{1,5})?$/i.test(embedHostOrigin)) {
     S.embedHostOrigin = embedHostOrigin;
   }
   if (typeof S.cfg.gasUrl !== "string" ||
