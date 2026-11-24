@@ -132,20 +132,37 @@ test("zoomed video can be dragged in both directions and reset", () => {
   assert.match(html, /ドラッグして表示位置を移動できます/);
 });
 
-test("v2.8.5 reconnect watchdog preview stays synchronized with compatible Android package", () => {
+test("v2.8.6 lock-screen and battery forecast preview stays synchronized", () => {
   const build = read("android/app/build.gradle.kts");
   const config = read("config.json");
   const sw = read("sw.js");
   const pwa = JSON.parse(read("manifest.webmanifest"));
-  assert.match(build, /versionCode = 434/);
-  assert.match(build, /versionName = "2\.8\.5-preview"/);
-  assert.match(build, /applicationId = "jp\.a09848281\.remotecamera\.v30"/);
-  assert.match(config, /"appVersion": "2\.8\.5-preview"/);
-  assert.match(sw, /v2-8-5/);
-  assert.match(sw, /noise-suppressor-processor\.js/);
-  assert.equal(pwa.name, "Remote Camera Web2 v2.8.5 Preview");
+  assert.match(build, /versionCode = 435/);
+  assert.match(build, /versionName = "2\\.8\\.6-preview"/);
+  assert.match(build, /applicationId = "jp\\.a09848281\\.remotecamera\\.v31"/);
+  assert.match(config, /"appVersion": "2\\.8\\.6-preview"/);
+  assert.match(sw, /v2-8-6/);
+  assert.match(sw, /noise-suppressor-processor\\.js/);
+  assert.equal(pwa.name, "Remote Camera Web2 v2.8.6 Preview");
 });
 
+test("v2.8.6 preserves RTC during lock-screen camera contention and exposes independent battery target", () => {
+  const rtc = read("android/app/src/main/java/jp/a09848281/remotecamera/RtcEngine.kt");
+  const service = read("android/app/src/main/java/jp/a09848281/remotecamera/MonitorService.kt");
+  const web = read("app.js");
+  const html = read("index.html");
+  assert.match(rtc, /CameraVideoCapturer\\.CameraEventsHandler/);
+  assert.match(rtc, /scheduleCameraRecovery\\(/);
+  assert.match(rtc, /RemoteTorchCamera2Capturer\\(context, cameraId, cameraEventsHandler\\)/);
+  assert.match(service, /cameraRecoveryActive/);
+  assert.match(service, /battery_forecast_target/);
+  assert.match(service, /BATTERY_PROPERTY_CHARGE_COUNTER/);
+  assert.match(service, /BATTERY_PROPERTY_CURRENT_AVERAGE/);
+  assert.match(service, /covariance \\/ variance/);
+  assert.match(web, /batteryForecastTarget/);
+  assert.match(web, /cameraRecoveryActive/);
+  assert.match(html, /id="batteryForecastTarget"/);
+});
 test("Android camera, capture and viewer all expose independent real FPS measurements", () => {
   const rtc = read("android/app/src/main/java/jp/a09848281/remotecamera/RtcEngine.kt");
   const service = read("android/app/src/main/java/jp/a09848281/remotecamera/MonitorService.kt");
