@@ -9,6 +9,7 @@ let settingsChangeTimer = null;
 let micNoiseLiveTimer = null;
 const S = {
   cfg: null,
+  embedHostOrigin: "",
   apiVersion: "",
   lastGasTimingMs: null,
   devices: [],
@@ -928,6 +929,12 @@ async function loadConfig() {
   const response = await fetch("./config.json", { cache: "no-store" });
   if (!response.ok) throw Error("config.jsonを読み込めません。");
   S.cfg = await response.json();
+  // When embedded by the bookmarklet, GAS replies are routed through the host page.
+  const params = new URLSearchParams(window.location.search);
+  const embedHostOrigin = params.get("hostOrigin") || "";
+  if (params.get("embed") === "1" && /^https:\/\/[a-z0-9.-]+(?::\\d{1,5})?$/i.test(embedHostOrigin)) {
+    S.embedHostOrigin = embedHostOrigin;
+  }
   if (typeof S.cfg.gasUrl !== "string" ||
       !S.cfg.gasUrl.startsWith("https://script.google.com/macros/s/") ||
       !S.cfg.gasUrl.endsWith("/exec") ||
@@ -961,7 +968,7 @@ function api(action, data = {}, timeoutMs = null) {
     const input = document.createElement("input");
     input.type = "hidden";
     input.name = "payload";
-    input.value = JSON.stringify({ action, requestId: id, ...data });
+    input.value = JSON.stringify({ action, requestId: id, ...(S.embedHostOrigin ? { responseOrigin: S.embedHostOrigin } : {}), ...data });
     form.appendChild(input);
     document.body.append(frame, form);
 
@@ -994,10 +1001,12 @@ function api(action, data = {}, timeoutMs = null) {
       if (!event.data || event.data.channel !== "remote-camera-gas" ||
           event.data.requestId !== id) return;
       const origin = String(event.origin || "");
-      const allowedOrigin = origin === "https://script.google.com" ||
+      const googleOrigin = origin === "https://script.google.com" ||
         origin === "https://script.googleusercontent.com" ||
         origin.endsWith(".googleusercontent.com");
-      if (!allowedOrigin) return;
+      const relayedFromHost = !!S.embedHostOrigin &&
+        origin === S.embedHostOrigin && event.source === window.parent;
+      if (!googleOrigin && !relayedFromHost) return;
       const result = event.data.result;
       if (!result || result.ok !== true) {
         finish(Error(result && result.error ? result.error : "GAS APIエラー"));
