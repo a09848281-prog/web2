@@ -879,7 +879,7 @@ class MonitorService : Service() {
             val remainingChargeMicroAh = chargeNow.toDouble() * (percent - target).toDouble() / percent.toDouble()
             val minutes = remainingChargeMicroAh / medianCurrentMicroA.toDouble() * 60.0
             if (!minutes.isFinite() || minutes < 0.0) null
-            else minutes.toLong().coerceIn(0L, 7L * 24L * 60L).toInt()
+            else kotlin.math.ceil(minutes).toLong().coerceAtLeast(1L).coerceAtMost(7L * 24L * 60L).toInt()
         } catch (error: Exception) {
             Log.w("RemoteCameraBattery", "Fuel-gauge forecast unavailable; using battery history", error)
             null
@@ -910,7 +910,7 @@ class MonitorService : Service() {
         if (!dischargePerMinute.isFinite() || dischargePerMinute <= 0.0001) return -1
         val minutes = (currentPercent - targetPercent).toDouble() / dischargePerMinute
         if (!minutes.isFinite()) return -1
-        return minutes.toLong().coerceIn(0L, 7L * 24L * 60L).toInt()
+        return kotlin.math.ceil(minutes).toLong().coerceAtLeast(1L).coerceAtMost(7L * 24L * 60L).toInt()
     }
 
     private fun evaluateBatteryStandby(percent: Int, charging: Boolean) {
