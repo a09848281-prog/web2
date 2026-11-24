@@ -233,8 +233,8 @@ assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from S
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.4.0"'), "GAS API version must be 1.4.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 434"), "Android version code must be 434 for v2.8.5");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.5 Preview", "PWA display name must match v2.8.4");
+assert.ok(androidBuild.includes("versionCode = 435"), "Android version code must be 435 for v2.8.6");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.6 Preview", "PWA display name must match v2.8.6");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 assert.ok(html.includes('id="reserveAt" type="datetime-local" step="1"'), "Web schedule must accept second precision");
 assert.ok(js.includes("S.reservationTimer = setInterval(checkConnectionReservation, 250)"), "Web reservation scheduler missing");
