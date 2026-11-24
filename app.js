@@ -890,9 +890,12 @@ function renderBatteryForecast(data) {
     element.textContent = "🔋 電池 " + (Number.isFinite(percent) && percent >= 0 ? percent + "%" : "--") + " · 充電中";
     return;
   }
-  const estimateText = Number.isFinite(minutes) && minutes >= 0
-    ? "約" + formatBatteryTime(minutes)
-    : (minutes === -2 ? "推定データ不足" : "計測データ収集中");
+  const alreadyAtTarget = Number.isFinite(percent) && percent <= target;
+  const estimateText = minutes === 0
+    ? (alreadyAtTarget ? "目標到達済み" : "まもなく")
+    : (Number.isFinite(minutes) && minutes > 0
+      ? "約" + formatBatteryTime(minutes)
+      : (minutes === -2 ? "推定データ不足" : "計測データ収集中"));
   const cutoffText = autoCutoff ? " · 自動切断 " + cutoff + "%" : "";
   element.dataset.state = autoCutoff && Number.isFinite(percent) && percent <= cutoff + 5 ? "warning" : "normal";
   element.textContent = "🔋 電池 " + (Number.isFinite(percent) && percent >= 0 ? percent + "%" : "--") +
