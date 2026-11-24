@@ -97,7 +97,7 @@ function doPost(e) {
  */
 function bridge_(id, result, requestedOrigin) {
   // Embed mode supplies the actual host page origin. Only accept a bare HTTPS origin.
-  const targetOrigin = /^https:\/\/[a-z0-9.-]+(?::\\d{1,5})?$/i.test(String(requestedOrigin || ""))
+  const targetOrigin = /^https:\/\/[a-z0-9.-]+(?::\d{1,5})?$/i.test(String(requestedOrigin || ""))
     ? String(requestedOrigin)
     : "https://a09848281-prog.github.io";
   const json = JSON.stringify({
@@ -105,7 +105,7 @@ function bridge_(id, result, requestedOrigin) {
   }).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026");
   return HtmlService.createHtmlOutput(
     "<!doctype html><html><head><meta charset='utf-8'></head><body>" +
-    "<script>window.top.postMessage(" + json + ",'https://a09848281-prog.github.io');</script>" +
+    "<script>window.top.postMessage(" + json + ",'" + targetOrigin + "');</script>" +
     "<p>処理が完了しました。</p></body></html>"
   ).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
