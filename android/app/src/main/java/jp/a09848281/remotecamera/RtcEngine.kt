@@ -83,6 +83,11 @@ class RtcEngine(
     private var captureFramesInWindow = 0
     @Volatile private var measuredCaptureFps = 0
     @Volatile private var lastCaptureFrameAtNs = 0L
+    @Volatile private var captureStartedAtMs = 0L
+    @Volatile private var cameraFailureAtMs = 0L
+    @Volatile private var lastCameraRecoveryAtMs = 0L
+    @Volatile private var cameraRecoveryFailures = 0
+    @Volatile private var cameraRecoveryInProgress = false
     private val captureFpsMonitor = object : VideoSink {
         override fun onFrame(frame: VideoFrame) {
             val now = System.nanoTime()
@@ -107,6 +112,35 @@ class RtcEngine(
             captureFramesInWindow = 0
             measuredCaptureFps = 0
             lastCaptureFrameAtNs = 0L
+        }
+    }
+
+    private fun noteCameraFailure(reason: String) {
+        if (cameraRecoveryInProgress || disposed.get()) return
+        cameraFailureAtMs = System.currentTimeMillis()
+        Log.w("RemoteCameraRTC", reason)
+        onState("Androidカメラの停止を検知しました。WebRTC通信を維持したまま映像を復旧します。")
+    }
+
+    private val cameraEventsHandler = object : CameraVideoCapturer.CameraEventsHandler {
+        override fun onCameraError(errorDescription: String) {
+            noteCameraFailure("Camera2 error: " + errorDescription)
+        }
+        override fun onCameraDisconnected() {
+            noteCameraFailure("Camera2 disconnected")
+        }
+        override fun onCameraFreezed(errorDescription: String) {
+            noteCameraFailure("Camera2 frozen: " + errorDescription)
+        }
+        override fun onCameraOpening(cameraName: String) {
+            Log.i("RemoteCameraRTC", "Camera2 opening: " + cameraName)
+        }
+        override fun onFirstFrameAvailable() {
+            cameraFailureAtMs = 0L
+            cameraRecoveryFailures = 0
+        }
+        override fun onCameraClosed() {
+            Log.d("RemoteCameraRTC", "Camera2 closed")
         }
     }
 
@@ -386,7 +420,7 @@ class RtcEngine(
         for ((width, height, fps) in candidates) {
             var candidate: CameraVideoCapturer? = null
             try {
-                candidate = RemoteTorchCamera2Capturer(context, cameraId, null)
+                candidate = RemoteTorchCamera2Capturer(context, cameraId, cameraEventsHandler)
                 candidate.initialize(surfaceHelper, context.applicationContext, source.capturerObserver)
                 candidate.startCapture(width, height, fps)
                 if (torchRequested) {
@@ -455,6 +489,8 @@ class RtcEngine(
             captureWidth = started.width
             captureHeight = started.height
             captureFps = started.fps
+            captureStartedAtMs = System.currentTimeMillis()
+            cameraFailureAtMs = 0L
             resetCaptureFpsMonitor()
             videoTrack = factory!!.createVideoTrack("remote-camera-video", videoSource).apply {
                 setEnabled(true)
@@ -716,6 +752,8 @@ class RtcEngine(
             captureWidth = started.width
             captureHeight = started.height
             captureFps = started.fps
+            captureStartedAtMs = System.currentTimeMillis()
+            resetCaptureFpsMonitor()
             try { oldCamera.dispose() } catch (error: Exception) {
                 Log.w("RemoteCameraRTC", "Stopped camera capturer disposal failed", error)
             }
@@ -757,6 +795,78 @@ class RtcEngine(
 
     fun isTorchEnabled(): Boolean = (capturer as? TorchCaptureControl)?.isTorchEnabled() == true
     fun hasTorchSupport(): Boolean = cameraEnabled && (capturer as? TorchCaptureControl)?.hasTorchSupport() == true
+
+    /**
+     * Restart only Camera2 capture after a lock-screen/biometric camera hand-off
+     * or a driver freeze. Existing PeerConnections and DataChannels are retained.
+     */
+    @Synchronized
+    fun recoverCameraIfStalled(force: Boolean = false): Boolean {
+        if (disposed.get() || !cameraEnabled || peers.isEmpty() || videoTrack == null) return false
+        val now = System.currentTimeMillis()
+        val lastFrameNs = lastCaptureFrameAtNs
+        val frameAgeMs = if (lastFrameNs > 0L) {
+            ((System.nanoTime() - lastFrameNs).coerceAtLeast(0L) / 1_000_000L)
+        } else {
+            (now - captureStartedAtMs).coerceAtLeast(0L)
+        }
+        val cameraErrorPending = cameraFailureAtMs > 0L &&
+            cameraFailureAtMs >= lastCameraRecoveryAtMs && now - cameraFailureAtMs >= 1000L
+        val stallLimitMs = if (force) 2500L else 8000L
+        if (!cameraErrorPending && frameAgeMs < stallLimitMs) return false
+        val retryDelayMs = when (cameraRecoveryFailures) {
+            0 -> 5000L
+            1 -> 10000L
+            2 -> 20000L
+            else -> 30000L
+        }
+        if (now - lastCameraRecoveryAtMs < retryDelayMs) return false
+
+        lastCameraRecoveryAtMs = now
+        cameraRecoveryInProgress = true
+        try {
+            val oldCapturer = capturer
+            try {
+                if (torchRequested) (oldCapturer as? TorchCaptureControl)?.setTorchEnabled(false)
+            } catch (error: Exception) {
+                Log.w("RemoteCameraRTC", "Torch pause before camera recovery failed", error)
+            }
+            try { oldCapturer?.stopCapture() } catch (error: Exception) {
+                Log.w("RemoteCameraRTC", "Old camera capture stop failed", error)
+            }
+            try { oldCapturer?.dispose() } catch (error: Exception) {
+                Log.w("RemoteCameraRTC", "Old camera capturer disposal failed", error)
+            }
+            capturer = null
+            resetCaptureFpsMonitor()
+            val currentHelper = helper ?: error("カメラ復旧用SurfaceTextureHelperがありません。")
+            val currentSource = videoSource ?: error("カメラ復旧用VideoSourceがありません。")
+            val profile = profileFor(currentQuality, currentDataMode, currentFps, selectedCameraId)
+            val started = startCaptureWithFallback(
+                Camera2Enumerator(context), selectedCameraId, currentHelper, currentSource, profile
+            )
+            capturer = started.capturer
+            captureWidth = started.width
+            captureHeight = started.height
+            captureFps = started.fps
+            captureStartedAtMs = System.currentTimeMillis()
+            cameraFailureAtMs = 0L
+            cameraRecoveryFailures = 0
+            resetCaptureFpsMonitor()
+            onState("カメラ映像を再開しました。WebRTC接続と制御通信は維持しています。")
+            true
+        } catch (error: Exception) {
+            capturer = null
+            cameraRecoveryFailures += 1
+            captureStartedAtMs = System.currentTimeMillis()
+            cameraFailureAtMs = captureStartedAtMs
+            Log.e("RemoteCameraRTC", "Camera-only recovery failed; retry will continue", error)
+            onState("カメラ映像を復旧できませんでした。WebRTC制御接続は維持し、間隔を空けて再試行します。")
+            false
+        } finally {
+            cameraRecoveryInProgress = false
+        }
+    }
 
     fun captureInfo(): JSONObject {
         val lastFrameNs = lastCaptureFrameAtNs
@@ -825,6 +935,8 @@ class RtcEngine(
             captureWidth = started.width
             captureHeight = started.height
             captureFps = started.fps
+            captureStartedAtMs = System.currentTimeMillis()
+            resetCaptureFpsMonitor()
             try { oldCapturer.dispose() } catch (_: Exception) {}
             onState(cameraLabel(option, all) + "へ切り替えました")
         } catch (e: Exception) {

@@ -47,6 +47,7 @@ class MonitorService : Service() {
         const val ACTION_VIDEO_SETTINGS = "jp.a09848281.remotecamera.VIDEO_SETTINGS"
         const val ACTION_DISPLAY_AWAKE = "jp.a09848281.remotecamera.DISPLAY_AWAKE"
         const val ACTION_BATTERY_SETTINGS = "jp.a09848281.remotecamera.BATTERY_SETTINGS"
+        const val ACTION_ACTIVITY_RESUMED = "jp.a09848281.remotecamera.ACTIVITY_RESUMED"
         const val ACTION_CODE = "jp.a09848281.remotecamera.CODE"
         const val EXTRA_GAS_URL = "gas_url"
         const val EXTRA_POLL_INTERVAL_SECONDS = "poll_interval_seconds"
@@ -96,6 +97,9 @@ class MonitorService : Service() {
     private var lastUsageSampleAt = 0L
     private var lastBatterySampleAt = 0L
     private var batteryEstimateMinutes = -1
+    private var batteryForecastMethod = "collecting"
+    private var batteryForecastCurrentMa = -1
+    private var batteryForecastChargeMah = -1L
     private var powerSaveActive = false
     private var criticalThermalProtection = false
     private var torchEnabled = false
@@ -131,7 +135,8 @@ class MonitorService : Service() {
             return START_NOT_STICKY
         }
         if (intent != null && action != ACTION_START && action != ACTION_REFRESH_CODE &&
-            action != ACTION_VIDEO_SETTINGS && action != ACTION_DISPLAY_AWAKE && action != ACTION_BATTERY_SETTINGS) {
+            action != ACTION_VIDEO_SETTINGS && action != ACTION_DISPLAY_AWAKE && action != ACTION_BATTERY_SETTINGS &&
+            action != ACTION_ACTIVITY_RESUMED) {
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -204,6 +209,13 @@ class MonitorService : Service() {
             prefs.edit().putBoolean("nativeVideoOverride", true).apply()
             applyVideoSettings(JSONObject().put("quality", quality).put("fps", fps).put("aspectRatio", ratio))
             sendDeviceSettingsToOpenChannels()
+            return START_STICKY
+        }
+
+        if (action == ACTION_ACTIVITY_RESUMED) {
+            // Reopening the Android UI only checks the camera; it never closes active RTC sessions.
+            rtc?.recoverCameraIfStalled(force = true)
+            updateForegroundNotification()
             return START_STICKY
         }
 
@@ -333,6 +345,11 @@ class MonitorService : Service() {
                 batteryEstimateMinutes = recordBatterySampleAndEstimate(battery.first, battery.second)
                 evaluateBatteryStandby(battery.first, battery.second)
                 val batteryStandby = prefs.getBoolean("batteryStandbyActive", false)
+                if (!batteryStandby) {
+                    try { rtc?.recoverCameraIfStalled() } catch (error: Exception) {
+                        Log.w("RemoteCameraService", "Camera recovery watchdog failed", error)
+                    }
+                }
                 val controlOpen = rtc?.hasOpenControlChannel() == true
                 val recoveryActive = prefs.getBoolean("rtcRecoveryArmed", false) || (rtc?.peerCount() ?: 0) > 0
                 // Hold partial CPU + Wi-Fi locks during recovery polling too; otherwise
@@ -815,16 +832,47 @@ class MonitorService : Service() {
         return Pair(percent, charging)
     }
 
+    private fun readBatteryElectricalMetrics(): Pair<Long, Long> {
+        val manager = getSystemService(BATTERY_SERVICE) as BatteryManager
+        fun readProperty(propertyId: Int): Long {
+            return try {
+                val value = manager.getLongProperty(propertyId)
+                if (value == Long.MIN_VALUE || value == Long.MAX_VALUE) -1L
+                else kotlin.math.abs(value).takeIf { it > 0L } ?: -1L
+            } catch (error: Exception) {
+                Log.d("RemoteCameraBattery", "Battery property $propertyId unavailable", error)
+                -1L
+            }
+        }
+        val chargeUah = readProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
+        val averageCurrentUa = readProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
+        val instantCurrentUa = readProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+        val currentUa = averageCurrentUa.takeIf { it in 10000L..5000000L }
+            ?: instantCurrentUa.takeIf { it in 10000L..5000000L }
+            ?: -1L
+        return Pair(chargeUah.takeIf { it in 1000L..10000000L } ?: -1L, currentUa)
+    }
+
     private fun recordBatterySampleAndEstimate(percent: Int, charging: Boolean): Int {
         val now = System.currentTimeMillis()
         if (charging) {
             prefs.edit().remove("batteryDischargeSamples").apply()
             lastBatterySampleAt = now
+            batteryForecastMethod = "charging"
+            batteryForecastCurrentMa = -1
+            batteryForecastChargeMah = -1L
             return -1
         }
-        if (percent !in 0..100) return -1
+        if (percent !in 0..100) {
+            batteryForecastMethod = "unsupported"
+            return -1
+        }
+
         if (lastBatterySampleAt == 0L || now - lastBatterySampleAt >= 60000L) {
             lastBatterySampleAt = now
+            val electrical = readBatteryElectricalMetrics()
+            batteryForecastCurrentMa = electrical.second.takeIf { it > 0L }?.div(1000L)?.toInt() ?: -1
+            batteryForecastChargeMah = electrical.first.takeIf { it > 0L }?.div(1000L) ?: -1L
             val previous = try {
                 JSONArray(prefs.getString("batteryDischargeSamples", "[]") ?: "[]")
             } catch (_: Exception) { JSONArray() }
@@ -834,19 +882,65 @@ class MonitorService : Service() {
                 val timestamp = item.optLong("t", 0L)
                 if (timestamp in (now - 6L * 60L * 60L * 1000L)..now) recent.put(item)
             }
-            recent.put(JSONObject().put("t", now).put("p", percent))
+            recent.put(JSONObject().put("t", now).put("p", percent)
+                .put("c", electrical.first).put("i", electrical.second))
             val bounded = JSONArray()
-            val start = (recent.length() - 120).coerceAtLeast(0)
-            for (i in start until recent.length()) bounded.put(recent.get(i))
+            val first = (recent.length() - 120).coerceAtLeast(0)
+            for (i in first until recent.length()) bounded.put(recent.get(i))
             prefs.edit().putString("batteryDischargeSamples", bounded.toString()).apply()
         }
+
         val samples = try {
             JSONArray(prefs.getString("batteryDischargeSamples", "[]") ?: "[]")
         } catch (_: Exception) { JSONArray() }
-        return estimateBatteryMinutes_(samples, percent)
+
+        val electricalEstimate = estimateBatteryMinutesFromCurrent_(samples, percent)
+        if (electricalEstimate >= 0) {
+            batteryForecastMethod = "current"
+            return electricalEstimate
+        }
+        val levelEstimate = estimateBatteryMinutesFromLevel_(samples, percent)
+        if (levelEstimate >= 0) {
+            batteryForecastMethod = "level"
+            return levelEstimate
+        }
+        val hasElectrical = (0 until samples.length()).any { index ->
+            val item = samples.optJSONObject(index) ?: return@any false
+            item.optLong("c", -1L) > 0L && item.optLong("i", -1L) > 0L
+        }
+        batteryForecastMethod = if (hasElectrical) "current-learning" else "level-learning"
+        return -1
     }
 
-    private fun estimateBatteryMinutes_(samples: JSONArray, currentPercent: Int): Int {
+    // Uses Android's remaining charge counter and average/instant discharge current.
+    // A single valid pair is enough; percentage-trend sampling is only the fallback.
+    private fun estimateBatteryMinutesFromCurrent_(samples: JSONArray, currentPercent: Int): Int {
+        val valid = mutableListOf<JSONObject>()
+        for (index in 0 until samples.length()) {
+            val item = samples.optJSONObject(index) ?: continue
+            if (item.optLong("c", -1L) in 1000L..10000000L &&
+                item.optLong("i", -1L) in 10000L..5000000L) valid.add(item)
+        }
+        if (valid.isEmpty()) return -1
+        val recent = valid.takeLast(5)
+        val currents = recent.map { it.optLong("i", -1L) }.filter { it > 0L }.sorted()
+        if (currents.isEmpty()) return -1
+        val medianCurrentUa = currents[currents.size / 2]
+        val latest = recent.last()
+        val chargeCounterUah = latest.optLong("c", -1L)
+        val samplePercent = latest.optInt("p", currentPercent).coerceIn(1, 100)
+        val targetPercent = if (prefs.getBoolean("batteryAutoDisconnectEnabled", false)) {
+            prefs.getInt("batteryCutoffPercent", 20).coerceIn(5, 50)
+        } else 0
+        if (currentPercent <= targetPercent) return 0
+        val fraction = ((currentPercent - targetPercent).toDouble() / samplePercent.toDouble()).coerceIn(0.0, 1.0)
+        val minutes = chargeCounterUah.toDouble() / medianCurrentUa.toDouble() * 60.0 * fraction
+        if (!minutes.isFinite() || minutes < 0.0) return -1
+        return minutes.toLong().coerceIn(0L, 7L * 24L * 60L).toInt()
+    }
+
+    /** Fallback for devices which do not expose usable charge/current properties. */
+    private fun estimateBatteryMinutesFromLevel_(samples: JSONArray, currentPercent: Int): Int {
         if (samples.length() < 2) return -1
         val first = samples.optJSONObject(0) ?: return -1
         val last = samples.optJSONObject(samples.length() - 1) ?: return -1
@@ -1114,6 +1208,9 @@ class MonitorService : Service() {
             .put("batteryPercent",percent)
             .put("batteryCharging",charging)
             .put("batteryForecastMinutes", batteryEstimateMinutes)
+            .put("batteryForecastMethod", batteryForecastMethod)
+            .put("batteryForecastCurrentMa", batteryForecastCurrentMa)
+            .put("batteryForecastChargeMah", batteryForecastChargeMah)
             .put("batteryForecastTargetPercent", if (prefs.getBoolean("batteryAutoDisconnectEnabled", false)) prefs.getInt("batteryCutoffPercent", 20).coerceIn(5, 50) else 0)
             .put("batteryAutoDisconnectEnabled", prefs.getBoolean("batteryAutoDisconnectEnabled", false))
             .put("batteryCutoffPercent", prefs.getInt("batteryCutoffPercent", 20).coerceIn(5, 50))

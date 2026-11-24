@@ -644,6 +644,16 @@ class MainActivity : Activity() {
         else @Suppress("DEPRECATION") registerReceiver(codeReceiver, filter)
         showSavedCode()
         refreshMonitoringButtons()
+        if (prefs.getBoolean("monitoringEnabled", false)) {
+            try {
+                val resumeIntent = Intent(this, MonitorService::class.java).apply {
+                    action = MonitorService.ACTION_ACTIVITY_RESUMED
+                }
+                ContextCompat.startForegroundService(this, resumeIntent)
+            } catch (error: Exception) {
+                Log.w("RemoteCameraService", "Could not revalidate camera after app resume", error)
+            }
+        }
         if (pendingExactAlarmPermission) {
             pendingExactAlarmPermission = false
             val alarm = getSystemService(Context.ALARM_SERVICE) as AlarmManager
