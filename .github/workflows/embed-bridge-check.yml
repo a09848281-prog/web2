@@ -1,0 +1,29 @@
+name: v2.8.7 Embed Bridge Checks
+on:
+  push:
+    branches: [preview/v2.8.7-embed-gas-bridge]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: JavaScript and GAS syntax
+        run: |
+          node --check app.js
+          node --check motion-core.js
+          node --check audio-utils.js
+          node --check noise-suppressor-processor.js
+          node --check location-utils.js
+          node --check recovery-core.js
+          node --check sw.js
+          node --check < gas/Code.gs
+      - name: Existing regression tests
+        run: node --test tests/*.test.cjs
+      - name: Project integrity checks
+        run: node scripts/check-project.mjs
