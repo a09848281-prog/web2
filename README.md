@@ -3,7 +3,7 @@
 Android・iPad・PC対応の個人利用向け遠隔監視カメラシステムです。
 旧web v3.8〜v4.1の画面構成とWeb2の機能を統合した独立プレビューです。
 
-- Current Web / Android stability preview: `preview/v2.8.5-reconnect-watchdog`
+- Current Web / Android stability preview: `preview/v2.8.6-lockscreen-battery-guard`
 - PWA: GitHub Pages（iPad Safari / PC browser）
 - Android: Kotlin / Foreground Service / WebRTC
 - Signaling and history: Google Apps Script + Google Sheets
@@ -18,6 +18,18 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 - Branch: `preview/v2.8.3-fps-reconnect-stability`
 - Android package: `jp.a09848281.remotecamera.v28` / versionCode 432
 - The v2.8.3 installation remains available as a fallback. v2.8.4 uses a separate package ID to preserve it.
+
+## v2.8.6 Lockscreen Camera Recovery and Battery Forecast Preview
+
+- Branch: `preview/v2.8.6-lockscreen-battery-guard`
+- PWA: `https://a09848281-prog.github.io/web2/v2.8.6/`
+- Android: `2.8.6-preview` / versionCode `435` / package `jp.a09848281.remotecamera.v31` (separate install; a fresh Web pairing is required).
+- Android Camera2 errors, disconnects and freezes are now observed. If frames stop, only the Camera2 capturer is restarted; PeerConnections, DataChannels and the Android foreground service are kept alive.
+- Returning to the Android app requests a camera health check. It does not restart the RTC session or send a disconnect command.
+- While the secure lock screen / biometric UI owns the camera, camera recovery waits instead of competing with authentication. Video is retried after Android makes the camera available again. The app does not bypass face authentication, PIN or password security.
+- Battery runtime prediction uses BatteryManager charge-counter and current properties when exposed by the device; it falls back to the existing percentage trend when those properties are unavailable.
+- GAS API 1.4.0, deployment URL and Sheets schema are unchanged. No GAS redeployment is required.
+- See [V2.8.6-LOCKSCREEN-BATTERY-RECOVERY.md](V2.8.6-LOCKSCREEN-BATTERY-RECOVERY.md) for implementation and device-test limits.
 
 ## v2.8.5 Reconnect Watchdog Preview
 
