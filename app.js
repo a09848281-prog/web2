@@ -887,7 +887,13 @@ function renderBatteryForecast(data) {
     return;
   }
   const targetText = autoCutoff ? "自動切断 " + threshold + "%まで" : "電池切れまで";
-  const estimateText = Number.isFinite(minutes) && minutes >= 0 ? "約" + formatBatteryTime(minutes) : "計測中";
+  const estimateText = Number.isFinite(minutes) && minutes >= 0
+    ? "約" + formatBatteryTime(minutes)
+    : data.batteryForecastMethod === "current-learning"
+      ? "電流データ取得中"
+      : data.batteryForecastMethod === "level-learning"
+        ? "残量変化を測定中"
+        : "計測データ取得中";
   element.dataset.state = autoCutoff && Number.isFinite(percent) && percent <= threshold + 5 ? "warning" : "normal";
   element.textContent = "🔋 電池 " + (Number.isFinite(percent) && percent >= 0 ? percent + "%" : "--") +
     " · " + targetText + " " + estimateText;

@@ -1,6 +1,7 @@
 package jp.a09848281.remotecamera
 
 import android.content.Context
+import android.app.KeyguardManager
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
@@ -814,6 +815,10 @@ class RtcEngine(
             cameraFailureAtMs >= lastCameraRecoveryAtMs && now - cameraFailureAtMs >= 1000L
         val stallLimitMs = if (force) 2500L else 8000L
         if (!cameraErrorPending && frameAgeMs < stallLimitMs) return false
+        // Do not compete with the secure keyguard/biometric UI for the camera.
+        // Keep WebRTC sessions alive and resume capture after unlock/onResume.
+        val keyguard = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        if (keyguard?.isKeyguardLocked == true) return false
         val retryDelayMs = when (cameraRecoveryFailures) {
             0 -> 5000L
             1 -> 10000L

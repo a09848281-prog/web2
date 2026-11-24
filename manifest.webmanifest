@@ -1,5 +1,5 @@
 {
-  "name": "Remote Camera Web2 v2.8.5 Preview",
+  "name": "Remote Camera Web2 v2.8.6 Preview",
   "short_name": "Remote Camera",
   "lang": "ja",
   "start_url": "./",
@@ -14,5 +14,6 @@
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "description": "Android・iPad・PC対応 遠隔監視カメラシステム v2.8.6"
 }
