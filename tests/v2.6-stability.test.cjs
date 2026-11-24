@@ -140,10 +140,10 @@ test("v2.8.6 lock-screen and battery forecast preview stays synchronized", () =>
   assert.ok(build.includes("versionCode = 435"));
   assert.ok(build.includes('versionName = "2.8.6-preview"'));
   assert.ok(build.includes('applicationId = "jp.a09848281.remotecamera.v31"'));
-  assert.ok(config.includes('"appVersion": "2.8.6-preview"'));
-  assert.ok(sw.includes("v2-8-6"));
+  assert.ok(config.includes('"appVersion": "2.8.7-preview"'));
+  assert.ok(sw.includes("v2-8-7"));
   assert.ok(sw.includes("noise-suppressor-processor.js"));
-  assert.equal(pwa.name, "Remote Camera Web2 v2.8.6 Preview");
+  assert.equal(pwa.name, "Remote Camera Web2 v2.8.7 Preview");
 });
 
 test("v2.8.6 preserves RTC during lock-screen camera contention and exposes independent battery target", () => {
