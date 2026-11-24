@@ -81,13 +81,13 @@ function doPost(e) {
     if (params.mode === "json") {
       return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
     }
-    return bridge_(req.requestId || "", result);
+    return bridge_(req.requestId || "", result, req.responseOrigin);
   } catch (err) {
     const result = { ok: false, error: safeError_(err) };
     if (e && e.parameter && e.parameter.mode === "json") {
       return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
     }
-    return bridge_(req.requestId || "", result);
+    return bridge_(req.requestId || "", result, req.responseOrigin);
   }
 }
 
@@ -95,7 +95,11 @@ function doPost(e) {
  * Google HtmlService is sandboxed. Post to the top-level GitHub Pages origin,
  * not to the intermediate sandbox parent.
  */
-function bridge_(id, result) {
+function bridge_(id, result, requestedOrigin) {
+  // Embed mode supplies the actual host page origin. Only accept a bare HTTPS origin.
+  const targetOrigin = /^https:\/\/[a-z0-9.-]+(?::\\d{1,5})?$/i.test(String(requestedOrigin || ""))
+    ? String(requestedOrigin)
+    : "https://a09848281-prog.github.io";
   const json = JSON.stringify({
     channel: "remote-camera-gas", requestId: String(id || ""), result: result
   }).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026");
