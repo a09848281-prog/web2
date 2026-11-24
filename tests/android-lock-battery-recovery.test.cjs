@@ -42,7 +42,8 @@ test("secure keyguard defers local camera retries without closing the RTC connec
   assert.match(rtc, /isKeyguardLocked == true\) return false/);
   const start = rtc.indexOf("fun recoverCameraIfStalled(");
   const recovery = rtc.slice(start, rtc.indexOf("fun captureInfo()", start));
-  assert.doesNotMatch(recovery, /PeerConnection\.close|peer\.close|closeSession|dispose\(\)/);
+  assert.doesNotMatch(recovery, /PeerConnection\.close|peer\.close|closeSession|peers\.clear|controlChannels\.clear|factory\?\.dispose/);
+  assert.match(recovery, /oldCapturer\?\.dispose\(\)/);
 });
 
 test("battery forecast uses charge counter and current where available, with percentage fallback", () => {
