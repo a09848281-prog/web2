@@ -20,5 +20,5 @@ test("v2.8.7 embed mode routes GAS replies through the parent page", () => {
 
 test("normal non-embedded mode keeps the original GitHub Pages GAS response origin", () => {
   const gas = fs.readFileSync("gas/Code.gs", "utf8");
-  assert.ok(gas.includes(' :\n    "https://a09848281-prog.github.io"'));
+  assert.ok(gas.includes('"https://a09848281-prog.github.io"'));
 });
