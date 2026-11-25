@@ -91,12 +91,22 @@ const ICE_DIAG = {
   updatedAt: 0
 };
 
+function sanitizeIceDiagnosticText(value) {
+  return String(value === null || value === undefined ? "" : value)
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "[IPv4]")
+    .replace(/(^|[^0-9a-f:\\[])(\\[?)(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?:%[a-z0-9_.-]+)?(\\]?)(?=$|[^0-9a-f:])/gi, "$1[IPv6]");
+}
+
 function recordIceDiagnostic(message, patch = {}) {
-  Object.assign(ICE_DIAG, patch || {});
+  const safePatch = Object.assign({}, patch || {});
+  if (typeof safePatch.lastError === "string") {
+    safePatch.lastError = sanitizeIceDiagnosticText(safePatch.lastError);
+  }
+  Object.assign(ICE_DIAG, safePatch);
   ICE_DIAG.updatedAt = Date.now();
   if (message) {
     const stamp = new Date().toLocaleTimeString();
-    ICE_DIAG.events.push(stamp + "  " + String(message).slice(0, 180));
+    ICE_DIAG.events.push(stamp + "  " + sanitizeIceDiagnosticText(message).slice(0, 180));
     if (ICE_DIAG.events.length > 12) ICE_DIAG.events.splice(0, ICE_DIAG.events.length - 12);
   }
   renderIceDiagnostics();
