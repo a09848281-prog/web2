@@ -438,7 +438,7 @@ const androidConfigVersion = JSON.parse(webConfig).appVersion;
 assert.equal(androidConfigVersion, "3.0.0", "Web config must identify the current Android preview version");
 assert.ok(androidBuild.includes('versionCode = 437'), "Android versionCode must be incremented for the v3.0.0 APK");
 assert.ok(androidBuild.includes('versionName = "' + androidConfigVersion + '"'), "Android APK versionName must match config.json");
-assert.ok(manifest.includes('android:label="Remote Camera Web2 v3.0.0 Release"'), "Android launcher label must match v3.0.0");
+assert.ok(manifest.includes('android:label="Remote Camera Web2 v3.0.0"'), "Android launcher label must match v3.0.0");
 assert.ok(config.includes("release/v3.0/config.json"), "Android must load config.json from the active v3.0.0 branch");
 assert.ok(!config.includes("preview/v2.7.1-fixes"), "Android must not depend on the retired v2.7.1 config branch");
 assert.ok(main.includes("private fun isValidGasUrl") &&
