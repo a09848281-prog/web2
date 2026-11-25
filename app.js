@@ -77,6 +77,7 @@ const S = {
   viewportRestoreTimer: null,
   hasReceivedVideoFrame: false, lastVideoFrameAt: 0, videoWatchdogGraceUntil: 0, connectedAt: 0, sessionTimer: null,
   statsLast: null, statsFrameLast: null, viewerReceiveFps: null,
+  turnUsageLast: null,
   manualDisconnect: false, reconnectResetTimer: null,
   connectionTimeoutTimer: null, connectionTimeoutPeer: null,
   connectionAttemptId: 0, connectionAttemptWatchdog: null, cameraCapabilities: [],
@@ -2690,6 +2691,83 @@ async function toggleAndroidMicrophone() {
 }
 function readLiveSettings(){return {quality:$("quality").value,dataMode:$("dataMode").value,fps:Number($("fps").value),aspectRatio:$("aspectRatio").value,micNoise:Number($("micNoise").value),micSensitivity:Number($("micSensitivity").value),micGain:Number($("micGain").value),speakerVolume:Number($("androidSpeakerVolume").value),micMode:$("micMode").value};}
 function bytesText(value){const b=Math.max(0,Number(value)||0);if(b<1024)return b.toFixed(0)+" B";if(b<1048576)return (b/1024).toFixed(1)+" KB";return (b/1048576).toFixed(2)+" MB";}
+
+const TURN_USAGE_STORAGE_PREFIX = "remote-camera-turn-usage-v1-";
+function currentTurnUsageMonth(date = new Date()) {
+  return String(date.getFullYear()) + "-" + String(date.getMonth() + 1).padStart(2, "0");
+}
+function readTurnUsage() {
+  const month = currentTurnUsageMonth();
+  const empty = { month, sent: 0, received: 0 };
+  try {
+    const raw = localStorage.getItem(TURN_USAGE_STORAGE_PREFIX + month);
+    if (!raw) return empty;
+    const value = JSON.parse(raw);
+    return {
+      month,
+      sent: Math.max(0, Number(value.sent) || 0),
+      received: Math.max(0, Number(value.received) || 0)
+    };
+  } catch (_) {
+    return empty;
+  }
+}
+function renderTurnUsageMeter(status = "今月の中継通信量（このブラウザーで計測）") {
+  const usage = readTurnUsage();
+  const sent = $("turnUsageSent"), received = $("turnUsageReceived");
+  const total = $("turnUsageTotal"), month = $("turnUsageMonth"), note = $("turnUsageNote");
+  if (sent) sent.textContent = "送信 " + bytesText(usage.sent);
+  if (received) received.textContent = "受信 " + bytesText(usage.received);
+  if (total) total.textContent = "合計 " + bytesText(usage.sent + usage.received);
+  if (month) month.textContent = usage.month;
+  if (note) note.textContent = status;
+}
+function recordTurnUsage(stats, peer) {
+  let pair = null;
+  stats.forEach(item => {
+    if (item.type === "transport" && item.selectedCandidatePairId) {
+      pair = stats.get(item.selectedCandidatePairId) || pair;
+    }
+  });
+  if (!pair) {
+    stats.forEach(item => {
+      if (item.type === "candidate-pair" && item.state === "succeeded" && item.nominated) pair = item;
+    });
+  }
+  if (!pair) {
+    S.turnUsageLast = null;
+    renderTurnUsageMeter("中継経路を確認中");
+    return;
+  }
+  const local = pair.localCandidateId ? stats.get(pair.localCandidateId) : null;
+  const remote = pair.remoteCandidateId ? stats.get(pair.remoteCandidateId) : null;
+  const isRelay = local?.candidateType === "relay" || remote?.candidateType === "relay";
+  if (!isRelay) {
+    S.turnUsageLast = { peer, pairId: pair.id, sent: Number(pair.bytesSent) || 0, received: Number(pair.bytesReceived) || 0, relay: false };
+    renderTurnUsageMeter("現在は直接経路です（TURN中継量は増えません）");
+    return;
+  }
+  const sent = Math.max(0, Number(pair.bytesSent) || 0);
+  const received = Math.max(0, Number(pair.bytesReceived) || 0);
+  const previous = S.turnUsageLast;
+  if (previous && previous.peer === peer && previous.pairId === pair.id && previous.relay) {
+    const deltaSent = sent >= previous.sent ? sent - previous.sent : 0;
+    const deltaReceived = received >= previous.received ? received - previous.received : 0;
+    if (deltaSent || deltaReceived) {
+      const usage = readTurnUsage();
+      usage.sent += deltaSent;
+      usage.received += deltaReceived;
+      try {
+        localStorage.setItem(TURN_USAGE_STORAGE_PREFIX + usage.month, JSON.stringify(usage));
+      } catch (error) {
+        console.warn("TURN usage could not be saved locally", error);
+      }
+    }
+  }
+  S.turnUsageLast = { peer, pairId: pair.id, sent, received, relay: true };
+  renderTurnUsageMeter("中継経路を計測中（推定値）");
+}
+
 function renderDeviceInfo() {
   const telemetry = S.deviceTelemetry || {};
   const network = S.deviceDiagnostics || telemetry.network || {};
@@ -2941,6 +3019,8 @@ function maybeAdaptQuality(rttMs, lossPercent) {
 }
 function startRtcStats() {
   stopRtcStats();
+  S.turnUsageLast = null;
+  renderTurnUsageMeter();
   S.statsLast = null;
   S.statsFrameLast = null;
   let updateRunning = false;
@@ -2951,6 +3031,7 @@ function startRtcStats() {
     try {
       const stats = await peer.getStats();
       if (peer !== S.pc) return;
+      recordTurnUsage(stats, peer);
       let sent = 0, received = 0, rtt = null, lost = 0, packets = 0, fps = null;
       let route = "未確定";
       let decodedVideoFrames = null;
