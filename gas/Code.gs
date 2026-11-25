@@ -792,9 +792,9 @@ function validateCloudflareIceServers_(value) {
     const urls = Array.isArray(rawUrls) ? rawUrls : (typeof rawUrls === "string" ? [rawUrls] : []);
     urls.forEach(function(rawUrl) {
       const url = String(rawUrl || "").trim();
-      if (!url || /:53(?:\\?|$)/i.test(url)) return;
-      if (/^stun:stun\\.cloudflare\\.com:3478$/i.test(url)) stunUrls.push(url);
-      if (/^turns?:turn\\.cloudflare\\.com:\\d+(?:\\?transport=(?:udp|tcp))?$/i.test(url)) turnUrls.push(url);
+      if (!url || /:53(?:\?|$)/i.test(url)) return;
+      if (/^stun:stun\.cloudflare\.com:3478$/i.test(url)) stunUrls.push(url);
+      if (/^turns?:turn\.cloudflare\.com:\d+(?:\?transport=(?:udp|tcp))?$/i.test(url)) turnUrls.push(url);
     });
     if (turnUrls.length && !username && !credential) {
       username = String(item.username || "").trim();
