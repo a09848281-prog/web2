@@ -3,87 +3,47 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 const gasSource = fs.readFileSync("gas/Code.gs", "utf8");
+const iceHelper = require("../network-ice.js");
 
-function createRuntime({ properties = {}, response = null, httpStatus = 201 } = {}) {
-  const cache = new Map();
-  const requests = [];
-  let cacheTtl = null;
+function createRuntime({ properties = {} } = {}) {
+  const logs = [];
   const sandbox = {
-    PropertiesService: { getScriptProperties: () => ({ getProperty: key => properties[key] ?? null }) },
-    CacheService: { getScriptCache: () => ({
-      get: key => cache.get(key) ?? null,
-      put: (key, value, ttl) => { cache.set(key, value); cacheTtl = ttl; },
-      remove: key => cache.delete(key)
-    }) },
-    LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) },
-    UrlFetchApp: { fetch: (url, options) => {
-      requests.push({ url, options });
-      return { getResponseCode: () => httpStatus, getContentText: () => JSON.stringify(response ?? {}) };
-    } },
+    PropertiesService: {
+      getScriptProperties: () => ({ getProperty: key => properties[key] ?? null })
+    },
+    Logger: { log: value => logs.push(String(value)) },
     console: { warn: () => {}, error: () => {}, log: () => {} }
   };
   vm.runInNewContext(gasSource, sandbox, { filename: "Code.gs" });
-  return { sandbox, cache, requests, get cacheTtl() { return cacheTtl; } };
+  return { sandbox, logs };
 }
 
-const cloudflareResponse = {
-  iceServers: [
-    { urls: ["stun:stun.cloudflare.com:3478"] },
-    {
-      urls: [
-        "turn:turn.cloudflare.com:3478?transport=udp",
-        "turn:turn.cloudflare.com:443?transport=udp",
-        "turn:turn.cloudflare.com:3478?transport=tcp",
-        "turn:turn.cloudflare.com:80?transport=tcp",
-        "turns:turn.cloudflare.com:5349?transport=tcp",
-        "turns:turn.cloudflare.com:443?transport=tcp",
-        "turn:turn.cloudflare.com:53?transport=udp",
-        "turn:untrusted.example:3478?transport=udp"
-      ],
-      username: "temporary-turn-user",
-      credential: "temporary-turn-password"
-    }
-  ]
-};
-
-test("Cloudflare TURN credentials are generated server-side and sanitized", () => {
+test("ExpressTURN free-plan credentials are returned only with the documented UDP/TCP 3478 endpoints", () => {
   const runtime = createRuntime({
-    properties: { CF_TURN_KEY_ID: "turn-key-id", CF_TURN_KEY_SECRET: "server-only-turn-key-secret" },
-    response: cloudflareResponse
+    properties: {
+      EXPRESSTURN_USERNAME: "account-turn-user",
+      EXPRESSTURN_CREDENTIAL: "account-turn-password"
+    }
   });
   const config = runtime.sandbox.iceConfig_();
   assert.equal(config.turnConfigured, true);
-  assert.equal(config.turnProvider, "cloudflare");
+  assert.equal(config.turnProvider, "expressturn");
   assert.equal(config.turnStatus, "ready");
-  assert.equal(config.iceServers.length, 2);
-  assert.ok(config.iceServers[0].urls.includes("stun:stun.cloudflare.com:3478"));
-  const turn = config.iceServers[1];
-  assert.equal(turn.username, "temporary-turn-user");
-  assert.equal(turn.credential, "temporary-turn-password");
-  assert.equal(turn.urls.length, 6);
-  assert.ok(turn.urls.every(url => url.startsWith("turn:turn.cloudflare.com:") || url.startsWith("turns:turn.cloudflare.com:")));
-  assert.ok(turn.urls.every(url => !/:53(?:\?|$)/.test(url)));
-  assert.equal(runtime.requests.length, 1);
-  assert.match(runtime.requests[0].url, /\/turn\/keys\/turn-key-id\/credentials\/generate-ice-servers$/);
-  assert.equal(runtime.requests[0].options.headers.Authorization, "Bearer server-only-turn-key-secret");
-  assert.deepEqual(JSON.parse(runtime.requests[0].options.payload), { ttl: 172800 });
-  assert.equal(runtime.cacheTtl, 21600);
-  assert.ok(!JSON.stringify(config).includes("server-only-turn-key-secret"));
-  assert.ok(runtime.sandbox.testCloudflareTurnSetup);
+  assert.deepEqual(JSON.parse(JSON.stringify(config.iceServers)), [
+    { urls: ["stun:stun.l.google.com:19302"] },
+    {
+      urls: [
+        "turn:free.expressturn.com:3478?transport=udp",
+        "turn:free.expressturn.com:3478?transport=tcp"
+      ],
+      username: "account-turn-user",
+      credential: "account-turn-password"
+    }
+  ]);
+  assert.equal(runtime.logs.length, 0);
 });
 
-test("Cloudflare TURN credentials are cached to avoid API calls on every device poll", () => {
-  const runtime = createRuntime({
-    properties: { CF_TURN_KEY_ID: "turn-key-id", CF_TURN_KEY_SECRET: "server-only-turn-key-secret" },
-    response: cloudflareResponse
-  });
-  runtime.sandbox.iceConfig_();
-  runtime.sandbox.iceConfig_();
-  runtime.sandbox.iceConfig_();
-  assert.equal(runtime.requests.length, 1);
-});
-
-test("missing Cloudflare keys safely fall back to Google STUN", () => {
+test("missing ExpressTURN credentials safely fall back to Google STUN only", () => {
   const runtime = createRuntime();
   const config = runtime.sandbox.iceConfig_();
   assert.equal(config.turnConfigured, false);
@@ -92,60 +52,72 @@ test("missing Cloudflare keys safely fall back to Google STUN", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(config.iceServers)), [
     { urls: ["stun:stun.l.google.com:19302"] }
   ]);
-  assert.equal(runtime.requests.length, 0);
 });
 
-test("Cloudflare API failure preserves an existing custom TURN configuration", () => {
+test("partial, overlong, or newline-injected ExpressTURN credentials are rejected safely", () => {
+  for (const properties of [
+    { EXPRESSTURN_USERNAME: "user" },
+    { EXPRESSTURN_CREDENTIAL: "password" },
+    { EXPRESSTURN_USERNAME: "u".repeat(257), EXPRESSTURN_CREDENTIAL: "password" },
+    { EXPRESSTURN_USERNAME: "user\ninjected", EXPRESSTURN_CREDENTIAL: "password" },
+    { EXPRESSTURN_USERNAME: "user", EXPRESSTURN_CREDENTIAL: "pass\r\ninjected" }
+  ]) {
+    const config = createRuntime({ properties }).sandbox.iceConfig_();
+    assert.equal(config.turnConfigured, false);
+    assert.equal(config.turnProvider, "stun-only");
+    assert.equal(config.turnStatus, "invalid-credentials");
+    assert.equal(config.iceServers.length, 1);
+  }
+});
+
+test("old Cloudflare properties are ignored and never trigger external credential requests", () => {
   const runtime = createRuntime({
     properties: {
-      CF_TURN_KEY_ID: "turn-key-id",
-      CF_TURN_KEY_SECRET: "server-only-turn-key-secret",
-      TURN_URLS: '["turn:legacy.example:3478?transport=udp"]',
-      TURN_USERNAME: "legacy-user",
-      TURN_CREDENTIAL: "legacy-password"
-    },
-    response: { errors: [{ message: "unavailable" }] },
-    httpStatus: 503
-  });
-  const config = runtime.sandbox.iceConfig_();
-  assert.equal(config.turnConfigured, true);
-  assert.equal(config.turnProvider, "custom");
-  assert.equal(config.turnStatus, "custom");
-  assert.equal(config.iceServers[1].username, "legacy-user");
-  assert.equal(config.iceServers[1].credential, "legacy-password");
-  assert.ok(config.turnError.includes("503"));
-});
-
-test("invalid Cloudflare response never leaks a secret or becomes a fake TURN server", () => {
-  const runtime = createRuntime({
-    properties: { CF_TURN_KEY_ID: "turn-key-id", CF_TURN_KEY_SECRET: "server-only-turn-key-secret" },
-    response: { iceServers: [{ urls: ["turn:turn.cloudflare.com:3478?transport=udp"] }] }
+      CF_TURN_KEY_ID: "old-id",
+      CF_TURN_KEY_SECRET: "old-secret"
+    }
   });
   const config = runtime.sandbox.iceConfig_();
   assert.equal(config.turnConfigured, false);
-  assert.equal(config.turnStatus, "cloudflare-unavailable");
-  assert.ok(!JSON.stringify(config).includes("server-only-turn-key-secret"));
+  assert.equal(config.turnProvider, "stun-only");
+  assert.ok(!JSON.stringify(config).includes("old-secret"));
+  assert.ok(!gasSource.includes("CF_TURN_KEY_ID"));
+  assert.ok(!gasSource.includes("rtc.live.cloudflare.com"));
 });
 
-test("Cloudflare API failures are briefly cached to protect Apps Script quotas", () => {
+test("diagnostic helper reports ExpressTURN readiness without returning credentials", () => {
   const runtime = createRuntime({
-    properties: { CF_TURN_KEY_ID: "turn-key-id", CF_TURN_KEY_SECRET: "server-only-turn-key-secret" },
-    response: { errors: [{ message: "unavailable" }] },
-    httpStatus: 503
+    properties: {
+      EXPRESSTURN_USERNAME: "private-user",
+      EXPRESSTURN_CREDENTIAL: "private-password"
+    }
   });
-  runtime.sandbox.iceConfig_();
-  runtime.sandbox.iceConfig_();
-  runtime.sandbox.iceConfig_();
-  assert.equal(runtime.requests.length, 1);
+  const result = runtime.sandbox.testExpressTurnSetup();
+  assert.equal(result.turnConfigured, true);
+  assert.equal(result.turnProvider, "expressturn");
+  assert.equal(result.turnUrlCount, 2);
+  assert.equal(JSON.stringify(result).includes("private-user"), false);
+  assert.equal(JSON.stringify(result).includes("private-password"), false);
+  assert.equal(runtime.logs.length, 1);
+  assert.equal(runtime.logs[0].includes("private-password"), false);
 });
 
-test("Web connection metrics identify the selected TURN relay candidate pair", () => {
-  const app = fs.readFileSync("app.js", "utf8");
-  assert.ok(app.includes('candidateTypes.includes("relay")'));
-  assert.ok(app.includes('metricParts.push("経路 " + route)'));
+test("TURN configuration validation requires a real URL and both credentials", () => {
+  assert.equal(iceHelper.hasUsableTurnServers([
+    { urls: ["turn:free.expressturn.com:3478?transport=udp"], username: "u", credential: "p" }
+  ]), true);
+  assert.equal(iceHelper.hasUsableTurnServers([
+    { urls: ["turn:free.expressturn.com:3478?transport=udp"], username: "u", credential: "" }
+  ]), false);
+  assert.equal(iceHelper.hasUsableTurnServers([
+    { urls: ["https://free.expressturn.com"], username: "u", credential: "p" }
+  ]), false);
+  assert.equal(iceHelper.hasUsableTurnServers([
+    { urls: ["turn:free.expressturn.com:3478?transport=udp"], username: "u\nx", credential: "p" }
+  ]), false);
 });
 
-test("Android receives TURN ICE servers from GAS without embedding Cloudflare API secrets", () => {
+test("Android receives standard ICE server URLs and reads TURN username/password from GAS", () => {
   const monitor = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MonitorService.kt", "utf8");
   const rtc = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/RtcEngine.kt", "utf8");
   const web = fs.readFileSync("app.js", "utf8");
@@ -155,24 +127,39 @@ test("Android receives TURN ICE servers from GAS without embedding Cloudflare AP
   assert.ok(rtc.includes('it.startsWith("turns:", true)'));
   assert.ok(rtc.includes("builder.setUsername(username)"));
   assert.ok(rtc.includes("builder.setPassword(credential)"));
-  assert.ok(!web.includes("CF_TURN_KEY_SECRET"));
-  assert.ok(!config.includes("CF_TURN_KEY_SECRET"));
-  assert.ok(!rtc.includes("CF_TURN_KEY_SECRET"));
+  assert.ok(!web.includes("EXPRESSTURN_CREDENTIAL"));
+  assert.ok(!config.includes("EXPRESSTURN_CREDENTIAL"));
+  assert.ok(!rtc.includes("EXPRESSTURN_CREDENTIAL"));
 });
 
-test("Web retries failed ICE connections with TURN relay-only policy", () => {
+test("Web retries failed ICE connections with relay-only policy only when valid TURN credentials exist", () => {
   const app = fs.readFileSync("app.js", "utf8");
-  assert.ok(app.includes('forceTurnRelay: false'));
-  assert.ok(app.includes('S.forceTurnRelay = false'));
   assert.ok(app.includes('S.iceMode === "relay" && S.turnConfigured ? "relay" : "all"'));
   assert.ok(app.includes('S.nextIceMode = "ipv6"'));
   assert.ok(app.includes('S.nextIceMode = "relay"'));
-  assert.ok(app.includes('S.forceTurnRelay = true'));
-  assert.ok(app.includes('TURN中継で再試行します'));
+  assert.ok(app.includes("hasUsableTurnServers"));
+  assert.ok(app.includes("S.iceServers = defaultIceServers()"));
+  assert.ok(app.includes("S.forceTurnRelay = false"));
 });
 
-test("Web status text does not claim a direct path when TURN relay can be selected", () => {
+test("Web fallback does not carry stale TURN credentials into a later STUN-only attempt", () => {
   const app = fs.readFileSync("app.js", "utf8");
-  assert.ok(app.includes("監視中・DataChannel接続"));
-  assert.ok(!app.includes("監視中・DataChannel直接接続"));
+  assert.ok(app.includes("Never reuse credentials from an earlier attempt"));
+  assert.ok(app.includes("S.turnConfigured = serverReportedTurn &&"));
+  assert.ok(app.includes('S.iceMode = "normal"'));
+  assert.ok(app.includes('S.turnProvider = "stun-only"'));
+});
+
+test("current project sources contain no Cloudflare TURN integration", () => {
+  const app = fs.readFileSync("app.js", "utf8");
+  const gas = fs.readFileSync("gas/Code.gs", "utf8");
+  const html = fs.readFileSync("index.html", "utf8");
+  const config = fs.readFileSync("config.json", "utf8");
+  assert.doesNotMatch(app + gas + html + config, /CF_TURN|cloudflareTurn|turn\.cloudflare\.com|rtc\.live\.cloudflare\.com/i);
+});
+
+test("Web connection metrics identify the selected TURN relay candidate pair", () => {
+  const app = fs.readFileSync("app.js", "utf8");
+  assert.ok(app.includes('candidateTypes.includes("relay")'));
+  assert.ok(app.includes('metricParts.push("経路 " + route)'));
 });
