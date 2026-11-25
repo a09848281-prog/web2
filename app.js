@@ -38,10 +38,17 @@ const S = {
   deviceDiagnostics: null, control: null, statsTimer: null, statsLast: null, reconnectTimer: null,
   reconnectCountdownTimer: null, reconnectDeadlineAt: 0, reconnectReason: "", reconnectExpectedPc: null,
   reconnectAttempts: 0, everConnected: false, autoConnectWanted: false, torchEnabled: false, reservationTimer: null,
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-  turnConfigured: false,
-  turnProvider: "stun-only",
-  forceTurnRelay: false,
+  iceServers: [{ urls: [
+    "stun:stun.l.google.com:19302",
+    "stun:stun1.l.google.com:19302",
+    "stun:stun2.l.google.com:19302",
+    "stun:stun3.l.google.com:19302",
+    "stun:stun4.l.google.com:19302"
+  ] }],
+  iceMode: "normal",
+  nextIceMode: "normal",
+  ipv6RetryUsed: false,
+  lastSuccessfulIceMode: "normal",
   motion: { enabled: false, sensitivity: 3, timer: null, previous: null, streak: 0, lastEventAt: 0, sendingDevices: new Set(), retryTimer: null },
   adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 },
   audioContext: null, remoteGain: null, remoteAudioSource: null, remoteAnalyser: null,
@@ -61,6 +68,185 @@ const S = {
   connectionAttemptId: 0, connectionAttemptWatchdog: null, cameraCapabilities: [],
   settingsSaveQueue: Promise.resolve()
 };
+
+
+const ICE_DIAG = {
+  phase: "待機中",
+  mode: "normal",
+  gatheringState: "new",
+  iceConnectionState: "new",
+  connectionState: "new",
+  signalingState: "stable",
+  localSummary: null,
+  remoteSummary: null,
+  selectedPair: null,
+  lastError: "",
+  events: [],
+  updatedAt: 0
+};
+
+function recordIceDiagnostic(message, patch = {}) {
+  Object.assign(ICE_DIAG, patch || {});
+  ICE_DIAG.updatedAt = Date.now();
+  if (message) {
+    const stamp = new Date().toLocaleTimeString();
+    ICE_DIAG.events.push(stamp + "  " + String(message).slice(0, 180));
+    if (ICE_DIAG.events.length > 12) ICE_DIAG.events.splice(0, ICE_DIAG.events.length - 12);
+  }
+  renderIceDiagnostics();
+}
+
+function formatIceCandidateSummary(summary) {
+  if (!summary) return "未取得";
+  return [
+    "合計 " + (summary.candidateCount || 0),
+    "IPv4 " + (summary.ipv4Count || 0),
+    "グローバルIPv6 " + (summary.ipv6GlobalCount || 0),
+    "その他IPv6 " + (summary.ipv6NonGlobalCount || 0),
+    "不明 " + (summary.unknownCount || 0),
+    "host " + (summary.hostCount || 0),
+    "srflx " + (summary.srflxCount || 0),
+    "relay " + (summary.relayCount || 0)
+  ].join(" / ");
+}
+
+function renderIceDiagnostics() {
+  const output = $("iceDiagnosticsOutput");
+  if (!output) return;
+  const pair = ICE_DIAG.selectedPair;
+  const selected = pair
+    ? (pair.family || "アドレス種別不明") + " / " + (pair.localType || "不明") + " ⇄ " + (pair.remoteType || "不明")
+    : "未選択・未接続";
+  const lines = [
+    "Remote Camera Web2 v2.8.9 — ICE / IPv6診断",
+    "更新: " + (ICE_DIAG.updatedAt ? new Date(ICE_DIAG.updatedAt).toLocaleString() : "まだありません"),
+    "",
+    "段階: " + ICE_DIAG.phase,
+    "接続試行: " + (ICE_DIAG.mode === "ipv6" ? "IPv6優先（グローバルIPv6候補のみ送信）" : "通常（IPv4・IPv6自動）"),
+    "ICE gathering: " + ICE_DIAG.gatheringState,
+    "ICE connection: " + ICE_DIAG.iceConnectionState,
+    "Peer connection: " + ICE_DIAG.connectionState,
+    "Signaling: " + ICE_DIAG.signalingState,
+    "",
+    "Web側候補: " + formatIceCandidateSummary(ICE_DIAG.localSummary),
+    "Android側候補: " + formatIceCandidateSummary(ICE_DIAG.remoteSummary),
+    "選択経路: " + selected,
+    "最終エラー: " + (ICE_DIAG.lastError || "なし"),
+    "",
+    "履歴:",
+    ...(ICE_DIAG.events.length ? ICE_DIAG.events.slice().reverse() : ["まだ記録はありません。"]),
+    "",
+    "※IPアドレスそのものは診断欄に表示・保存しません。"
+  ];
+  output.textContent = lines.join("\n");
+}
+
+async function refreshIceDiagnostics() {
+  const peer = S.pc;
+  if (!peer) {
+    recordIceDiagnostic("診断更新：PeerConnectionはまだありません。", {
+      phase: "接続待機中",
+      selectedPair: null
+    });
+    return;
+  }
+  try {
+    const stats = await peer.getStats();
+    if (peer !== S.pc) return;
+    let pair = null;
+    stats.forEach(item => {
+      if (item.type === "transport" && item.selectedCandidatePairId) {
+        pair = stats.get(item.selectedCandidatePairId) || pair;
+      }
+    });
+    if (!pair) {
+      stats.forEach(item => {
+        if (item.type === "candidate-pair" && item.state === "succeeded" && item.nominated) pair = item;
+      });
+    }
+    const local = pair?.localCandidateId ? stats.get(pair.localCandidateId) : null;
+    const remote = pair?.remoteCandidateId ? stats.get(pair.remoteCandidateId) : null;
+    const localFamily = window.RemoteCameraIce
+      ? RemoteCameraIce.classifyAddress(local?.address || local?.ip || "")
+      : "unknown";
+    const remoteFamily = window.RemoteCameraIce
+      ? RemoteCameraIce.classifyAddress(remote?.address || remote?.ip || "")
+      : "unknown";
+    const family = localFamily === "ipv6-global" && remoteFamily === "ipv6-global" ? "IPv6"
+      : localFamily === "ipv4" && remoteFamily === "ipv4" ? "IPv4"
+      : localFamily + " ⇄ " + remoteFamily;
+    recordIceDiagnostic("選択中のICE経路を更新しました。", {
+      selectedPair: pair ? {
+        family: family,
+        localType: local?.candidateType || "不明",
+        remoteType: remote?.candidateType || "不明",
+        state: pair.state || "不明",
+        rttMs: Number.isFinite(pair.currentRoundTripTime)
+          ? Math.round(pair.currentRoundTripTime * 1000) : null
+      } : null,
+      gatheringState: peer.iceGatheringState || ICE_DIAG.gatheringState,
+      iceConnectionState: peer.iceConnectionState || ICE_DIAG.iceConnectionState,
+      connectionState: peer.connectionState || ICE_DIAG.connectionState,
+      signalingState: peer.signalingState || ICE_DIAG.signalingState
+    });
+  } catch (error) {
+    recordIceDiagnostic("統計の更新に失敗しました。", {
+      lastError: "診断統計: " + (error?.message || String(error))
+    });
+  }
+}
+
+async function copyIceDiagnostics() {
+  renderIceDiagnostics();
+  const text = $("iceDiagnosticsOutput")?.textContent || "";
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const field = document.createElement("textarea");
+      field.value = text;
+      field.style.position = "fixed";
+      field.style.opacity = "0";
+      document.body.appendChild(field);
+      field.select();
+      const copied = document.execCommand("copy");
+      field.remove();
+      if (!copied) throw new Error("コピーできませんでした。");
+    }
+    $("bookmarkMessage").textContent = "ICE診断をコピーしました。IPアドレスは含まれません。";
+  } catch (error) {
+    $("bookmarkMessage").textContent = "診断をコピーできませんでした: " + (error?.message || "ブラウザー制限");
+  }
+}
+
+function prepareIceRetry(reason) {
+  const retryable = [
+    "failed", "disconnected", "setup-timeout", "android-answer-error",
+    "ice-gathering-failed", "ipv6-gathering-failed"
+  ].includes(String(reason));
+  if (!retryable) {
+    S.nextIceMode = "normal";
+    return;
+  }
+  if (S.iceMode === "ipv6") {
+    S.nextIceMode = "normal";
+    recordIceDiagnostic("IPv6優先接続が失敗したため、次はIPv4/IPv6通常方式へ戻します。", {
+      phase: "IPv6失敗・通常方式へフォールバック",
+      lastError: ICE_DIAG.lastError || "IPv6候補で接続を確立できませんでした。"
+    });
+    return;
+  }
+  if (!S.ipv6RetryUsed) {
+    S.ipv6RetryUsed = true;
+    S.nextIceMode = "ipv6";
+    recordIceDiagnostic("通常接続に失敗。グローバルIPv6候補だけで1回再試行します。", {
+      phase: "IPv6優先の再試行を準備中",
+      lastError: ICE_DIAG.lastError || ""
+    });
+    return;
+  }
+  S.nextIceMode = "normal";
+}
 
 function autoReconnectKey(deviceOrId) {
   const id = typeof deviceOrId === "string" ? deviceOrId : deviceOrId?.deviceId;
@@ -544,6 +730,7 @@ function openBookmarkletDialog() {
   target.searchParams.set("quick", "1");
   const code = "javascript:(()=>{window.open(" + JSON.stringify(target.href) + ",\"RemoteCameraWeb2\",\"noopener\");})();";
   $("bookmarkletCode").value = code;
+  renderIceDiagnostics();
   $("bookmarkDialog").showModal();
 }
 
@@ -1212,7 +1399,11 @@ function markRtcStable(peer) {
   clearReconnectCountdown();
   if (S.reconnectResetTimer) clearTimeout(S.reconnectResetTimer);
   S.reconnectResetTimer = setTimeout(() => {
-    if (S.pc === peer && peer.connectionState === "connected" && S.control?.readyState === "open") S.reconnectAttempts = 0;
+    if (S.pc === peer && peer.connectionState === "connected" && S.control?.readyState === "open") {
+      S.reconnectAttempts = 0;
+      S.lastSuccessfulIceMode = S.iceMode;
+      S.ipv6RetryUsed = false;
+    }
     S.reconnectResetTimer = null;
   }, 30000);
 }
@@ -1282,9 +1473,11 @@ async function connect(automatic = false) {
   if (S.connecting) return false;
   const device = S.device;
   const attemptId = ++S.connectionAttemptId;
+  let connectFailureReason = "connect-error";
   if (!automatic) {
     S.manualDisconnect = false;
-    S.forceTurnRelay = false;
+    S.nextIceMode = "normal";
+    S.ipv6RetryUsed = false;
     S.autoConnectWanted = true;
     setAutoReconnectIntent(device, true);
     S.reconnectAttempts = 0;
@@ -1316,6 +1509,20 @@ async function connect(automatic = false) {
     S.pttActive = false;
     const sessionId = rid();
     S.session = sessionId;
+    S.iceMode = automatic && S.nextIceMode === "ipv6" ? "ipv6" : "normal";
+    S.nextIceMode = "normal";
+    recordIceDiagnostic("接続試行を開始します。", {
+      phase: "GASからSTUN設定を取得中",
+      mode: S.iceMode,
+      gatheringState: "new",
+      iceConnectionState: "new",
+      connectionState: "new",
+      signalingState: "stable",
+      localSummary: null,
+      remoteSummary: null,
+      selectedPair: null,
+      lastError: ""
+    });
     S.seq = 0;
     S.hasReceivedVideoFrame = false;
     S.videoWatchdogGraceUntil = 0;
@@ -1329,22 +1536,24 @@ async function connect(automatic = false) {
       if (Array.isArray(iceConfig.iceServers) && iceConfig.iceServers.length) {
         S.iceServers = iceConfig.iceServers;
       }
-      S.turnConfigured = iceConfig.turnConfigured === true;
-      S.turnProvider = String(iceConfig.turnProvider || (S.turnConfigured ? "custom" : "stun-only"));
-      if (!S.turnConfigured) {
-        console.warn("TURN relay is not configured or unavailable; this connection may fail across different Wi-Fi networks.",
-          String(iceConfig.turnStatus || "unknown"), String(iceConfig.turnError || ""));
-      }
+      recordIceDiagnostic("GASから無料STUN設定を取得しました。", {
+        phase: "PeerConnectionを作成中"
+      });
     } catch (iceError) {
       assertConnectAttempt(attemptId, device.deviceId);
-      console.warn("TURN configuration unavailable; continue with public STUN", iceError);
-      S.turnConfigured = false;
-      S.turnProvider = "stun-only";
-      S.iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
+      console.warn("STUN configuration unavailable; continue with built-in Google STUN", iceError);
+      S.iceServers = [{ urls: [
+        "stun:stun.l.google.com:19302",
+        "stun:stun1.l.google.com:19302",
+        "stun:stun2.l.google.com:19302"
+      ] }];
+      recordIceDiagnostic("GASのSTUN設定取得に失敗したため、内蔵STUN設定で続行します。", {
+        phase: "内蔵STUNでPeerConnectionを作成中",
+        lastError: "STUN設定取得: " + (iceError?.message || String(iceError))
+      });
     }
 
     assertConnectAttempt(attemptId, device.deviceId);
-    const iceTransportPolicy = S.forceTurnRelay && S.turnConfigured ? "relay" : "all";
     const pc = new RTCPeerConnection({ iceServers: S.iceServers, iceTransportPolicy });
     S.pc = pc;
     const control = pc.createDataChannel("remote-control", { ordered: true });
@@ -1438,7 +1647,12 @@ async function connect(automatic = false) {
     pc.onconnectionstatechange = () => {
       if (S.pc !== pc) return;
       const state = pc.connectionState;
-      $("iceState").textContent = "ICE: " + state;
+      $("iceState").textContent = "ICE: " + pc.iceConnectionState;
+      recordIceDiagnostic("PeerConnection状態: " + state, {
+        iceConnectionState: pc.iceConnectionState,
+        connectionState: state,
+        signalingState: pc.signalingState
+      });
       status(state === "connected" && S.control?.readyState === "open" ? "監視中" : state,
         state === "connected" && S.control?.readyState === "open");
       $("streamState").textContent = state === "connected"
@@ -1459,35 +1673,77 @@ async function connect(automatic = false) {
       }
     };
 
-    const offer = await withTimeout(pc.createOffer(), 8000, "接続要求の作成");
+    const offer = await withTimeout(pc.createOffer(), 10000, "接続要求の作成");
     assertConnectAttempt(attemptId, device.deviceId);
-    await withTimeout(pc.setLocalDescription(offer), 8000, "接続情報の設定");
+    await withTimeout(pc.setLocalDescription(offer), 10000, "接続情報の設定");
     assertConnectAttempt(attemptId, device.deviceId);
-    const iceReady = await withTimeout(waitIce(pc, 20000), 21000, "通信経路の準備");
+    recordIceDiagnostic("ICE候補を収集中です。", {
+      phase: "ICE候補収集",
+      gatheringState: pc.iceGatheringState,
+      signalingState: pc.signalingState
+    });
+    const gatheringComplete = await withTimeout(waitIce(pc, 25000), 26000, "通信経路の準備");
     assertConnectAttempt(attemptId, device.deviceId);
-    if (!iceReady) {
-      if (S.turnConfigured) {
-        S.forceTurnRelay = true;
-        $("streamState").textContent = "ICE候補収集に失敗・次の接続でTURN中継のみを試します";
-      }
-      throw new Error(S.turnConfigured
-        ? "ICE候補の収集が20秒以内に完了しませんでした。次の自動再接続ではTURN中継のみを試します。"
-        : "TURN中継が未設定のため、別のWi-Fi間では接続できない可能性があります。GASのCloudflare TURN設定を確認してください。");
+    const localSdp = String(pc.localDescription?.sdp || "");
+    const gatheredSummary = RemoteCameraIce.summarizeSdp(localSdp);
+    if (gatheredSummary.candidateCount === 0) {
+      connectFailureReason = S.iceMode === "ipv6" ? "ipv6-gathering-failed" : "ice-gathering-failed";
+      recordIceDiagnostic("ローカルICE候補が1件も取得できませんでした。", {
+        phase: "ICE候補取得失敗",
+        localSummary: gatheredSummary,
+        lastError: "ICE candidateが0件です。ネットワーク・STUN・ブラウザー権限を確認してください。"
+      });
+      throw new Error("ICE候補を取得できませんでした。ネットワークとSTUNへの接続を確認してください。");
     }
-
+    let offerSdp = localSdp;
+    let sentSummary = gatheredSummary;
+    if (S.iceMode === "ipv6") {
+      const filtered = RemoteCameraIce.filterSdpToGlobalIpv6(localSdp);
+      if (!filtered.ok) {
+        connectFailureReason = "ipv6-gathering-failed";
+        recordIceDiagnostic("IPv6優先再試行を中止しました。グローバルIPv6候補がありません。", {
+          phase: "IPv6候補なし",
+          localSummary: gatheredSummary,
+          lastError: "この端末またはWi-FiからグローバルIPv6候補を取得できませんでした。"
+        });
+        throw new Error("IPv6候補がありません。両方のWi-FiがIPv6に対応しているか確認してください。");
+      }
+      offerSdp = filtered.sdp;
+      sentSummary = filtered.summary;
+      recordIceDiagnostic("IPv6優先モード：グローバルIPv6候補 " + filtered.summary.ipv6GlobalCount +
+        "件をAndroidへ送信します。", {
+        phase: "IPv6候補をAndroidへ送信中",
+        localSummary: filtered.summary
+      });
+    } else {
+      recordIceDiagnostic("通常モード：IPv4・IPv6の候補をAndroidへ送信します。", {
+        phase: "接続候補をAndroidへ送信中",
+        localSummary: gatheredSummary
+      });
+    }
+    if (!gatheringComplete) {
+      recordIceDiagnostic("候補収集が時間上限に達したため、取得済み候補で接続を続けます。", {
+        phase: "部分候補で接続を続行"
+      });
+    }
     await api("send_signal", {
       controllerToken: device.controllerToken,
       deviceId: device.deviceId,
       sessionId,
       recipient: "device",
       kind: "offer",
-      sdp: pc.localDescription.sdp
+      sdp: offerSdp
     }, 10000);
     assertConnectAttempt(attemptId, device.deviceId);
     $("connect").disabled = true;
     $("disconnect").disabled = false;
     $("ptt").disabled = false;
-    $("streamState").textContent = "Android応答待ち";
+    $("streamState").textContent = S.iceMode === "ipv6"
+      ? "Android応答待ち（IPv6優先）" : "Android応答待ち";
+    recordIceDiagnostic("接続要求をGAS経由でAndroidへ送信しました。", {
+      phase: "Android応答待ち",
+      signalingState: pc.signalingState
+    });
     status("接続要求中");
     pollAnswers(pc, sessionId, device);
     return true;
@@ -1501,11 +1757,16 @@ async function connect(automatic = false) {
       return false;
     }
     if (S.connectionAttemptId !== attemptId) return false;
+    recordIceDiagnostic("接続開始エラー: " + (error?.message || String(error)), {
+      phase: "接続開始失敗",
+      lastError: error?.message || String(error),
+      connectionState: S.pc?.connectionState || "closed"
+    });
     toast("接続開始失敗: " + error.message);
     if (RemoteCameraRecovery.shouldRetry({
       manualDisconnect: S.manualDisconnect, hasDevice: !!S.device,
       everConnected: S.everConnected, autoConnectWanted: S.autoConnectWanted
-    })) scheduleReconnect(null, "connect-error");
+    })) scheduleReconnect(null, connectFailureReason);
     return false;
   } finally {
     if (S.connectionAttemptId === attemptId) {
@@ -1643,10 +1904,7 @@ function scheduleReconnect(expectedPc, reason = "disconnected") {
       return;
     }
     S.reconnectAttempts = attempt;
-    if (S.turnConfigured && !S.forceTurnRelay && ["failed", "disconnected", "setup-timeout", "connect-error"].includes(reason)) {
-      S.forceTurnRelay = true;
-      $("streamState").textContent = "直接接続が失敗したため、TURN中継のみで再試行します";
-    }
+    prepareIceRetry(reason);
     const ok = await connect(true);
     if (!ok && !S.reconnectTimer && !S.connecting) scheduleReconnect(null, "connect-error");
   }, wait);
@@ -1665,13 +1923,28 @@ async function pollAnswers(peer, sessionId, device) {
       for (const signal of result.signals || []) {
         S.seq = Math.max(S.seq, Number(signal.seq) || 0);
         if (signal.kind === "answer" && !peer.remoteDescription) {
+          const remoteSummary = RemoteCameraIce.summarizeSdp(signal.sdp || "");
+          recordIceDiagnostic("Androidから接続応答を受信しました。", {
+            phase: "Androidの応答を検証中",
+            remoteSummary: remoteSummary
+          });
           await withTimeout(
             peer.setRemoteDescription({ type: "answer", sdp: signal.sdp }),
-            9000,
+            12000,
             "Androidからの接続応答"
           );
+          recordIceDiagnostic("Androidの応答をPeerConnectionへ設定しました。", {
+            phase: "ICE接続チェック中",
+            signalingState: peer.signalingState,
+            iceConnectionState: peer.iceConnectionState
+          });
         } else if (signal.kind === "error") {
-          toast(signal.sdp || "Android側で接続エラーが発生しました。");
+          const message = String(signal.sdp || "Android側で接続エラーが発生しました。");
+          recordIceDiagnostic("Android側エラー: " + message, {
+            phase: "Android側で接続失敗",
+            lastError: message
+          });
+          toast(message);
           scheduleReconnect(peer, "android-answer-error");
           return;
         }
@@ -2819,6 +3092,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   $("bookmarkletOpen").addEventListener("click", openBookmarkletDialog);
   $("copyBookmarklet").addEventListener("click", copyBookmarkletCode);
+  $("refreshIceDiagnostics").addEventListener("click", () => refreshIceDiagnostics());
+  $("copyIceDiagnostics").addEventListener("click", () => copyIceDiagnostics());
   const restoreAfterViewportChange = () => {
     if (S.viewportRestoreTimer) clearTimeout(S.viewportRestoreTimer);
     S.viewportRestoreTimer = setTimeout(() => {
