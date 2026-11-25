@@ -779,10 +779,195 @@ function toast(text) {
   toast.timer = setTimeout(() => $("toast").classList.remove("show"), 3200);
 }
 
+function bookmarkletPanelLauncher() {
+  const APP_URL = "__APP_URL__";
+  const STATE_KEY = "__REMOTE_CAMERA_WEB2_BOOKMARKLET_PANEL__";
+  const oldState = window[STATE_KEY];
+  if (oldState && typeof oldState.close === "function") { oldState.close(); return; }
+
+  const appBase = new URL(APP_URL);
+  const nonce = window.crypto && typeof window.crypto.randomUUID === "function"
+    ? window.crypto.randomUUID()
+    : Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  appBase.searchParams.set("quick", "1");
+  appBase.searchParams.set("bm_nonce", nonce);
+  const appUrl = appBase.href;
+  const appOrigin = appBase.origin;
+
+  const host = document.createElement("div");
+  host.setAttribute("data-remote-camera-web2-bookmarklet", "1");
+  const shadow = host.attachShadow({ mode: "closed" });
+  const style = document.createElement("style");
+  style.textContent = `
+    :host{all:initial}*{box-sizing:border-box}
+    .panel{position:fixed;display:flex;flex-direction:column;left:8px;top:8px;
+      width:min(820px,calc(100vw - 16px));height:min(760px,calc(100vh - 16px));
+      min-width:min(260px,calc(100vw - 16px));min-height:min(220px,calc(100vh - 16px));
+      max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);
+      border:1px solid #25354d;border-radius:14px;overflow:hidden;background:#fff;
+      box-shadow:0 18px 60px rgba(0,0,0,.32);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .bar{height:44px;min-height:44px;flex:0 0 44px;display:flex;align-items:center;gap:8px;
+      padding:0 9px;background:#101827;color:#fff;cursor:move;touch-action:none;user-select:none}
+    .title{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .spacer{flex:1}
+    button{border:0;border-radius:7px;min-height:30px;padding:5px 10px;background:#29384d;color:#fff;
+      font:600 12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;cursor:pointer}
+    button.close{width:32px;padding:0;font-size:20px;background:#b93848}
+    button:focus-visible{outline:2px solid #8eb8ff;outline-offset:2px}
+    iframe{display:block;width:100%;height:100%;min-height:0;flex:1;border:0;background:#fff}
+    .grip{position:absolute;right:2px;bottom:2px;width:26px;height:26px;z-index:3;
+      cursor:nwse-resize;touch-action:none;background:
+      linear-gradient(135deg,transparent 0 48%,#64748b 49% 54%,transparent 55%),
+      linear-gradient(135deg,transparent 0 63%,#64748b 64% 69%,transparent 70%),
+      linear-gradient(135deg,transparent 0 78%,#64748b 79% 84%,transparent 85%)}
+    @media(max-width:560px){.bar{height:42px;min-height:42px;flex-basis:42px;padding:0 7px}.title{font-size:12px}button{padding:5px 8px}}
+  `;
+
+  const panel = document.createElement("section");
+  panel.className = "panel";
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-label", "Remote Camera Web2 操作パネル");
+
+  const bar = document.createElement("div");
+  bar.className = "bar";
+  const title = document.createElement("span");
+  title.className = "title";
+  title.textContent = "● Remote Camera Web2";
+  const spacer = document.createElement("span");
+  spacer.className = "spacer";
+  const openButton = document.createElement("button");
+  openButton.type = "button";
+  openButton.textContent = "別タブ";
+  openButton.setAttribute("aria-label", "Web2を別タブで開く");
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "close";
+  closeButton.textContent = "×";
+  closeButton.setAttribute("aria-label", "Web2パネルを閉じる");
+  bar.append(title, spacer, openButton, closeButton);
+
+  const frame = document.createElement("iframe");
+  frame.title = "Remote Camera Web2";
+  frame.setAttribute("allow", "camera; microphone; geolocation; autoplay; fullscreen; picture-in-picture");
+  frame.setAttribute("allowfullscreen", "");
+  frame.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
+  frame.src = appUrl;
+
+  const grip = document.createElement("div");
+  grip.className = "grip";
+  grip.setAttribute("role", "separator");
+  grip.setAttribute("aria-label", "パネルの大きさを変更");
+
+  panel.append(bar, frame, grip);
+  shadow.append(style, panel);
+
+  const viewportWidth = Math.max(240, window.innerWidth || document.documentElement.clientWidth || 800);
+  const viewportHeight = Math.max(220, window.innerHeight || document.documentElement.clientHeight || 600);
+  const initialWidth = Math.min(820, viewportWidth - 16);
+  const initialHeight = Math.min(760, viewportHeight - 16);
+  panel.style.width = initialWidth + "px";
+  panel.style.height = initialHeight + "px";
+  panel.style.left = Math.max(8, viewportWidth - initialWidth - 16) + "px";
+  panel.style.top = "8px";
+
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    window.removeEventListener("keydown", onPageKeydown, true);
+    window.removeEventListener("message", onFrameMessage);
+    window.removeEventListener("resize", clampPanel);
+    host.remove();
+    if (window[STATE_KEY] && window[STATE_KEY].nonce === nonce) delete window[STATE_KEY];
+  };
+  const onPageKeydown = event => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    close();
+  };
+  const onFrameMessage = event => {
+    if (event.origin !== appOrigin || event.source !== frame.contentWindow) return;
+    const data = event.data;
+    if (data && data.type === "remote-camera-web2:close" && data.nonce === nonce) close();
+  };
+  const clampPanel = () => {
+    if (closed) return;
+    const rect = panel.getBoundingClientRect();
+    const maxWidth = Math.max(220, window.innerWidth - 16);
+    const maxHeight = Math.max(200, window.innerHeight - 16);
+    panel.style.width = Math.min(rect.width, maxWidth) + "px";
+    panel.style.height = Math.min(rect.height, maxHeight) + "px";
+    const width = panel.getBoundingClientRect().width;
+    const height = panel.getBoundingClientRect().height;
+    panel.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)) + "px";
+    panel.style.top = Math.max(8, Math.min(rect.top, window.innerHeight - height - 8)) + "px";
+  };
+
+  bar.addEventListener("pointerdown", event => {
+    if (event.target.closest("button")) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.preventDefault();
+    const rect = panel.getBoundingClientRect();
+    const startX = event.clientX, startY = event.clientY;
+    const startLeft = rect.left, startTop = rect.top;
+    const move = moveEvent => {
+      const maxLeft = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
+      const maxTop = Math.max(8, window.innerHeight - panel.offsetHeight - 8);
+      panel.style.left = Math.max(8, Math.min(maxLeft, startLeft + moveEvent.clientX - startX)) + "px";
+      panel.style.top = Math.max(8, Math.min(maxTop, startTop + moveEvent.clientY - startY)) + "px";
+    };
+    const end = () => {
+      bar.removeEventListener("pointermove", move);
+      bar.removeEventListener("pointerup", end);
+      bar.removeEventListener("pointercancel", end);
+    };
+    try { bar.setPointerCapture(event.pointerId); } catch (_) {}
+    bar.addEventListener("pointermove", move);
+    bar.addEventListener("pointerup", end);
+    bar.addEventListener("pointercancel", end);
+  });
+
+  grip.addEventListener("pointerdown", event => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = panel.getBoundingClientRect();
+    const startX = event.clientX, startY = event.clientY;
+    const startWidth = rect.width, startHeight = rect.height;
+    const move = moveEvent => {
+      const minWidth = Math.min(260, window.innerWidth - 16);
+      const minHeight = Math.min(220, window.innerHeight - 16);
+      const maxWidth = Math.max(minWidth, window.innerWidth - rect.left - 8);
+      const maxHeight = Math.max(minHeight, window.innerHeight - rect.top - 8);
+      panel.style.width = Math.max(minWidth, Math.min(maxWidth, startWidth + moveEvent.clientX - startX)) + "px";
+      panel.style.height = Math.max(minHeight, Math.min(maxHeight, startHeight + moveEvent.clientY - startY)) + "px";
+    };
+    const end = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", end);
+      grip.removeEventListener("pointercancel", end);
+    };
+    try { grip.setPointerCapture(event.pointerId); } catch (_) {}
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", end);
+    grip.addEventListener("pointercancel", end);
+  });
+
+  openButton.addEventListener("click", () => window.open(appUrl, "_blank", "noopener,noreferrer"));
+  closeButton.addEventListener("click", close);
+  window.addEventListener("keydown", onPageKeydown, true);
+  window.addEventListener("message", onFrameMessage);
+  window.addEventListener("resize", clampPanel, { passive: true });
+  (document.body || document.documentElement).appendChild(host);
+  window[STATE_KEY] = { close, nonce };
+}
+
 function openBookmarkletDialog() {
   const target = new URL("./", window.location.href);
-  target.searchParams.set("quick", "1");
-  const code = "javascript:(()=>{window.open(" + JSON.stringify(target.href) + ",\"RemoteCameraWeb2\",\"noopener\");})();";
+  const launcher = "(" + bookmarkletPanelLauncher.toString()
+    .replace('"__APP_URL__"', JSON.stringify(target.href)) + ")();";
+  const code = "javascript:" + launcher;
   $("bookmarkletCode").value = code;
   renderIceDiagnostics();
   $("bookmarkDialog").showModal();
@@ -806,6 +991,17 @@ async function copyBookmarkletCode() {
     field.select();
     $("bookmarkMessage").textContent = error.message || "コード欄を選択したので、長押ししてコピーしてください。";
   }
+}
+
+function installBookmarkletEscapeBridge() {
+  const nonce = new URLSearchParams(window.location.search).get("bm_nonce");
+  if (!nonce || window.parent === window) return;
+  window.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    window.parent.postMessage({ type: "remote-camera-web2:close", nonce }, "*");
+  }, true);
 }
 
 function handleQuickLaunch() {
@@ -3143,6 +3339,7 @@ function checkConnectionReservation(){
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  installBookmarkletEscapeBridge();
   let collapsed = false;
   try { collapsed = localStorage.getItem(SETTINGS_COLLAPSED_KEY) === "1"; } catch (_) {}
   setSettingsCollapsed(collapsed, false);
