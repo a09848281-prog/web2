@@ -789,8 +789,17 @@ function bookmarkletPanelLauncher() {
   const nonce = window.crypto && typeof window.crypto.randomUUID === "function"
     ? window.crypto.randomUUID()
     : Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  const hostOrigin = window.location.origin;
+  const canRelayGas = /^https:\/\/[a-z0-9.-]+(?::\d{1,5})?$/i.test(hostOrigin);
+  if (!canRelayGas) {
+    appBase.searchParams.set("quick", "1");
+    window.open(appBase.href, "_blank", "noopener,noreferrer");
+    return;
+  }
   appBase.searchParams.set("quick", "1");
   appBase.searchParams.set("bm_nonce", nonce);
+  appBase.searchParams.set("embed", "1");
+  appBase.searchParams.set("hostOrigin", hostOrigin);
   const appUrl = appBase.href;
   const appOrigin = appBase.origin;
 
@@ -887,9 +896,28 @@ function bookmarkletPanelLauncher() {
     close();
   };
   const onFrameMessage = event => {
-    if (event.origin !== appOrigin || event.source !== frame.contentWindow) return;
     const data = event.data;
-    if (data && data.type === "remote-camera-web2:close" && data.nonce === nonce) close();
+
+    // Messages sent by the embedded Web2 frame (for example, Esc-to-close).
+    if (event.origin === appOrigin && event.source === frame.contentWindow) {
+      if (data && data.type === "remote-camera-web2:close" && data.nonce === nonce) close();
+      return;
+    }
+
+    // GAS HtmlService posts its response to the actual top-level host page.
+    // Relay only the expected GAS response envelope back into the Web2 iframe.
+    const origin = String(event.origin || "");
+    const isGoogleGasOrigin = origin === "https://script.google.com" ||
+      origin === "https://script.googleusercontent.com" ||
+      origin.endsWith(".googleusercontent.com");
+    if (!isGoogleGasOrigin || !data || data.channel !== "remote-camera-gas" ||
+        typeof data.requestId !== "string" || !data.result || typeof data.result !== "object") return;
+
+    try {
+      frame.contentWindow.postMessage(data, appOrigin);
+    } catch (error) {
+      console.warn("Remote Camera Web2 GAS response relay failed", error);
+    }
   };
   const clampPanel = () => {
     if (closed) return;
