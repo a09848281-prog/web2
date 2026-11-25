@@ -167,4 +167,5 @@ test("Web retries failed ICE connections with TURN relay-only policy", () => {
   assert.ok(app.includes('iceTransportPolicy = S.forceTurnRelay && S.turnConfigured ? "relay" : "all"'));
   assert.ok(app.includes('["failed", "disconnected", "setup-timeout", "connect-error"].includes(reason)'));
   assert.ok(app.includes('S.forceTurnRelay = true'));
+  assert.ok(app.includes('次の接続でTURN中継のみを試します'));
 });
