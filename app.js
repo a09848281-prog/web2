@@ -92,9 +92,11 @@ const ICE_DIAG = {
 };
 
 function sanitizeIceDiagnosticText(value) {
-  return String(value === null || value === undefined ? "" : value)
-    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "[IPv4]")
-    .replace(/(^|[^0-9a-f:\\[])(\\[?)(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?:%[a-z0-9_.-]+)?(\\]?)(?=$|[^0-9a-f:])/gi, "$1[IPv6]");
+  let text = String(value === null || value === undefined ? "" : value);
+  text = text.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "[IPv4]");
+  text = text.replace(/\[[0-9a-f:]+(?:%[0-9a-z_.-]+)?\]/gi, "[IPv6]");
+  text = text.replace(/(^|[^0-9a-f:])((?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?:%[a-z0-9_.-]+)?)(?=$|[^0-9a-f:])/gi, "$1[IPv6]");
+  return text;
 }
 
 function recordIceDiagnostic(message, patch = {}) {
