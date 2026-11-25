@@ -276,7 +276,7 @@ assert.ok(!gas.includes("CF_TURN") && !gas.includes("cloudflareTurn") &&
   !gas.includes("rtc.live.cloudflare.com") && !js.includes("cloudflareTurn") &&
   !html.includes("turn.cloudflare.com") && !webConfig.includes("turn.cloudflare.com"),
   "Cloudflare TURN code must not remain in active sources");
-assert.ok(js.includes('S.iceMode === "relay" && S.turnConfigured ? "relay" : "all"'), "TURN relay-only retry policy missing");
+assert.ok(js.includes("const relayAttempt = S.iceMode === \"relay\" && S.turnConfigured;") && js.includes('iceTransportPolicy = relayAttempt ? "relay" : "all"'), "TURN relay-only fallback policy missing");
 assert.ok(js.includes('S.nextIceMode = "ipv6"') && js.includes('S.nextIceMode = "relay"'), "IPv6 then TURN retry sequence missing");
 assert.ok(html.includes("./network-ice.js") && serviceWorker.includes("network-ice.js"), "IPv6 ICE helper must be loaded and precached");
 assert.ok(js.includes("RemoteCameraIce.filterSdpToGlobalIpv6") && js.includes("prepareIceRetry"), "IPv6 candidate retry path missing");
