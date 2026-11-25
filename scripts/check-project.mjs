@@ -45,6 +45,13 @@ assert.ok(js.includes('createDataChannel("remote-control"'), "Web must create co
 assert.ok(js.includes("function sendControl("), "Web DataChannel sender missing");
 assert.ok(js.includes("function checkConnectionReservation("), "Connection reservation scheduler missing");
 assert.ok(js.includes("function toggleFullscreen("), "Fullscreen handler missing");
+assert.ok(js.includes("function bookmarkletPanelLauncher()"), "Resizable bookmarklet panel launcher missing");
+assert.ok(js.includes("bookmarkletPanelLauncher.toString()"), "Bookmarklet must serialize a self-contained launcher");
+assert.ok(js.includes("setPointerCapture") && js.includes("pointermove"), "Bookmarklet drag and touch resize handlers missing");
+assert.ok(js.includes('event.key !== "Escape"') && js.includes('data.type === "remote-camera-web2:close"'), "Escape close bridge missing");
+assert.ok(js.includes('frame.setAttribute("allow", "camera; microphone; geolocation; autoplay; fullscreen; picture-in-picture")'), "Embedded Web2 permissions must be delegated");
+assert.ok(js.includes('window.open(appUrl, "_blank", "noopener,noreferrer")'), "Separate-tab fallback missing");
+assert.ok(js.includes("installBookmarkletEscapeBridge();"), "Embedded Escape bridge must be installed");
 assert.ok(js.includes("function openBookmarkletDialog("), "Bookmarklet generator missing");
 assert.ok(js.includes("function handleQuickLaunch("), "Bookmarklet quick launch handler missing");
 assert.ok(js.includes("applyAspectRatio("), "Aspect ratio selector handler missing");
@@ -205,10 +212,10 @@ assert.ok(androidBuild.includes("versionCode = 436"), "Android version code must
 assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v31"'), "v2.8.10 must preserve the preview package ID");
 assert.ok(webConfig.includes('"appVersion": "2.8.10-preview"'), "Web config version must be v2.8.10");
 assert.ok(html.includes("v2.8.10 Preview"), "PWA display version must be v2.8.10");
-assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-10"'), "PWA cache key must be bumped to v2.8.10");
+assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-10-bookmarklet-1"'), "PWA cache key must be bumped for bookmarklet panel update");
 
 const assetCacheVersions = [...html.matchAll(/\?v=([^"]+)"/g)].map(match => match[1]);
-assert.ok(assetCacheVersions.length >= 6 && assetCacheVersions.every(version => version === "2.8.10-preview"), "All versioned Web assets must use the v2.8.10 cache key");
+assert.ok(assetCacheVersions.length >= 6 && assetCacheVersions.every(version => version === "2.8.10-bookmarklet-1"), "All versioned Web assets must use the v2.8.10 cache key");
 assert.ok(serviceWorker.includes("cache.match(event.request, { ignoreSearch: true })"), "PWA offline fallback must match precached assets with query strings");
 assert.ok(pagesWorkflow.includes("preview/v2.8.10-expressturn-stability") &&
   pagesWorkflow.includes("path: v2810-source") &&
