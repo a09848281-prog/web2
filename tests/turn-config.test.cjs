@@ -164,10 +164,11 @@ test("Web retries failed ICE connections with TURN relay-only policy", () => {
   const app = fs.readFileSync("app.js", "utf8");
   assert.ok(app.includes('forceTurnRelay: false'));
   assert.ok(app.includes('S.forceTurnRelay = false'));
-  assert.ok(app.includes('iceTransportPolicy = S.forceTurnRelay && S.turnConfigured ? "relay" : "all"'));
-  assert.ok(app.includes('["failed", "disconnected", "setup-timeout", "connect-error"].includes(reason)'));
+  assert.ok(app.includes('S.iceMode === "relay" && S.turnConfigured ? "relay" : "all"'));
+  assert.ok(app.includes('S.nextIceMode = "ipv6"'));
+  assert.ok(app.includes('S.nextIceMode = "relay"'));
   assert.ok(app.includes('S.forceTurnRelay = true'));
-  assert.ok(app.includes('次の接続でTURN中継のみを試します'));
+  assert.ok(app.includes('TURN中継で再試行します'));
 });
 
 test("Web status text does not claim a direct path when TURN relay can be selected", () => {
