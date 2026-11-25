@@ -16,6 +16,7 @@ const gas = fs.readFileSync("gas/Code.gs", "utf8");
 const config = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/Config.kt", "utf8");
 const motionCore = fs.readFileSync("motion-core.js", "utf8");
 const recoveryCore = fs.readFileSync("recovery-core.js", "utf8");
+const networkIce = fs.readFileSync("network-ice.js", "utf8");
 const motionTests = fs.readFileSync("tests/motion-core.test.cjs", "utf8");
 const audioUtils = fs.readFileSync("audio-utils.js", "utf8");
 const audioTests = fs.readFileSync("tests/audio-utils.test.cjs", "utf8");
@@ -34,7 +35,7 @@ for (const id of referencedIds) {
   assert.ok(htmlIds.has(id), "JavaScript references missing HTML id: " + id);
 }
 
-for (const id of ["micNoise", "micSensitivity", "micGain", "androidSpeakerVolume", "androidSpeakerVolumeValue", "receiveVolume", "receiveVolumeValue", "micMode", "audioLevel", "audioLevelText", "remoteMute", "keepAwake", "fitMode", "videoState", "audioState", "cameraFacing", "flashState", "connectionMetrics", "gasTiming", "sessionDuration", "deviceInfo", "deviceInfoDialog", "deviceInfoOutput", "followLocation", "copyCoordinates", "diagnostics", "deviceTotal", "networkSummary", "deviceHealth", "deviceTxSpeed", "deviceRxSpeed", "torch", "reserveConnection", "cancelReservation", "reservationStatus", "androidScheduleStart", "androidScheduleEnd", "androidScheduleStatus", "refreshAndroidSchedule", "fps", "aspectRatio", "fullscreen", "bookmarkletOpen", "bookmarkletCode", "bookmarkDialog", "copyBookmarklet", "zoom", "zoomValue", "zoomReset", "motionEnabled", "motionSensitivity", "motionNotify", "motionHistory", "motionExport", "motionClear", "motionDialog", "motionRows", "motionStatus"]) {
+for (const id of ["micNoise", "micSensitivity", "micGain", "androidSpeakerVolume", "androidSpeakerVolumeValue", "receiveVolume", "receiveVolumeValue", "micMode", "audioLevel", "audioLevelText", "remoteMute", "keepAwake", "fitMode", "videoState", "audioState", "cameraFacing", "flashState", "connectionMetrics", "gasTiming", "sessionDuration", "deviceInfo", "deviceInfoDialog", "deviceInfoOutput", "followLocation", "copyCoordinates", "diagnostics", "deviceTotal", "networkSummary", "deviceHealth", "deviceTxSpeed", "deviceRxSpeed", "torch", "reserveConnection", "cancelReservation", "reservationStatus", "androidScheduleStart", "androidScheduleEnd", "androidScheduleStatus", "refreshAndroidSchedule", "fps", "aspectRatio", "fullscreen", "bookmarkletOpen", "bookmarkletCode", "bookmarkDialog", "copyBookmarklet", "iceDiagnosticsOutput", "refreshIceDiagnostics", "copyIceDiagnostics", "zoom", "zoomValue", "zoomReset", "motionEnabled", "motionSensitivity", "motionNotify", "motionHistory", "motionExport", "motionClear", "motionDialog", "motionRows", "motionStatus"]) {
   assert.ok(html.includes('id="' + id + '"'), "Missing HTML element: " + id);
   assert.ok(js.includes('$("' + id + '")'), "Missing JavaScript reference: " + id);
 }
@@ -50,7 +51,7 @@ assert.ok(js.includes("function startMotionDetection("), "Motion detector missin
 assert.ok(js.includes("function loadMotionHistory("), "Motion event history UI missing");
 assert.ok(js.includes("function exportMotionCsv("), "Motion CSV export missing");
 assert.ok(js.includes("function maybeAdaptQuality("), "Adaptive quality policy missing");
-assert.ok(js.includes('api("get_ice_config"'), "Web TURN configuration fetch missing");
+assert.ok(js.includes('api("get_ice_config"'), "Web ICE configuration fetch missing");
 assert.ok(js.includes("function applyViewerZoom("), "Viewer zoom control missing");
 assert.ok(js.includes("function attachRemoteAudio("), "Web Audio receive routing missing");
 assert.ok(js.includes("createGain()"), "Web Audio receive volume gain missing");
@@ -200,9 +201,9 @@ assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake l
 assert.ok(androidBuild.includes('versionName = "2.8.6-preview"'), "Android app version must be v2.8.6");
 assert.ok(androidBuild.includes("versionCode = 435"), "Android version code must be 435");
 assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v31"'), "v2.8.6 must use a separate package");
-assert.ok(webConfig.includes('"appVersion": "2.8.8-preview"'), "Web config version must be v2.8.8");
-assert.ok(html.includes("v2.8.8 Preview"), "PWA display version must be v2.8.8");
-assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-8"'), "PWA cache key must be bumped to v2.8.8");
+assert.ok(webConfig.includes('"appVersion": "2.8.9-preview"'), "Web config version must be v2.8.9");
+assert.ok(html.includes("v2.8.9 Preview"), "PWA display version must be v2.8.9");
+assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-9"'), "PWA cache key must be bumped to v2.8.9");
 assert.ok(rtc.includes("CameraVideoCapturer.CameraEventsHandler") && rtc.includes("scheduleCameraRecovery("), "Camera interruption recovery callback missing");
 assert.ok(service.includes("battery_forecast_target") && service.includes("batteryForecastTargetPercent"), "Independent battery forecast target missing");
 assert.ok(service.includes("BATTERY_PROPERTY_CHARGE_COUNTER") && service.includes("BATTERY_PROPERTY_CURRENT_AVERAGE"), "Fuel gauge forecast source missing");
@@ -228,13 +229,18 @@ assert.ok(gas.includes("function addMotionEvent_("), "Motion event write endpoin
 assert.ok(gas.includes("function getMotionEvents_("), "Motion event history endpoint missing");
 assert.ok(gas.includes("function deleteMotionEvents_("), "Motion history deletion endpoint missing");
 assert.ok(gas.includes("crossViewerDuplicate") && gas.includes("<= 3000"), "Motion events from multiple viewers must be coalesced");
-assert.ok(gas.includes("function iceServers_("), "GAS ICE/TURN configuration missing");
-assert.ok(gas.includes("TURN_CREDENTIAL"), "TURN credentials must be read from Script Properties");
+assert.ok(gas.includes("function iceServers_(") && gas.includes("stun:stun4.l.google.com:19302"), "GAS free STUN configuration missing");
+assert.ok(!/CF_TURN|TURN_CREDENTIAL|TURN_URLS|cloudflare\\.com/i.test(gas), "GAS must not retain external TURN credentials");
+assert.ok(html.includes("./network-ice.js") && serviceWorker.includes("network-ice.js"), "IPv6 ICE helper must be loaded and precached");
+assert.ok(js.includes("RemoteCameraIce.filterSdpToGlobalIpv6") && js.includes("prepareIceRetry"), "IPv6 candidate retry path missing");
+assert.ok(networkIce.includes("function filterSdpToGlobalIpv6(") && networkIce.includes("function summarizeSdp("), "IPv6 candidate parser and filter missing");
+assert.ok(html.includes('id="iceDiagnosticsOutput"') && js.includes("function renderIceDiagnostics("), "Bookmarklet ICE diagnostics panel missing");
+assert.ok(js.includes("function refreshIceDiagnostics(") && js.includes("function copyIceDiagnostics("), "ICE diagnostics refresh/copy actions missing");
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.4.0"'), "GAS API version must be 1.4.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
 assert.ok(androidBuild.includes("versionCode = 435"), "Android version code must be 435 for v2.8.6");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.8 Preview", "PWA display name must match v2.8.8");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.9 Preview", "PWA display name must match v2.8.9");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 assert.ok(html.includes('id="reserveAt" type="datetime-local" step="1"'), "Web schedule must accept second precision");
 assert.ok(js.includes("S.reservationTimer = setInterval(checkConnectionReservation, 250)"), "Web reservation scheduler missing");
