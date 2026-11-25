@@ -284,31 +284,68 @@ class MainActivity : Activity() {
         loadRemoteConfig()
     }
 
+    private fun isValidGasUrl(value: String): Boolean {
+        val candidate = value.trim()
+        return candidate.startsWith("https://script.google.com/macros/s/") &&
+            candidate.endsWith("/exec") &&
+            !candidate.contains("GAS_EXEC_URL_HERE") &&
+            !candidate.contains("PASTE_YOUR_DEPLOYMENT_ID") &&
+            candidate.none { it.isWhitespace() }
+    }
+
     private fun loadRemoteConfig() {
         scope.launch {
-            try {
-                gasUrl = withContext(Dispatchers.IO) {
+            var remoteFailure: String? = null
+            val remoteGasUrl = try {
+                withContext(Dispatchers.IO) {
                     val c = URL(AppConfig.REMOTE_CONFIG_URL).openConnection() as HttpURLConnection
                     c.connectTimeout = 12000
                     c.readTimeout = 12000
+                    c.useCaches = false
+                    c.setRequestProperty("Accept", "application/json")
                     try {
-                        JSONObject(c.inputStream.bufferedReader().use { it.readText() }).optString("gasUrl", "")
-                    } finally { c.disconnect() }
-                }
-                if (!gasUrl.startsWith("https://script.google.com/macros/s/") ||
-                    !gasUrl.endsWith("/exec") || gasUrl.contains("GAS_EXEC_URL_HERE") ||
-                    gasUrl.contains("PASTE_YOUR_DEPLOYMENT_ID")) {
-                    status.text = "GitHubの config.json にGAS URLを設定してください。"
-                } else {
-                    prefs.edit().putString("gasUrl", gasUrl).apply()
-                    status.text = "設定を取得しました。必要な権限を許可して待機を開始できます。"
-                    refreshMonitoringButtons()
-                    refreshCodeButton.isEnabled = true
-                    showSavedCode()
+                        val code = c.responseCode
+                        if (code !in 200..299) error("HTTP $code")
+                        JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+                            .optString("gasUrl", "").trim()
+                    } finally {
+                        c.disconnect()
+                    }
                 }
             } catch (e: Exception) {
-                status.text = "設定取得エラー：" + (e.message ?: "通信エラー")
+                remoteFailure = e.message ?: "通信エラー"
+                Log.w("RemoteCameraConfig", "GitHub config fetch failed; checking saved GAS URL", e)
+                ""
             }
+
+            val remoteValid = isValidGasUrl(remoteGasUrl)
+            val savedGasUrl = prefs.getString("gasUrl", "") ?: ""
+            gasUrl = when {
+                remoteValid -> remoteGasUrl
+                isValidGasUrl(savedGasUrl) -> savedGasUrl.trim()
+                else -> ""
+            }
+
+            if (gasUrl.isBlank()) {
+                status.text = if (remoteFailure != null) {
+                    "設定取得エラー：$remoteFailure\nネットワークを確認して、もう一度アプリを開いてください。"
+                } else {
+                    "GitHubの config.json に有効なGAS URLがありません。"
+                }
+                refreshMonitoringButtons()
+                refreshCodeButton.isEnabled = false
+                return@launch
+            }
+
+            prefs.edit().putString("gasUrl", gasUrl).apply()
+            status.text = if (remoteValid) {
+                "設定を取得しました。必要な権限を許可して待機を開始できます。"
+            } else {
+                "GitHubから設定を取得できなかったため、端末に保存済みのGAS設定を使用しています。"
+            }
+            refreshMonitoringButtons()
+            refreshCodeButton.isEnabled = true
+            showSavedCode()
         }
     }
 

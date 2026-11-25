@@ -23,6 +23,7 @@ const audioTests = fs.readFileSync("tests/audio-utils.test.cjs", "utf8");
 const locationUtils = fs.readFileSync("location-utils.js", "utf8");
 const locationTests = fs.readFileSync("tests/location-utils.test.cjs", "utf8");
 const androidBuild = fs.readFileSync("android/app/build.gradle.kts", "utf8");
+const androidBuildWorkflow = fs.readFileSync(".github/workflows/android-build.yml", "utf8");
 const serviceWorker = fs.readFileSync("sw.js", "utf8");
 const webConfig = fs.readFileSync("config.json", "utf8");
 const manifestJson = JSON.parse(fs.readFileSync("manifest.webmanifest", "utf8"));
@@ -393,3 +394,19 @@ assert.ok(js.includes('media_toggle') && js.includes('cameraToggle') && js.inclu
 assert.ok(rtc.includes("1920 to 1080") && rtc.includes("setCameraEnabled") && rtc.includes("captureInfo"), "Wide 16:9 camera capture and live media controls missing");
 assert.ok(html.includes('id="actualVideoFormat"') && html.includes('id="deviceTotal30d"'), "Actual video format and traffic history UI missing");
 assert.ok(!html.includes('option value="ultra"') && html.includes('type="hidden" id="dataMode"'), "Legacy confusing data-mode selector must be hidden");
+
+
+const androidConfigVersion = JSON.parse(webConfig).appVersion;
+assert.equal(androidConfigVersion, "2.8.10-preview", "Web config must identify the current Android preview version");
+assert.ok(androidBuild.includes('versionCode = 436'), "Android versionCode must be incremented for the v2.8.10 APK");
+assert.ok(androidBuild.includes('versionName = "' + androidConfigVersion + '"'), "Android APK versionName must match config.json");
+assert.ok(manifest.includes('android:label="Remote Camera Web2 v2.8.10 Preview"'), "Android launcher label must match v2.8.10");
+assert.ok(config.includes("preview/v2.8.10-expressturn-stability/config.json"), "Android must load config.json from the active v2.8.10 branch");
+assert.ok(!config.includes("preview/v2.7.1-fixes"), "Android must not depend on the retired v2.7.1 config branch");
+assert.ok(main.includes("private fun isValidGasUrl") &&
+  main.includes("端末に保存済みのGAS設定を使用しています"), "Android must fall back to its last valid GAS URL if GitHub config fetch fails");
+assert.ok(androidBuildWorkflow.includes("remote-camera-web2-v2.8.10-expressturn-apk") &&
+  androidBuildWorkflow.includes("android/app/build/outputs/apk/debug/app-debug.apk"),
+  "GitHub Actions must upload the v2.8.10 debug APK artifact");
+assert.ok(androidBuildWorkflow.includes(":app:assembleDebug --stacktrace"), "Android CI must build the APK and preserve Gradle diagnostics");
+console.log("Web2 v2.8.10 Android config, version metadata, fallback, and APK artifact checks passed.");
