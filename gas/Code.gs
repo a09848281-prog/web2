@@ -801,7 +801,15 @@ function expressTurnIceConfig_() {
   const props = PropertiesService.getScriptProperties();
   const username = String(props.getProperty("EXPRESSTURN_USERNAME") || "").trim();
   const credential = String(props.getProperty("EXPRESSTURN_CREDENTIAL") || "").trim();
-  const stunServers = [{ urls: ["stun:stun.l.google.com:19302"] }];
+  const stunServers = [{
+    urls: [
+      "stun:stun.l.google.com:19302",
+      "stun:stun1.l.google.com:19302",
+      "stun:stun2.l.google.com:19302",
+      "stun:stun3.l.google.com:19302",
+      "stun:stun4.l.google.com:19302"
+    ]
+  }];
 
   if (!username && !credential) {
     return { configured: false, iceServers: stunServers, status: "not-configured", error: "" };
