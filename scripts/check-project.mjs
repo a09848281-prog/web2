@@ -229,8 +229,10 @@ assert.ok(gas.includes("function addMotionEvent_("), "Motion event write endpoin
 assert.ok(gas.includes("function getMotionEvents_("), "Motion event history endpoint missing");
 assert.ok(gas.includes("function deleteMotionEvents_("), "Motion history deletion endpoint missing");
 assert.ok(gas.includes("crossViewerDuplicate") && gas.includes("<= 3000"), "Motion events from multiple viewers must be coalesced");
-assert.ok(gas.includes("function iceServers_(") && gas.includes("stun:stun4.l.google.com:19302"), "GAS free STUN configuration missing");
-assert.ok(!/CF_TURN|TURN_CREDENTIAL|TURN_URLS|cloudflare\\.com/i.test(gas), "GAS must not retain external TURN credentials");
+assert.ok(gas.includes("function iceServers_(") && gas.includes("function cloudflareTurnIceConfig_()"), "GAS STUN/TURN configuration missing");
+assert.ok(gas.includes("CF_TURN_KEY_ID") && gas.includes("CF_TURN_KEY_SECRET"), "Cloudflare TURN credentials must remain server-side in GAS");
+assert.ok(js.includes('S.iceMode === "relay" && S.turnConfigured ? "relay" : "all"'), "TURN relay-only retry policy missing");
+assert.ok(js.includes('S.nextIceMode = "ipv6"') && js.includes('S.nextIceMode = "relay"'), "IPv6 then TURN retry sequence missing");
 assert.ok(html.includes("./network-ice.js") && serviceWorker.includes("network-ice.js"), "IPv6 ICE helper must be loaded and precached");
 assert.ok(js.includes("RemoteCameraIce.filterSdpToGlobalIpv6") && js.includes("prepareIceRetry"), "IPv6 candidate retry path missing");
 assert.ok(networkIce.includes("function filterSdpToGlobalIpv6(") && networkIce.includes("function summarizeSdp("), "IPv6 candidate parser and filter missing");
