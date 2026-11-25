@@ -174,3 +174,24 @@ test("diagnostic errors redact raw IPv4 and IPv6 addresses before display or cop
   assert.equal((safe.match(/\[IPv4\]/g) || []).length, 1);
   assert.equal((safe.match(/\[IPv6\]/g) || []).length, 2);
 });
+
+
+test("direct-first ICE server list keeps STUN servers and never advertises TURN", () => {
+  const servers = [
+    { urls: ["stun:stun.l.google.com:19302", "turn:relay.example:3478?transport=udp"], username: "u", credential: "p" },
+    { urls: "turns:relay.example:5349" },
+    { urls: ["stuns:stun.example:5349", "turn:relay.example:3478?transport=tcp"] }
+  ];
+  const direct = Ice.stunOnlyServers(servers);
+  assert.deepEqual(direct, [
+    { urls: ["stun:stun.l.google.com:19302"] },
+    { urls: ["stuns:stun.example:5349"] }
+  ]);
+  assert.ok(direct.every(server => (Array.isArray(server.urls) ? server.urls : [server.urls])
+    .every(url => /^stuns?:/i.test(url))));
+});
+
+test("direct-first ICE keeps a built-in STUN fallback if the server list contains only TURN", () => {
+  assert.deepEqual(Ice.stunOnlyServers([{ urls: "turn:relay.example:3478", username: "u", credential: "p" }]),
+    [{ urls: ["stun:stun.l.google.com:19302"] }]);
+});
