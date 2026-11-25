@@ -213,6 +213,9 @@ assert.ok(serviceWorker.includes("cache.match(event.request, { ignoreSearch: tru
 assert.ok(pagesWorkflow.includes("preview/v2.8.10-expressturn-stability") &&
   pagesWorkflow.includes("path: v2810-source") &&
   pagesWorkflow.includes("v2810-source/ _site/v2.8.10/"), "GitHub Pages workflow must publish the v2.8.10 branch under /v2.8.10/");
+assert.ok(pagesWorkflow.includes("name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}") &&
+  pagesWorkflow.includes("artifact_name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}"),
+  "GitHub Pages artifact names must be unique per workflow attempt");
 assert.ok(rtc.includes("CameraVideoCapturer.CameraEventsHandler") && rtc.includes("scheduleCameraRecovery("), "Camera interruption recovery callback missing");
 assert.ok(service.includes("battery_forecast_target") && service.includes("batteryForecastTargetPercent"), "Independent battery forecast target missing");
 assert.ok(service.includes("BATTERY_PROPERTY_CHARGE_COUNTER") && service.includes("BATTERY_PROPERTY_CURRENT_AVERAGE"), "Fuel gauge forecast source missing");
