@@ -200,9 +200,9 @@ assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake l
 assert.ok(androidBuild.includes('versionName = "2.8.6-preview"'), "Android app version must be v2.8.6");
 assert.ok(androidBuild.includes("versionCode = 435"), "Android version code must be 435");
 assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v31"'), "v2.8.6 must use a separate package");
-assert.ok(webConfig.includes('"appVersion": "2.8.7-preview"'), "Web config version must be v2.8.7");
-assert.ok(html.includes("v2.8.7 Preview"), "PWA display version must be v2.8.7");
-assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-7"'), "PWA cache key must be bumped to v2.8.7");
+assert.ok(webConfig.includes('"appVersion": "2.8.8-preview"'), "Web config version must be v2.8.8");
+assert.ok(html.includes("v2.8.8 Preview"), "PWA display version must be v2.8.8");
+assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-8"'), "PWA cache key must be bumped to v2.8.8");
 assert.ok(rtc.includes("CameraVideoCapturer.CameraEventsHandler") && rtc.includes("scheduleCameraRecovery("), "Camera interruption recovery callback missing");
 assert.ok(service.includes("battery_forecast_target") && service.includes("batteryForecastTargetPercent"), "Independent battery forecast target missing");
 assert.ok(service.includes("BATTERY_PROPERTY_CHARGE_COUNTER") && service.includes("BATTERY_PROPERTY_CURRENT_AVERAGE"), "Fuel gauge forecast source missing");
@@ -234,7 +234,7 @@ assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microp
 assert.ok(gas.includes('const version = "1.4.0"'), "GAS API version must be 1.4.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
 assert.ok(androidBuild.includes("versionCode = 435"), "Android version code must be 435 for v2.8.6");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.7 Preview", "PWA display name must match v2.8.7");
+assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.8 Preview", "PWA display name must match v2.8.8");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 assert.ok(html.includes('id="reserveAt" type="datetime-local" step="1"'), "Web schedule must accept second precision");
 assert.ok(js.includes("S.reservationTimer = setInterval(checkConnectionReservation, 250)"), "Web reservation scheduler missing");
