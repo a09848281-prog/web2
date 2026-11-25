@@ -224,10 +224,7 @@ function prepareIceRetry(reason) {
     "failed", "disconnected", "setup-timeout", "android-answer-error",
     "ice-gathering-failed", "ipv6-gathering-failed"
   ].includes(String(reason));
-  if (!retryable) {
-    S.nextIceMode = "normal";
-    return;
-  }
+  if (!retryable) return;
   if (S.iceMode === "ipv6") {
     S.nextIceMode = "normal";
     recordIceDiagnostic("IPv6優先接続が失敗したため、次はIPv4/IPv6通常方式へ戻します。", {
@@ -732,6 +729,7 @@ function openBookmarkletDialog() {
   $("bookmarkletCode").value = code;
   renderIceDiagnostics();
   $("bookmarkDialog").showModal();
+  void refreshIceDiagnostics();
 }
 
 async function copyBookmarkletCode() {
@@ -1829,6 +1827,7 @@ function scheduleReconnect(expectedPc, reason = "disconnected") {
     autoConnectWanted: S.autoConnectWanted
   })) return;
   if (navigator.onLine === false) {
+    prepareIceRetry(reason);
     if (S.reconnectTimer) clearTimeout(S.reconnectTimer);
     S.reconnectTimer = null;
     clearReconnectCountdown();
@@ -2651,7 +2650,23 @@ function startRtcStats() {
           const localCandidate = item.localCandidateId ? stats.get(item.localCandidateId) : null;
           const remoteCandidate = item.remoteCandidateId ? stats.get(item.remoteCandidateId) : null;
           const candidateTypes = [localCandidate?.candidateType, remoteCandidate?.candidateType];
-          route = candidateTypes.includes("relay") ? "TURN中継" : (candidateTypes.some(Boolean) ? "直接経路" : "未確定");
+          route = candidateTypes.includes("relay") ? "中継経路" : (candidateTypes.some(Boolean) ? "直接経路" : "未確定");
+          const localFamily = RemoteCameraIce.classifyAddress(localCandidate?.address || localCandidate?.ip || "");
+          const remoteFamily = RemoteCameraIce.classifyAddress(remoteCandidate?.address || remoteCandidate?.ip || "");
+          const family = localFamily === "ipv6-global" && remoteFamily === "ipv6-global" ? "IPv6"
+            : localFamily === "ipv4" && remoteFamily === "ipv4" ? "IPv4"
+            : localFamily + " ⇄ " + remoteFamily;
+          ICE_DIAG.selectedPair = {
+            family: family,
+            localType: localCandidate?.candidateType || "不明",
+            remoteType: remoteCandidate?.candidateType || "不明",
+            state: item.state || "不明",
+            rttMs: Number.isFinite(item.currentRoundTripTime)
+              ? Math.round(item.currentRoundTripTime * 1000) : null
+          };
+          ICE_DIAG.iceConnectionState = peer.iceConnectionState || ICE_DIAG.iceConnectionState;
+          ICE_DIAG.connectionState = peer.connectionState || ICE_DIAG.connectionState;
+          ICE_DIAG.signalingState = peer.signalingState || ICE_DIAG.signalingState;
           if (Number.isFinite(item.currentRoundTripTime)) rtt = item.currentRoundTripTime;
         }
       });
@@ -2686,6 +2701,7 @@ function startRtcStats() {
       metricParts.push("損失 " + (lossPercent === null ? "--" : lossPercent.toFixed(1) + "%"));
       metricParts.push("経路 " + route);
       $("connectionMetrics").textContent = metricParts.join(" / ");
+      renderIceDiagnostics();
       maybeAdaptQuality(rtt === null ? null : rtt * 1000, lossPercent);
     } catch (_) {
       $("rtcStats").textContent = "統計取得不可";
