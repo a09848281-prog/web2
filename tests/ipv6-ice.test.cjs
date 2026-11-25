@@ -156,3 +156,19 @@ test("automatic recovery keeps the normal fallback when TURN is not configured",
   assert.equal(sandbox.S.nextIceMode, "normal");
   assert.equal(sandbox.S.relayRetryUsed, false);
 });
+
+
+test("diagnostic errors redact raw IPv4 and IPv6 addresses before display or copy", () => {
+  const app = fs.readFileSync("app.js", "utf8");
+  const start = app.indexOf("function sanitizeIceDiagnosticText(value) {");
+  const end = app.indexOf("\nfunction recordIceDiagnostic", start);
+  assert.ok(start >= 0 && end > start);
+  const sanitize = new Function(app.slice(start, end) + "; return sanitizeIceDiagnosticText;")();
+  const source = "IPv4 192.168.10.25 / IPv6 2001:4860:4860::8888 / bracketed [2606:4700:4700::1111]";
+  const safe = sanitize(source);
+  assert.equal(safe.includes("192.168.10.25"), false);
+  assert.equal(safe.includes("2001:4860:4860::8888"), false);
+  assert.equal(safe.includes("2606:4700:4700::1111"), false);
+  assert.equal((safe.match(/\[IPv4\]/g) || []).length, 1);
+  assert.equal((safe.match(/\[IPv6\]/g) || []).length, 2);
+});
