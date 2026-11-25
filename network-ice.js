@@ -102,6 +102,22 @@
     return summary;
   }
 
+  function hasUsableTurnServers(servers) {
+    if (!Array.isArray(servers)) return false;
+    return servers.some(server => {
+      if (!server || typeof server !== "object") return false;
+      const username = String(server.username || "").trim();
+      const credential = String(server.credential || "").trim();
+      if (!username || !credential || /[\\r\\n\\0]/.test(username + credential)) return false;
+      const rawUrls = server.urls;
+      const urls = Array.isArray(rawUrls) ? rawUrls : (typeof rawUrls === "string" ? [rawUrls] : []);
+      return urls.some(rawUrl => {
+        const url = String(rawUrl || "").trim();
+        return /^turns?:[a-z0-9.-]+(?::[0-9]{1,5})?(?:\\?transport=(?:udp|tcp))?$/i.test(url);
+      });
+    });
+  }
+
   function filterSdpToGlobalIpv6(sdp) {
     const original = String(sdp || "");
     const lines = original.split(/\r?\n/);
@@ -130,6 +146,7 @@
     isGlobalIpv6: isGlobalIpv6,
     parseCandidateLine: parseCandidateLine,
     summarizeSdp: summarizeSdp,
-    filterSdpToGlobalIpv6: filterSdpToGlobalIpv6
+    filterSdpToGlobalIpv6: filterSdpToGlobalIpv6,
+    hasUsableTurnServers: hasUsableTurnServers
   };
 });
