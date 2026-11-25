@@ -799,12 +799,12 @@ function bookmarkletPanelLauncher() {
   const shadow = host.attachShadow({ mode: "closed" });
   const style = document.createElement("style");
   style.textContent = `
-    :host{all:initial}*{box-sizing:border-box}
+    :host{all:initial;position:fixed;inset:0;z-index:2147483647;pointer-events:none;display:block}*{box-sizing:border-box}
     .panel{position:fixed;display:flex;flex-direction:column;left:8px;top:8px;
       width:min(820px,calc(100vw - 16px));height:min(760px,calc(100vh - 16px));
       min-width:min(260px,calc(100vw - 16px));min-height:min(220px,calc(100vh - 16px));
       max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);
-      border:1px solid #25354d;border-radius:14px;overflow:hidden;background:#fff;
+      z-index:2147483647;pointer-events:auto;border:1px solid #25354d;border-radius:14px;overflow:hidden;background:#fff;
       box-shadow:0 18px 60px rgba(0,0,0,.32);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
     .bar{height:44px;min-height:44px;flex:0 0 44px;display:flex;align-items:center;gap:8px;
       padding:0 9px;background:#101827;color:#fff;cursor:move;touch-action:none;user-select:none}
@@ -959,7 +959,7 @@ function bookmarkletPanelLauncher() {
   window.addEventListener("keydown", onPageKeydown, true);
   window.addEventListener("message", onFrameMessage);
   window.addEventListener("resize", clampPanel, { passive: true });
-  (document.body || document.documentElement).appendChild(host);
+  document.documentElement.appendChild(host);
   window[STATE_KEY] = { close, nonce };
 }
 
