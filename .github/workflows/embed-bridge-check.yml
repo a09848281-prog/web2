@@ -1,7 +1,7 @@
-name: v2.8.7 Embed Bridge Checks
+name: v2.8.8 TURN and Embed Bridge Checks
 on:
   push:
-    branches: [preview/v2.8.7-embed-gas-bridge]
+    branches: [preview/v2.8.7-embed-gas-bridge, preview/v2.8.8-cloudflare-turn-ice]
   workflow_dispatch:
 permissions:
   contents: read
