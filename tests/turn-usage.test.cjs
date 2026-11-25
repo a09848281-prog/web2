@@ -39,12 +39,18 @@ test("only monotonic byte deltas from the same relay pair and session are added"
   const previous = { id: "pair-1", relay: true, sessionKey: "session-a", sent: 1000, received: 500 };
   const current = { ...previous, sent: 1450, received: 900 };
   assert.deepEqual(TurnUsage.calculateDelta(previous, current), { sent: 450, received: 400 });
-  assert.deepEqual(TurnUsage.calculateDelta(previous, { ...current, id: "pair-2" }), { sent: 0, received: 0 });
-  assert.deepEqual(TurnUsage.calculateDelta(previous, { ...current, sessionKey: "session-b" }), { sent: 0, received: 0 });
+  assert.deepEqual(TurnUsage.calculateDelta(previous, { ...current, id: "pair-2" }), { sent: 1450, received: 900 });
+  assert.deepEqual(TurnUsage.calculateDelta(previous, { ...current, sessionKey: "session-b" }), { sent: 1450, received: 900 });
   assert.deepEqual(TurnUsage.calculateDelta(previous, { ...current, sent: 50, received: 40 }), { sent: 0, received: 0 });
 });
 
 test("missing or unselected candidate-pair statistics are safe", () => {
   assert.equal(TurnUsage.readSelectedPair(null), null);
   assert.equal(TurnUsage.readSelectedPair({ forEach: () => {}, get: () => null }), null);
+});
+
+test("first selected relay sample is included instead of losing its first polling interval", () => {
+  assert.deepEqual(TurnUsage.calculateDelta(null, {
+    id: "pair-1", relay: true, sessionKey: "session-a", sent: 12000, received: 34000
+  }), { sent: 12000, received: 34000 });
 });
