@@ -188,7 +188,7 @@ class RtcEngine(
         iceServerConfig = servers ?: JSONArray()
     }
 
-    private fun buildIceServers(): List<PeerConnection.IceServer> {
+    private fun buildIceServers(allowTurn: Boolean = true): List<PeerConnection.IceServer> {
         val result = mutableListOf<PeerConnection.IceServer>()
         var hasStun = false
         for (index in 0 until iceServerConfig.length()) {
@@ -203,7 +203,10 @@ class RtcEngine(
             }
             val username = item.optString("username", "")
             val credential = item.optString("credential", "")
-            urls.filter { it.startsWith("stun:", true) || it.startsWith("turn:", true) || it.startsWith("turns:", true) }
+            urls.filter { url ->
+                url.startsWith("stun:", true) ||
+                    (allowTurn && (url.startsWith("turn:", true) || url.startsWith("turns:", true)))
+            }
                 .forEach { url ->
                     try {
                         val builder = PeerConnection.IceServer.builder(url)
@@ -294,13 +297,22 @@ class RtcEngine(
         return try {
             val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
             val characteristics = manager.getCameraCharacteristics(cameraId)
+            val activeArray = characteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+                ?: characteristics.get(CameraCharacteristics.SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE)
+            val pixelArray = characteristics.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
             val map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-            val largest = map?.getOutputSizes(SurfaceTexture::class.java)
+            val largestOutput = map?.getOutputSizes(SurfaceTexture::class.java)
                 ?.maxByOrNull { it.width.toLong() * it.height.toLong() }
-            val sensorSize = characteristics.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
-            val width = largest?.width ?: sensorSize?.width ?: 4
-            val height = largest?.height ?: sensorSize?.height ?: 3
-            val ratio = maxOf(width, height).toDouble() / minOf(width, height).coerceAtLeast(1)
+            // "Original" means the physical sensor's active image area, not whichever
+            // SurfaceTexture output happens to have the most pixels. Picking a 16:9
+            // output here on a 4:3 sensor needlessly crops the horizontal field of view.
+            val width = activeArray?.width()?.toDouble()
+                ?: pixelArray?.width?.toDouble()
+                ?: largestOutput?.width?.toDouble() ?: 4.0
+            val height = activeArray?.height()?.toDouble()
+                ?: pixelArray?.height?.toDouble()
+                ?: largestOutput?.height?.toDouble() ?: 3.0
+            val ratio = maxOf(width, height) / minOf(width, height).coerceAtLeast(1.0)
             if (ratio.isFinite() && ratio in 1.0..2.5) ratio else 4.0 / 3.0
         } catch (error: Exception) {
             Log.w("RemoteCameraRTC", "Could not read native camera aspect ratio", error)
@@ -439,9 +451,13 @@ class RtcEngine(
             sameRatioSizes.isNotEmpty() -> sameRatioSizes.minBy {
                 kotlin.math.abs(it.first.toLong() * it.second.toLong() - requestedPixels)
             }
-            supportedSizes.isNotEmpty() -> supportedSizes.minBy {
-                kotlin.math.abs(it.first.toLong() * it.second.toLong() - requestedPixels)
-            }
+            supportedSizes.isNotEmpty() -> supportedSizes.minWithOrNull(
+                compareBy<Pair<Int, Int>> {
+                    kotlin.math.abs(it.first.toDouble() / it.second.toDouble() - requestedRatio)
+                }.thenBy {
+                    kotlin.math.abs(it.first.toLong() * it.second.toLong() - requestedPixels)
+                }
+            ) ?: requestedSize
             else -> requestedSize
         }
         val sizes = (listOf(selectedSize) + underRequested.filter { it != selectedSize }).distinct()
@@ -471,7 +487,8 @@ class RtcEngine(
                         Log.w("RemoteCameraRTC", "Torch could not be restored on the selected camera", torchError)
                     }
                 }
-                Log.i("RemoteCameraRTC", "Camera capture profile selected: ${width}x${height}@${fps}; hardware support must be measured at runtime.")
+                val actualRatio = width.toDouble() / height.toDouble()
+                Log.i("RemoteCameraRTC", "Camera capture profile selected: ${width}x${height}@${fps}; requestedRatio=${requestedRatio}, actualRatio=${"%.4f".format(java.util.Locale.US, actualRatio)}; same-ratio formats are preferred to preserve field of view.")
                 return StartedCapture(candidate, width, height, fps)
             } catch (error: Exception) {
                 lastError = error
@@ -562,7 +579,7 @@ class RtcEngine(
         }
     }
 
-    fun handleOffer(sessionId: String, sdp: String) {
+    fun handleOffer(sessionId: String, sdp: String, allowTurn: Boolean = true) {
         try {
             peers.remove(sessionId)?.let { oldPeer ->
                 try { controlChannels.remove(sessionId)?.dispose() } catch (_: Exception) {}
@@ -571,7 +588,7 @@ class RtcEngine(
             }
             check(peers.size < 3) { "同時に監視できるWeb端末は最大3台です。先に別の接続を切断してください。" }
             ensureMedia()
-            val iceServers = buildIceServers()
+            val iceServers = buildIceServers(allowTurn)
             val config = PeerConnection.RTCConfiguration(iceServers).apply {
                 sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
                 bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
