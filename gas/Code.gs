@@ -791,7 +791,7 @@ function expressTurnIceConfig_() {
   }
   if (!username || !credential ||
       username.length > 256 || credential.length > 512 ||
-      /[\\r\\n\\0]/.test(username) || /[\\r\\n\\0]/.test(credential)) {
+      /[\r\n\0]/.test(username) || /[\r\n\0]/.test(credential)) {
     return {
       configured: false,
       iceServers: stunServers,
@@ -846,7 +846,7 @@ function testExpressTurnSetup() {
   const turnUrlCount = config.iceServers.reduce(function(total, server) {
     const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
     return total + urls.filter(function(url) {
-      return /^turn:free\\.expressturn\\.com:3478\\?transport=(udp|tcp)$/i.test(String(url || ""));
+      return /^turn:free\.expressturn\.com:3478\?transport=(udp|tcp)$/i.test(String(url || ""));
     }).length;
   }, 0);
   const result = {
