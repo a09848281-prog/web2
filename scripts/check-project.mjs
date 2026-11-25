@@ -24,6 +24,7 @@ const locationUtils = fs.readFileSync("location-utils.js", "utf8");
 const locationTests = fs.readFileSync("tests/location-utils.test.cjs", "utf8");
 const androidBuild = fs.readFileSync("android/app/build.gradle.kts", "utf8");
 const androidBuildWorkflow = fs.readFileSync(".github/workflows/android-build.yml", "utf8");
+const pagesWorkflow = fs.readFileSync(".github/workflows/deploy-v2.6-preview.yml", "utf8");
 const serviceWorker = fs.readFileSync("sw.js", "utf8");
 const webConfig = fs.readFileSync("config.json", "utf8");
 const manifestJson = JSON.parse(fs.readFileSync("manifest.webmanifest", "utf8"));
@@ -205,6 +206,13 @@ assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v31"
 assert.ok(webConfig.includes('"appVersion": "2.8.10-preview"'), "Web config version must be v2.8.10");
 assert.ok(html.includes("v2.8.10 Preview"), "PWA display version must be v2.8.10");
 assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-10"'), "PWA cache key must be bumped to v2.8.10");
+
+const assetCacheVersions = [...html.matchAll(/(?:src|href)="\\.\\/[^"]+\\?v=([^"]+)"/g)].map(match => match[1]);
+assert.ok(assetCacheVersions.length >= 6 && assetCacheVersions.every(version => version === "2.8.10-preview"), "All versioned Web assets must use the v2.8.10 cache key");
+assert.ok(serviceWorker.includes("cache.match(event.request, { ignoreSearch: true })"), "PWA offline fallback must match precached assets with query strings");
+assert.ok(pagesWorkflow.includes("preview/v2.8.10-expressturn-stability") &&
+  pagesWorkflow.includes("path: v2810-source") &&
+  pagesWorkflow.includes("v2810-source/ _site/v2.8.10/"), "GitHub Pages workflow must publish the v2.8.10 branch under /v2.8.10/");
 assert.ok(rtc.includes("CameraVideoCapturer.CameraEventsHandler") && rtc.includes("scheduleCameraRecovery("), "Camera interruption recovery callback missing");
 assert.ok(service.includes("battery_forecast_target") && service.includes("batteryForecastTargetPercent"), "Independent battery forecast target missing");
 assert.ok(service.includes("BATTERY_PROPERTY_CHARGE_COUNTER") && service.includes("BATTERY_PROPERTY_CURRENT_AVERAGE"), "Fuel gauge forecast source missing");
