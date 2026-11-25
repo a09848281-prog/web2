@@ -1554,8 +1554,32 @@ async function connect(automatic = false) {
     }
 
     assertConnectAttempt(attemptId, device.deviceId);
-    const pc = new RTCPeerConnection({ iceServers: S.iceServers, iceTransportPolicy });
+    const pc = new RTCPeerConnection({ iceServers: S.iceServers });
     S.pc = pc;
+    pc.onicegatheringstatechange = () => {
+      if (S.pc !== pc) return;
+      recordIceDiagnostic("ICE候補収集: " + pc.iceGatheringState, {
+        gatheringState: pc.iceGatheringState,
+        iceConnectionState: pc.iceConnectionState,
+        connectionState: pc.connectionState,
+        signalingState: pc.signalingState
+      });
+    };
+    pc.oniceconnectionstatechange = () => {
+      if (S.pc !== pc) return;
+      $("iceState").textContent = "ICE: " + pc.iceConnectionState;
+      recordIceDiagnostic("ICE接続状態: " + pc.iceConnectionState, {
+        iceConnectionState: pc.iceConnectionState,
+        connectionState: pc.connectionState,
+        signalingState: pc.signalingState
+      });
+    };
+    pc.onicecandidateerror = event => {
+      if (S.pc !== pc) return;
+      const code = Number(event.errorCode) || 0;
+      const message = "STUN候補取得エラー " + code + ": " + String(event.errorText || "詳細なし").slice(0, 120);
+      recordIceDiagnostic(message, { lastError: message });
+    };
     const control = pc.createDataChannel("remote-control", { ordered: true });
     S.control = control;
     armConnectionTimeout(pc);
@@ -1696,7 +1720,6 @@ async function connect(automatic = false) {
       throw new Error("ICE候補を取得できませんでした。ネットワークとSTUNへの接続を確認してください。");
     }
     let offerSdp = localSdp;
-    let sentSummary = gatheredSummary;
     if (S.iceMode === "ipv6") {
       const filtered = RemoteCameraIce.filterSdpToGlobalIpv6(localSdp);
       if (!filtered.ok) {
@@ -1709,7 +1732,6 @@ async function connect(automatic = false) {
         throw new Error("IPv6候補がありません。両方のWi-FiがIPv6に対応しているか確認してください。");
       }
       offerSdp = filtered.sdp;
-      sentSummary = filtered.summary;
       recordIceDiagnostic("IPv6優先モード：グローバルIPv6候補 " + filtered.summary.ipv6GlobalCount +
         "件をAndroidへ送信します。", {
         phase: "IPv6候補をAndroidへ送信中",
