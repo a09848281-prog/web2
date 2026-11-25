@@ -1,3 +1,4 @@
+# v3.0.0 deployment source: release/v3.0 (PWA path /v3.0/); legacy previews remain preserved.
 name: Deploy Remote Camera Web2 Previews and v3.0 Release
 
 on:
