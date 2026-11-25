@@ -88,3 +88,68 @@ test("malformed SDP and candidate lines do not throw", () => {
   assert.equal(Ice.filterSdpToGlobalIpv6("").ok, false);
   assert.equal(Ice.parseCandidateLine("a=candidate:broken"), null);
 });
+
+
+test("automatic recovery prioritizes available IPv6 before TURN relay", () => {
+  const app = fs.readFileSync("app.js", "utf8");
+  const start = app.indexOf("function prepareIceRetry(reason) {");
+  const end = app.indexOf("\nfunction autoReconnectKey", start);
+  assert.ok(start >= 0 && end > start, "Retry strategy function must exist");
+  const sandbox = {
+    S: {
+      iceMode: "normal", nextIceMode: "normal", ipv6RetryUsed: false,
+      relayRetryUsed: false, turnConfigured: true, forceTurnRelay: false
+    },
+    ICE_DIAG: { localSummary: { ipv6GlobalCount: 2 }, lastError: "" },
+    recordIceDiagnostic: () => {}
+  };
+  vm.runInNewContext(app.slice(start, end), sandbox);
+  sandbox.prepareIceRetry("failed");
+  assert.equal(sandbox.S.nextIceMode, "ipv6");
+  assert.equal(sandbox.S.ipv6RetryUsed, true);
+  sandbox.S.iceMode = "ipv6";
+  sandbox.S.nextIceMode = "normal";
+  sandbox.prepareIceRetry("failed");
+  assert.equal(sandbox.S.nextIceMode, "relay");
+  assert.equal(sandbox.S.relayRetryUsed, true);
+  sandbox.S.iceMode = "relay";
+  sandbox.S.nextIceMode = "normal";
+  sandbox.prepareIceRetry("failed");
+  assert.equal(sandbox.S.nextIceMode, "normal");
+});
+
+test("automatic recovery skips IPv6 when no global IPv6 candidate exists", () => {
+  const app = fs.readFileSync("app.js", "utf8");
+  const start = app.indexOf("function prepareIceRetry(reason) {");
+  const end = app.indexOf("\nfunction autoReconnectKey", start);
+  const sandbox = {
+    S: {
+      iceMode: "normal", nextIceMode: "normal", ipv6RetryUsed: false,
+      relayRetryUsed: false, turnConfigured: true, forceTurnRelay: false
+    },
+    ICE_DIAG: { localSummary: { ipv6GlobalCount: 0 }, lastError: "" },
+    recordIceDiagnostic: () => {}
+  };
+  vm.runInNewContext(app.slice(start, end), sandbox);
+  sandbox.prepareIceRetry("failed");
+  assert.equal(sandbox.S.nextIceMode, "relay");
+  assert.equal(sandbox.S.ipv6RetryUsed, false);
+});
+
+test("automatic recovery keeps the normal fallback when TURN is not configured", () => {
+  const app = fs.readFileSync("app.js", "utf8");
+  const start = app.indexOf("function prepareIceRetry(reason) {");
+  const end = app.indexOf("\nfunction autoReconnectKey", start);
+  const sandbox = {
+    S: {
+      iceMode: "normal", nextIceMode: "normal", ipv6RetryUsed: true,
+      relayRetryUsed: false, turnConfigured: false, forceTurnRelay: false
+    },
+    ICE_DIAG: { localSummary: { ipv6GlobalCount: 0 }, lastError: "" },
+    recordIceDiagnostic: () => {}
+  };
+  vm.runInNewContext(app.slice(start, end), sandbox);
+  sandbox.prepareIceRetry("failed");
+  assert.equal(sandbox.S.nextIceMode, "normal");
+  assert.equal(sandbox.S.relayRetryUsed, false);
+});
