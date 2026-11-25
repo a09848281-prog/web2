@@ -841,6 +841,8 @@ function cloudflareTurnIceConfig_() {
     }
     const afterLock = readCache();
     if (afterLock) return { configured: true, iceServers: afterLock, error: "" };
+    const lockedError = cache.get(failureKey);
+    if (lockedError) return { configured: true, iceServers: null, error: String(lockedError) };
 
     const endpoint = "https://rtc.live.cloudflare.com/v1/turn/keys/" +
       encodeURIComponent(keyId) + "/credentials/generate-ice-servers";
