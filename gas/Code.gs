@@ -818,7 +818,7 @@ function cloudflareTurnIceConfig_() {
   if (!keyId || !apiToken) return { configured: false, iceServers: null, error: "" };
 
   const cache = CacheService.getScriptCache();
-  const cacheKey = "CF_TURN_ICE_SERVERS_V1";
+  const cacheKey = "CF_TURN_ICE_SERVERS_V1_" + keyId;
   const readCache = function() {
     const raw = cache.get(cacheKey);
     if (!raw) return null;
@@ -913,4 +913,21 @@ function getIceConfig_(r) {
   const config = iceConfig_();
   return { ok: true, iceServers: config.iceServers, turnConfigured: config.turnConfigured,
     turnProvider: config.turnProvider, turnStatus: config.turnStatus, turnError: config.turnError };
+}
+
+function testCloudflareTurnSetup() {
+  const config = iceConfig_();
+  const turnUrlCount = config.iceServers.reduce(function(total, server) {
+    const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+    return total + urls.filter(function(url) { return /^(turn|turns):/i.test(String(url || "")); }).length;
+  }, 0);
+  const result = {
+    turnConfigured: config.turnConfigured,
+    turnProvider: config.turnProvider,
+    turnStatus: config.turnStatus,
+    turnUrlCount: turnUrlCount,
+    error: config.turnError || ""
+  };
+  Logger.log(JSON.stringify(result));
+  return result;
 }
