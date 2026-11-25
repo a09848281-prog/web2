@@ -138,3 +138,9 @@ test("Cloudflare API failures are briefly cached to protect Apps Script quotas",
   runtime.sandbox.iceConfig_();
   assert.equal(runtime.requests.length, 1);
 });
+
+test("Web connection metrics identify the selected TURN relay candidate pair", () => {
+  const app = fs.readFileSync("app.js", "utf8");
+  assert.ok(app.includes('candidateTypes.includes("relay")'));
+  assert.ok(app.includes('metricParts.push("経路 " + route)'));
+});
