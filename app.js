@@ -41,6 +41,7 @@ const S = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   turnConfigured: false,
   turnProvider: "stun-only",
+  forceTurnRelay: false,
   motion: { enabled: false, sensitivity: 3, timer: null, previous: null, streak: 0, lastEventAt: 0, sendingDevices: new Set(), retryTimer: null },
   adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 },
   audioContext: null, remoteGain: null, remoteAudioSource: null, remoteAnalyser: null,
@@ -1283,6 +1284,7 @@ async function connect(automatic = false) {
   const attemptId = ++S.connectionAttemptId;
   if (!automatic) {
     S.manualDisconnect = false;
+    S.forceTurnRelay = false;
     S.autoConnectWanted = true;
     setAutoReconnectIntent(device, true);
     S.reconnectAttempts = 0;
@@ -1342,7 +1344,8 @@ async function connect(automatic = false) {
     }
 
     assertConnectAttempt(attemptId, device.deviceId);
-    const pc = new RTCPeerConnection({ iceServers: S.iceServers });
+    const iceTransportPolicy = S.forceTurnRelay && S.turnConfigured ? "relay" : "all";
+    const pc = new RTCPeerConnection({ iceServers: S.iceServers, iceTransportPolicy });
     S.pc = pc;
     const control = pc.createDataChannel("remote-control", { ordered: true });
     S.control = control;
@@ -1636,6 +1639,10 @@ function scheduleReconnect(expectedPc, reason = "disconnected") {
       return;
     }
     S.reconnectAttempts = attempt;
+    if (S.turnConfigured && !S.forceTurnRelay && ["failed", "disconnected", "setup-timeout"].includes(reason)) {
+      S.forceTurnRelay = true;
+      $("streamState").textContent = "直接接続が失敗したため、TURN中継のみで再試行します";
+    }
     const ok = await connect(true);
     if (!ok && !S.reconnectTimer && !S.connecting) scheduleReconnect(null, "connect-error");
   }, wait);
