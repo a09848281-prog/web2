@@ -1639,7 +1639,7 @@ function scheduleReconnect(expectedPc, reason = "disconnected") {
       return;
     }
     S.reconnectAttempts = attempt;
-    if (S.turnConfigured && !S.forceTurnRelay && ["failed", "disconnected", "setup-timeout"].includes(reason)) {
+    if (S.turnConfigured && !S.forceTurnRelay && ["failed", "disconnected", "setup-timeout", "connect-error"].includes(reason)) {
       S.forceTurnRelay = true;
       $("streamState").textContent = "直接接続が失敗したため、TURN中継のみで再試行します";
     }
