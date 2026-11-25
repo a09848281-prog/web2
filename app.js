@@ -39,6 +39,8 @@ const S = {
   reconnectCountdownTimer: null, reconnectDeadlineAt: 0, reconnectReason: "", reconnectExpectedPc: null,
   reconnectAttempts: 0, everConnected: false, autoConnectWanted: false, torchEnabled: false, reservationTimer: null,
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  turnConfigured: false,
+  turnProvider: "stun-only",
   motion: { enabled: false, sensitivity: 3, timer: null, previous: null, streak: 0, lastEventAt: 0, sendingDevices: new Set(), retryTimer: null },
   adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 },
   audioContext: null, remoteGain: null, remoteAudioSource: null, remoteAnalyser: null,
@@ -1163,7 +1165,7 @@ async function claimDevice() {
   }
 }
 
-function waitIce(pc, ms) {
+function waitIce(pc, ms = 20000) {
   return new Promise(resolve => {
     if (pc.iceGatheringState === "complete") return resolve(true);
     let done = false;
@@ -1199,7 +1201,7 @@ function armConnectionTimeout(peer) {
     }
     $("streamState").textContent = "応答待ちが長いため接続を作り直します";
     scheduleReconnect(peer, "setup-timeout");
-  }, 35000);
+  }, 60000);
 }
 function markRtcStable(peer) {
   if (S.pc !== peer || peer.connectionState !== "connected" || S.control?.readyState !== "open") return;
@@ -1293,7 +1295,7 @@ async function connect(automatic = false) {
   S.connecting = true;
   $("connect").disabled = true;
   S.connectionAttemptWatchdog = setTimeout(
-    () => abortStalledConnectAttempt(attemptId), 45000
+    () => abortStalledConnectAttempt(attemptId), 90000
   );
   prepareAudioOutput();
 
@@ -1320,14 +1322,22 @@ async function connect(automatic = false) {
     try {
       const iceConfig = await api("get_ice_config", {
         controllerToken: device.controllerToken, deviceId: device.deviceId
-      }, 8000);
+      }, 15000);
       assertConnectAttempt(attemptId, device.deviceId);
       if (Array.isArray(iceConfig.iceServers) && iceConfig.iceServers.length) {
         S.iceServers = iceConfig.iceServers;
       }
+      S.turnConfigured = iceConfig.turnConfigured === true;
+      S.turnProvider = String(iceConfig.turnProvider || (S.turnConfigured ? "custom" : "stun-only"));
+      if (!S.turnConfigured) {
+        console.warn("TURN relay is not configured or unavailable; this connection may fail across different Wi-Fi networks.",
+          String(iceConfig.turnStatus || "unknown"), String(iceConfig.turnError || ""));
+      }
     } catch (iceError) {
       assertConnectAttempt(attemptId, device.deviceId);
       console.warn("TURN configuration unavailable; continue with public STUN", iceError);
+      S.turnConfigured = false;
+      S.turnProvider = "stun-only";
       S.iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
     }
 
@@ -1450,9 +1460,13 @@ async function connect(automatic = false) {
     assertConnectAttempt(attemptId, device.deviceId);
     await withTimeout(pc.setLocalDescription(offer), 8000, "接続情報の設定");
     assertConnectAttempt(attemptId, device.deviceId);
-    const iceReady = await withTimeout(waitIce(pc, 8000), 8500, "通信経路の準備");
+    const iceReady = await withTimeout(waitIce(pc, 20000), 21000, "通信経路の準備");
     assertConnectAttempt(attemptId, device.deviceId);
-    if (!iceReady) throw new Error("ICE候補の収集が完了しませんでした。");
+    if (!iceReady) {
+      throw new Error(S.turnConfigured
+        ? "ICE候補の収集が20秒以内に完了しませんでした。ネットワークまたはTURNサーバーへの通信を確認してください。"
+        : "TURN中継が未設定のため、別のWi-Fi間では接続できない可能性があります。GASのCloudflare TURN設定を確認してください。");
+    }
 
     await api("send_signal", {
       controllerToken: device.controllerToken,
