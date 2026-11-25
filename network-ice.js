@@ -108,12 +108,12 @@
       if (!server || typeof server !== "object") return false;
       const username = String(server.username || "").trim();
       const credential = String(server.credential || "").trim();
-      if (!username || !credential || /[\\r\\n\\0]/.test(username + credential)) return false;
+      if (!username || !credential || /[\r\n\0]/.test(username + credential)) return false;
       const rawUrls = server.urls;
       const urls = Array.isArray(rawUrls) ? rawUrls : (typeof rawUrls === "string" ? [rawUrls] : []);
       return urls.some(rawUrl => {
         const url = String(rawUrl || "").trim();
-        return /^turns?:[a-z0-9.-]+(?::[0-9]{1,5})?(?:\\?transport=(?:udp|tcp))?$/i.test(url);
+        return /^turns?:[a-z0-9.-]+(?::[0-9]{1,5})?(?:\?transport=(?:udp|tcp))?$/i.test(url);
       });
     });
   }
