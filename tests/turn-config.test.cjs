@@ -144,3 +144,18 @@ test("Web connection metrics identify the selected TURN relay candidate pair", (
   assert.ok(app.includes('candidateTypes.includes("relay")'));
   assert.ok(app.includes('metricParts.push("経路 " + route)'));
 });
+
+test("Android receives TURN ICE servers from GAS without embedding Cloudflare API secrets", () => {
+  const monitor = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MonitorService.kt", "utf8");
+  const rtc = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/RtcEngine.kt", "utf8");
+  const web = fs.readFileSync("app.js", "utf8");
+  const config = fs.readFileSync("config.json", "utf8");
+  assert.ok(monitor.includes("rtc?.setIceServers(response.optJSONArray(\"iceServers\"))"));
+  assert.ok(rtc.includes('url.startsWith("turn:", true)'));
+  assert.ok(rtc.includes('url.startsWith("turns:", true)'));
+  assert.ok(rtc.includes("builder.setUsername(username)"));
+  assert.ok(rtc.includes("builder.setPassword(credential)"));
+  assert.ok(!web.includes("CF_TURN_API_TOKEN"));
+  assert.ok(!config.includes("CF_TURN_API_TOKEN"));
+  assert.ok(!rtc.includes("CF_TURN_API_TOKEN"));
+});
