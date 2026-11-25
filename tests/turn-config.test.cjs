@@ -48,7 +48,7 @@ const cloudflareResponse = {
 
 test("Cloudflare TURN credentials are generated server-side and sanitized", () => {
   const runtime = createRuntime({
-    properties: { CF_TURN_KEY_ID: "turn-key-id", CF_TURN_API_TOKEN: "server-only-api-token" },
+    properties: { CF_TURN_KEY_ID: "turn-key-id", CF_TURN_KEY_SECRET: "server-only-turn-key-secret" },
     response: cloudflareResponse
   });
   const config = runtime.sandbox.iceConfig_();
@@ -65,16 +65,16 @@ test("Cloudflare TURN credentials are generated server-side and sanitized", () =
   assert.ok(turn.urls.every(url => !/:53(?:\?|$)/.test(url)));
   assert.equal(runtime.requests.length, 1);
   assert.match(runtime.requests[0].url, /\/turn\/keys\/turn-key-id\/credentials\/generate-ice-servers$/);
-  assert.equal(runtime.requests[0].options.headers.Authorization, "Bearer server-only-api-token");
+  assert.equal(runtime.requests[0].options.headers.Authorization, "Bearer server-only-turn-key-secret");
   assert.deepEqual(JSON.parse(runtime.requests[0].options.payload), { ttl: 172800 });
   assert.equal(runtime.cacheTtl, 21600);
-  assert.ok(!JSON.stringify(config).includes("server-only-api-token"));
+  assert.ok(!JSON.stringify(config).includes("server-only-turn-key-secret"));
   assert.ok(runtime.sandbox.testCloudflareTurnSetup);
 });
 
 test("Cloudflare TURN credentials are cached to avoid API calls on every device poll", () => {
   const runtime = createRuntime({
-    properties: { CF_TURN_KEY_ID: "turn-key-id", CF_TURN_API_TOKEN: "server-only-api-token" },
+    properties: { CF_TURN_KEY_ID: "turn-key-id", CF_TURN_KEY_SECRET: "server-only-turn-key-secret" },
     response: cloudflareResponse
   });
   runtime.sandbox.iceConfig_();
@@ -99,7 +99,7 @@ test("Cloudflare API failure preserves an existing custom TURN configuration", (
   const runtime = createRuntime({
     properties: {
       CF_TURN_KEY_ID: "turn-key-id",
-      CF_TURN_API_TOKEN: "server-only-api-token",
+      CF_TURN_KEY_SECRET: "server-only-turn-key-secret",
       TURN_URLS: '["turn:legacy.example:3478?transport=udp"]',
       TURN_USERNAME: "legacy-user",
       TURN_CREDENTIAL: "legacy-password"
@@ -118,18 +118,18 @@ test("Cloudflare API failure preserves an existing custom TURN configuration", (
 
 test("invalid Cloudflare response never leaks a secret or becomes a fake TURN server", () => {
   const runtime = createRuntime({
-    properties: { CF_TURN_KEY_ID: "turn-key-id", CF_TURN_API_TOKEN: "server-only-api-token" },
+    properties: { CF_TURN_KEY_ID: "turn-key-id", CF_TURN_KEY_SECRET: "server-only-turn-key-secret" },
     response: { iceServers: [{ urls: ["turn:turn.cloudflare.com:3478?transport=udp"] }] }
   });
   const config = runtime.sandbox.iceConfig_();
   assert.equal(config.turnConfigured, false);
   assert.equal(config.turnStatus, "cloudflare-unavailable");
-  assert.ok(!JSON.stringify(config).includes("server-only-api-token"));
+  assert.ok(!JSON.stringify(config).includes("server-only-turn-key-secret"));
 });
 
 test("Cloudflare API failures are briefly cached to protect Apps Script quotas", () => {
   const runtime = createRuntime({
-    properties: { CF_TURN_KEY_ID: "turn-key-id", CF_TURN_API_TOKEN: "server-only-api-token" },
+    properties: { CF_TURN_KEY_ID: "turn-key-id", CF_TURN_KEY_SECRET: "server-only-turn-key-secret" },
     response: { errors: [{ message: "unavailable" }] },
     httpStatus: 503
   });
@@ -155,7 +155,7 @@ test("Android receives TURN ICE servers from GAS without embedding Cloudflare AP
   assert.ok(rtc.includes('it.startsWith("turns:", true)'));
   assert.ok(rtc.includes("builder.setUsername(username)"));
   assert.ok(rtc.includes("builder.setPassword(credential)"));
-  assert.ok(!web.includes("CF_TURN_API_TOKEN"));
-  assert.ok(!config.includes("CF_TURN_API_TOKEN"));
-  assert.ok(!rtc.includes("CF_TURN_API_TOKEN"));
+  assert.ok(!web.includes("CF_TURN_KEY_SECRET"));
+  assert.ok(!config.includes("CF_TURN_KEY_SECRET"));
+  assert.ok(!rtc.includes("CF_TURN_KEY_SECRET"));
 });
