@@ -6,7 +6,7 @@
 const TABLES = {
   Devices: ["deviceId","ownerUserId","deviceName","deviceSecretHash","codeHash","codeExpiresAt","createdAt","registeredAt","lastSeen","status","controllerSecretHash"],
   Commands: ["commandId","deviceId","ownerUserId","command","payloadJson","createdAt","expiresAt","status"],
-  Signals: ["seq","sessionId","deviceId","sender","recipient","kind","sdp","candidateJson","createdAt","expiresAt"],
+  Signals: ["seq","sessionId","deviceId","sender","recipient","kind","sdp","candidateJson","createdAt","expiresAt","metadataJson"],
   Settings: ["deviceId","settingsJson","updatedAt"],
   Controllers: ["controllerId","deviceId","controllerTokenHash","createdAt","lastSeen","status"],
   LocationHistory: ["locationId","userId","deviceId","lat","lng","accuracy","timestamp","mode"],
@@ -491,7 +491,7 @@ function devicePoll_(r) {
     const seq = Number(v[0] || i + 2);
     if (v[2] === id && v[3] === "viewer" && v[4] === "device" &&
         seq > after && new Date(v[9]).getTime() > Date.now()) {
-      signals.push({ seq: seq, sessionId: v[1], kind: v[5], sdp: v[6], candidate: v[7] ? JSON.parse(v[7]) : null });
+      signals.push({ seq: seq, sessionId: v[1], kind: v[5], sdp: v[6], candidate: v[7] ? JSON.parse(v[7]) : null, metadata: parseSignalMetadata_(v[10]) });
     }
   }
   const settingsHit = find_("Settings", 0, id);
@@ -508,6 +508,16 @@ function devicePoll_(r) {
     settings: settings,
     iceServers: iceServers_()
   };
+}
+
+function parseSignalMetadata_(value) {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    return {};
+  }
 }
 
 function sendSignal_(r) {
@@ -531,11 +541,18 @@ function sendSignal_(r) {
   }
   const sdp = String(r.sdp || "").slice(0, 200000);
   const candidate = r.candidate ? JSON.stringify(r.candidate).slice(0, 10000) : "";
+  const metadata = {};
+  if (sender === "viewer" && kind === "offer") {
+    const iceMode = String(r.iceMode || "all");
+    if (!["all", "direct", "ipv6", "relay"].includes(iceMode)) throw Error("iceModeが不正です。");
+    metadata.iceMode = iceMode;
+  }
+  const metadataJson = Object.keys(metadata).length ? JSON.stringify(metadata).slice(0, 1000) : "";
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   let seq = 0;
   try {
-    seq = append_("Signals", [0, session, id, sender, recipient, kind, sdp, candidate, now_(), new Date(Date.now() + SIGNAL_MINUTES * 60000)]);
+    seq = append_("Signals", [0, session, id, sender, recipient, kind, sdp, candidate, now_(), new Date(Date.now() + SIGNAL_MINUTES * 60000), metadataJson]);
     sheet_("Signals").getRange(seq, 1).setValue(seq);
   } finally {
     lock.releaseLock();
@@ -553,7 +570,7 @@ function pollSignals_(r) {
     const v = data[i];
     const seq = Number(v[0] || i + 2);
     if (v[1] === session && v[2] === d.deviceId && v[4] === "viewer" && seq > after && new Date(v[9]).getTime() > Date.now()) {
-      signals.push({ seq: seq, kind: v[5], sdp: v[6], candidate: v[7] ? JSON.parse(v[7]) : null });
+      signals.push({ seq: seq, kind: v[5], sdp: v[6], candidate: v[7] ? JSON.parse(v[7]) : null, metadata: parseSignalMetadata_(v[10]) });
     }
   }
   return { ok: true, signals: signals };
