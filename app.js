@@ -2345,7 +2345,7 @@ function startRtcStats() {
           const localCandidate = item.localCandidateId ? stats.get(item.localCandidateId) : null;
           const remoteCandidate = item.remoteCandidateId ? stats.get(item.remoteCandidateId) : null;
           const candidateTypes = [localCandidate?.candidateType, remoteCandidate?.candidateType];
-          route = candidateTypes.includes("relay") ? "TURN中継" : "直接経路";
+          route = candidateTypes.includes("relay") ? "TURN中継" : (candidateTypes.some(Boolean) ? "直接経路" : "未確定");
           if (Number.isFinite(item.currentRoundTripTime)) rtt = item.currentRoundTripTime;
         }
       });
