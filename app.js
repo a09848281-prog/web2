@@ -147,11 +147,11 @@ function renderIceDiagnostics() {
     ? (pair.family || "アドレス種別不明") + " / " + (pair.localType || "不明") + " ⇄ " + (pair.remoteType || "不明")
     : "未選択・未接続";
   const lines = [
-    "Remote Camera Web2 v2.8.10 — ICE / IPv6診断",
+    "Remote Camera Web2 v3.0.0 — ICE / IPv6診断",
     "更新: " + (ICE_DIAG.updatedAt ? new Date(ICE_DIAG.updatedAt).toLocaleString() : "まだありません"),
     "",
     "段階: " + ICE_DIAG.phase,
-    "接続試行: " + (ICE_DIAG.mode === "ipv6" ? "IPv6優先（グローバルIPv6候補のみ送信）" : (ICE_DIAG.mode === "relay" ? "TURN中継優先" : "通常（IPv4・IPv6自動）")),
+    "接続試行: " + (ICE_DIAG.mode === "ipv6" ? "直接接続・IPv6優先（グローバルIPv6候補のみ）" : (ICE_DIAG.mode === "relay" ? "TURN中継フォールバック" : "直接接続優先（STUNのみ・IPv4/IPv6自動）")),
     "TURN: " + (ICE_DIAG.turnStatus || "未確認") + " / " + (ICE_DIAG.turnProvider || "未確認"),
     "ICE gathering: " + ICE_DIAG.gatheringState,
     "ICE connection: " + ICE_DIAG.iceConnectionState,
@@ -1873,8 +1873,12 @@ async function connect(automatic = false) {
     }
 
     assertConnectAttempt(attemptId, device.deviceId);
-    const iceTransportPolicy = S.iceMode === "relay" && S.turnConfigured ? "relay" : "all";
-    const pc = new RTCPeerConnection({ iceServers: S.iceServers, iceTransportPolicy });
+    const relayAttempt = S.iceMode === "relay" && S.turnConfigured;
+    const activeIceServers = relayAttempt
+      ? S.iceServers
+      : RemoteCameraIce.stunOnlyServers(S.iceServers);
+    const iceTransportPolicy = relayAttempt ? "relay" : "all";
+    const pc = new RTCPeerConnection({ iceServers: activeIceServers, iceTransportPolicy });
     S.pc = pc;
     pc.onicegatheringstatechange = () => {
       if (S.pc !== pc) return;
@@ -2074,6 +2078,7 @@ async function connect(automatic = false) {
       sessionId,
       recipient: "device",
       kind: "offer",
+      iceMode: S.iceMode === "relay" ? "relay" : S.iceMode === "ipv6" ? "ipv6" : "direct",
       sdp: offerSdp
     }, 10000);
     assertConnectAttempt(attemptId, device.deviceId);
@@ -2690,7 +2695,14 @@ async function toggleAndroidMicrophone() {
   }
 }
 function readLiveSettings(){return {quality:$("quality").value,dataMode:$("dataMode").value,fps:Number($("fps").value),aspectRatio:$("aspectRatio").value,micNoise:Number($("micNoise").value),micSensitivity:Number($("micSensitivity").value),micGain:Number($("micGain").value),speakerVolume:Number($("androidSpeakerVolume").value),micMode:$("micMode").value};}
-function bytesText(value){const b=Math.max(0,Number(value)||0);if(b<1024)return b.toFixed(0)+" B";if(b<1048576)return (b/1024).toFixed(1)+" KB";return (b/1048576).toFixed(2)+" MB";}
+function bytesText(value){
+  const b=Math.max(0,Number(value)||0);
+  if(b<1024)return b.toFixed(0)+" B";
+  if(b<1048576)return (b/1024).toFixed(1)+" KB";
+  if(b<1073741824)return (b/1048576).toFixed(2)+" MB";
+  if(b<1099511627776)return (b/1073741824).toFixed(3)+" GB";
+  return (b/1099511627776).toFixed(3)+" TB";
+}
 
 const TURN_USAGE_STORAGE_PREFIX = "remote-camera-turn-usage-v1-";
 function currentTurnUsageMonth(date = new Date()) {
@@ -2723,49 +2735,28 @@ function renderTurnUsageMeter(status = "今月の中継通信量（このブラ�
   if (note) note.textContent = status;
 }
 function recordTurnUsage(stats, peer) {
-  let pair = null;
-  stats.forEach(item => {
-    if (item.type === "transport" && item.selectedCandidatePairId) {
-      pair = stats.get(item.selectedCandidatePairId) || pair;
-    }
-  });
-  if (!pair) {
-    stats.forEach(item => {
-      if (item.type === "candidate-pair" && item.state === "succeeded" && item.nominated) pair = item;
-    });
-  }
-  if (!pair) {
+  const sample = window.TurnUsage?.readSelectedPair(stats) || null;
+  if (!sample) {
     S.turnUsageLast = null;
-    renderTurnUsageMeter("中継経路を確認中");
+    renderTurnUsageMeter("選択中の通信経路を確認中");
     return;
   }
-  const local = pair.localCandidateId ? stats.get(pair.localCandidateId) : null;
-  const remote = pair.remoteCandidateId ? stats.get(pair.remoteCandidateId) : null;
-  const isRelay = local?.candidateType === "relay" || remote?.candidateType === "relay";
-  if (!isRelay) {
-    S.turnUsageLast = { peer, pairId: pair.id, sent: Number(pair.bytesSent) || 0, received: Number(pair.bytesReceived) || 0, relay: false };
-    renderTurnUsageMeter("現在は直接経路です（TURN中継量は増えません）");
-    return;
-  }
-  const sent = Math.max(0, Number(pair.bytesSent) || 0);
-  const received = Math.max(0, Number(pair.bytesReceived) || 0);
-  const previous = S.turnUsageLast;
-  if (previous && previous.peer === peer && previous.pairId === pair.id && previous.relay) {
-    const deltaSent = sent >= previous.sent ? sent - previous.sent : 0;
-    const deltaReceived = received >= previous.received ? received - previous.received : 0;
-    if (deltaSent || deltaReceived) {
-      const usage = readTurnUsage();
-      usage.sent += deltaSent;
-      usage.received += deltaReceived;
-      try {
-        localStorage.setItem(TURN_USAGE_STORAGE_PREFIX + usage.month, JSON.stringify(usage));
-      } catch (error) {
-        console.warn("TURN usage could not be saved locally", error);
-      }
+  const current = Object.assign({}, sample, { sessionKey: S.session || String(S.connectionAttemptId) });
+  const delta = window.TurnUsage?.calculateDelta(S.turnUsageLast, current) || { sent: 0, received: 0 };
+  if (current.relay && (delta.sent > 0 || delta.received > 0)) {
+    const usage = readTurnUsage();
+    usage.sent += delta.sent;
+    usage.received += delta.received;
+    try {
+      localStorage.setItem(TURN_USAGE_STORAGE_PREFIX + usage.month, JSON.stringify(usage));
+    } catch (error) {
+      console.warn("TURN usage could not be saved locally", error);
     }
   }
-  S.turnUsageLast = { peer, pairId: pair.id, sent, received, relay: true };
-  renderTurnUsageMeter("中継経路を計測中（推定値）");
+  S.turnUsageLast = current;
+  renderTurnUsageMeter(current.relay
+    ? "TURN中継経路を計測中（RTC統計による推定値）"
+    : "現在は直接経路です（TURN中継量は増えません）");
 }
 
 function renderDeviceInfo() {
