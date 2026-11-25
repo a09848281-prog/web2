@@ -1695,9 +1695,9 @@ async function connect(automatic = false) {
       }
     };
 
-    const offer = await withTimeout(pc.createOffer(), 10000, "接続要求の作成");
+    const offer = await withTimeout(pc.createOffer(), 8000, "接続要求の作成");
     assertConnectAttempt(attemptId, device.deviceId);
-    await withTimeout(pc.setLocalDescription(offer), 10000, "接続情報の設定");
+    await withTimeout(pc.setLocalDescription(offer), 8000, "接続情報の設定");
     assertConnectAttempt(attemptId, device.deviceId);
     recordIceDiagnostic("ICE候補を収集中です。", {
       phase: "ICE候補収集",
