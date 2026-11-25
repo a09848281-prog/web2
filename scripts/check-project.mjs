@@ -228,8 +228,8 @@ assert.ok(gas.includes("activeControllerCount_(deviceId) >= 3"), "Three-controll
 assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi permission missing");
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
 assert.ok(androidBuild.includes('versionName = "3.0.0"'), "Android app version must be v3.0.0");
-assert.ok(androidBuild.includes("versionCode = 437"), "Android version code must be 437");
-assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v31"'), "v3.0.0 must preserve the preview package ID");
+assert.ok(androidBuild.includes("versionCode = 438"), "Android version code must be 438");
+assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v32"'), "v3.0.0 must preserve the preview package ID");
 assert.ok(webConfig.includes('"appVersion": "3.0.0"'), "Web config version must be v3.0.0");
 assert.ok(html.includes("v3.0.0 Release"), "PWA display version must be v3.0.0");
 assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v3-0-0-release-1"'), "PWA cache key must be bumped for v3.0 release");
@@ -288,7 +288,7 @@ assert.ok(js.includes("function refreshIceDiagnostics(") && js.includes("functio
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.4.0"'), "GAS API version must be 1.4.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 437"), "Android version code must be 437 for v3.0.0");
+assert.ok(androidBuild.includes("versionCode = 438"), "Android version code must be 438 for v3.0.0");
 assert.equal(manifestJson.name, "Remote Camera Web2 v3.0.0", "PWA display name must match v3.0.0");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 assert.ok(html.includes('id="reserveAt" type="datetime-local" step="1"'), "Web schedule must accept second precision");
@@ -436,7 +436,7 @@ assert.ok(!html.includes('option value="ultra"') && html.includes('type="hidden"
 
 const androidConfigVersion = JSON.parse(webConfig).appVersion;
 assert.equal(androidConfigVersion, "3.0.0", "Web config must identify the current Android preview version");
-assert.ok(androidBuild.includes('versionCode = 437'), "Android versionCode must be incremented for the v3.0.0 APK");
+assert.ok(androidBuild.includes('versionCode = 438'), "Android versionCode must be incremented for the v3.0.0 APK");
 assert.ok(androidBuild.includes('versionName = "' + androidConfigVersion + '"'), "Android APK versionName must match config.json");
 assert.ok(manifest.includes('android:label="Remote Camera Web2 v3.0.0"'), "Android launcher label must match v3.0.0");
 assert.ok(config.includes("release/v3.0/config.json"), "Android must load config.json from the active v3.0.0 branch");
