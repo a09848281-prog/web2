@@ -47,7 +47,10 @@
     if (!groups) return false;
     // Global unicast currently uses 2000::/3. Exclude the documentation block.
     if ((groups[0] & 0xe000) !== 0x2000) return false;
-    if (groups[0] === 0x2001 && groups[1] === 0x0db8) return false;
+    // Exclude special-purpose, documentation, deprecated 6to4 and reserved ranges.
+    if (groups[0] === 0x2001 && groups[1] <= 0x01ff) return false; // 2001::/23
+    if (groups[0] === 0x2002) return false; // 6to4
+    if (groups[0] === 0x3fff) return false; // 3fff::/20 documentation prefix
     return true;
   }
 
