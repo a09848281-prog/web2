@@ -159,3 +159,12 @@ test("Android receives TURN ICE servers from GAS without embedding Cloudflare AP
   assert.ok(!config.includes("CF_TURN_KEY_SECRET"));
   assert.ok(!rtc.includes("CF_TURN_KEY_SECRET"));
 });
+
+test("Web retries failed ICE connections with TURN relay-only policy", () => {
+  const app = fs.readFileSync("app.js", "utf8");
+  assert.ok(app.includes('forceTurnRelay: false'));
+  assert.ok(app.includes('S.forceTurnRelay = false'));
+  assert.ok(app.includes('iceTransportPolicy = S.forceTurnRelay && S.turnConfigured ? "relay" : "all"'));
+  assert.ok(app.includes('["failed", "disconnected", "setup-timeout"].includes(reason)'));
+  assert.ok(app.includes('S.forceTurnRelay = true'));
+});
