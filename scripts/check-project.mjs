@@ -21,7 +21,9 @@ const motionTests = fs.readFileSync("tests/motion-core.test.cjs", "utf8");
 const audioUtils = fs.readFileSync("audio-utils.js", "utf8");
 const audioTests = fs.readFileSync("tests/audio-utils.test.cjs", "utf8");
 const locationUtils = fs.readFileSync("location-utils.js", "utf8");
+const turnUsage = fs.readFileSync("turn-usage.js", "utf8");
 const locationTests = fs.readFileSync("tests/location-utils.test.cjs", "utf8");
+const turnUsageTests = fs.readFileSync("tests/turn-usage.test.cjs", "utf8");
 const androidBuild = fs.readFileSync("android/app/build.gradle.kts", "utf8");
 const androidBuildWorkflow = fs.readFileSync(".github/workflows/android-build.yml", "utf8");
 const pagesWorkflow = fs.readFileSync(".github/workflows/deploy-v2.6-preview.yml", "utf8");
@@ -70,7 +72,7 @@ assert.ok(js.includes("function recordTurnUsage(stats, peer)"), "TURN usage mete
 assert.ok(js.includes('localStorage.setItem(TURN_USAGE_STORAGE_PREFIX + usage.month'), "TURN usage totals must persist per local calendar month");
 assert.ok(js.includes('local?.candidateType === "relay" || remote?.candidateType === "relay"'), "TURN meter must count only selected relay routes");
 assert.ok(html.includes("ExpressTURN中継通信量（推定）") && html.includes("公式の課金・集計値とは異なる"), "TURN meter must disclose estimated local-only accounting");
-assert.ok(serviceWorker.includes("v2-8-10-turn-meter-1"), "TURN meter cache version missing");
+assert.ok(serviceWorker.includes("v3-0-0-release-1"), "TURN meter cache version missing");
 assert.ok(js.includes('api("get_ice_config"'), "Web ICE configuration fetch missing");
 assert.ok(js.includes("function applyViewerZoom("), "Viewer zoom control missing");
 assert.ok(js.includes("function attachRemoteAudio("), "Web Audio receive routing missing");
@@ -78,6 +80,13 @@ assert.ok(js.includes("createGain()"), "Web Audio receive volume gain missing");
 assert.ok(js.includes("function setReceiveVolume("), "0-200% receive volume control missing");
 assert.ok(js.includes("function startAudioMeter("), "Incoming audio meter missing");
 assert.ok(html.includes("./location-utils.js"), "RTC location helper must be loaded before app.js");
+assert.ok(html.includes("./turn-usage.js") && serviceWorker.includes("turn-usage.js"), "TURN helper must load before app.js and be cached");
+assert.ok(turnUsage.includes("function readSelectedPair(") && turnUsage.includes("function calculateDelta("), "TURN meter helper missing");
+assert.ok(turnUsageTests.includes("only monotonic byte deltas") && turnUsageTests.includes("direct candidate pairs"), "TURN traffic regression tests missing");
+assert.ok(networkIce.includes("function stunOnlyServers(") && js.includes("RemoteCameraIce.stunOnlyServers(S.iceServers)"), "Initial attempts must prefer direct ICE without TURN candidates");
+assert.ok(js.includes("iceMode: S.iceMode") && gas.includes("metadataJson") && gas.includes("parseSignalMetadata_"), "GAS signaling must carry ICE mode metadata to Android");
+assert.ok(service.includes('signal.optJSONObject("metadata")?.optString("iceMode", "all")') && service.indexOf("rtc?.setQuality(currentQuality") < service.indexOf("rtc?.handleOffer(session"), "Camera profile must be applied before Android creates the RTC media session");
+assert.ok(rtc.includes("SENSOR_INFO_ACTIVE_ARRAY_SIZE") && rtc.includes("same-ratio formats are preferred"), "Camera sensor ratio and fallback must preserve field of view");
 assert.ok(serviceWorker.includes("location-utils.js"), "Location helper must be precached by the PWA service worker");
 assert.ok(js.includes('d.type==="location_update"'), "Web RTC location update receiver missing");
 assert.ok(js.includes("LocationUtils.normalizeLiveLocation"), "Incoming RTC coordinates must be validated");
@@ -218,19 +227,19 @@ assert.ok(gas.includes("Controllers:"), "Multi-controller storage sheet missing"
 assert.ok(gas.includes("activeControllerCount_(deviceId) >= 3"), "Three-controller pairing limit missing");
 assert.ok(manifest.includes("android.permission.ACCESS_WIFI_STATE"), "Wi-Fi permission missing");
 assert.ok(manifest.includes("android.permission.WAKE_LOCK"), "Live stream wake lock permission missing");
-assert.ok(androidBuild.includes('versionName = "2.8.10-preview"'), "Android app version must be v2.8.10");
-assert.ok(androidBuild.includes("versionCode = 436"), "Android version code must be 436");
-assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v31"'), "v2.8.10 must preserve the preview package ID");
-assert.ok(webConfig.includes('"appVersion": "2.8.10-preview"'), "Web config version must be v2.8.10");
-assert.ok(html.includes("v2.8.10 Preview"), "PWA display version must be v2.8.10");
-assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-10-bookmarklet-2"'), "PWA cache key must be bumped for bookmarklet panel update");
+assert.ok(androidBuild.includes('versionName = "3.0.0"'), "Android app version must be v3.0.0");
+assert.ok(androidBuild.includes("versionCode = 437"), "Android version code must be 437");
+assert.ok(androidBuild.includes('applicationId = "jp.a09848281.remotecamera.v31"'), "v3.0.0 must preserve the preview package ID");
+assert.ok(webConfig.includes('"appVersion": "3.0.0"'), "Web config version must be v3.0.0");
+assert.ok(html.includes("v3.0.0 Release"), "PWA display version must be v3.0.0");
+assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v3-0-0-release-1"'), "PWA cache key must be bumped for v3.0 release");
 
 const assetCacheVersions = [...html.matchAll(/\?v=([^"]+)"/g)].map(match => match[1]);
-assert.ok(assetCacheVersions.length >= 6 && assetCacheVersions.every(version => version === "2.8.10-bookmarklet-2"), "All versioned Web assets must use the v2.8.10 cache key");
+assert.ok(assetCacheVersions.length >= 6 && assetCacheVersions.every(version => version === "3.0.0-release-1"), "All versioned Web assets must use the v3.0.0 cache key");
 assert.ok(serviceWorker.includes("cache.match(event.request, { ignoreSearch: true })"), "PWA offline fallback must match precached assets with query strings");
-assert.ok(pagesWorkflow.includes("preview/v2.8.10-expressturn-stability") &&
-  pagesWorkflow.includes("path: v2810-source") &&
-  pagesWorkflow.includes("v2810-source/ _site/v2.8.10/"), "GitHub Pages workflow must publish the v2.8.10 branch under /v2.8.10/");
+assert.ok(pagesWorkflow.includes("release/v3.0") &&
+  pagesWorkflow.includes("path: v30-source") &&
+  pagesWorkflow.includes("v30-source/ _site/v3.0/"), "GitHub Pages workflow must publish the v3.0.0 branch under /v3.0.0/");
 assert.ok(pagesWorkflow.includes("name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}") &&
   pagesWorkflow.includes("artifact_name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}"),
   "GitHub Pages artifact names must be unique per workflow attempt");
@@ -279,8 +288,8 @@ assert.ok(js.includes("function refreshIceDiagnostics(") && js.includes("functio
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.4.0"'), "GAS API version must be 1.4.0");
 assert.ok(gas.includes('"9:16"'), "GAS must persist portrait capture ratio");
-assert.ok(androidBuild.includes("versionCode = 436"), "Android version code must be 436 for v2.8.10");
-assert.equal(manifestJson.name, "Remote Camera Web2 v2.8.10 Preview", "PWA display name must match v2.8.10");
+assert.ok(androidBuild.includes("versionCode = 437"), "Android version code must be 437 for v3.0.0");
+assert.equal(manifestJson.name, "Remote Camera Web2 v3.0.0 Release", "PWA display name must match v3.0.0");
 assert.ok(!/録画を開始|録音を開始/.test(html), "Recording UI must not exist");
 assert.ok(html.includes('id="reserveAt" type="datetime-local" step="1"'), "Web schedule must accept second precision");
 assert.ok(js.includes("S.reservationTimer = setInterval(checkConnectionReservation, 250)"), "Web reservation scheduler missing");
@@ -426,16 +435,16 @@ assert.ok(!html.includes('option value="ultra"') && html.includes('type="hidden"
 
 
 const androidConfigVersion = JSON.parse(webConfig).appVersion;
-assert.equal(androidConfigVersion, "2.8.10-preview", "Web config must identify the current Android preview version");
-assert.ok(androidBuild.includes('versionCode = 436'), "Android versionCode must be incremented for the v2.8.10 APK");
+assert.equal(androidConfigVersion, "3.0.0", "Web config must identify the current Android preview version");
+assert.ok(androidBuild.includes('versionCode = 437'), "Android versionCode must be incremented for the v3.0.0 APK");
 assert.ok(androidBuild.includes('versionName = "' + androidConfigVersion + '"'), "Android APK versionName must match config.json");
-assert.ok(manifest.includes('android:label="Remote Camera Web2 v2.8.10 Preview"'), "Android launcher label must match v2.8.10");
-assert.ok(config.includes("preview/v2.8.10-expressturn-stability/config.json"), "Android must load config.json from the active v2.8.10 branch");
+assert.ok(manifest.includes('android:label="Remote Camera Web2 v3.0.0 Release"'), "Android launcher label must match v3.0.0");
+assert.ok(config.includes("release/v3.0/config.json"), "Android must load config.json from the active v3.0.0 branch");
 assert.ok(!config.includes("preview/v2.7.1-fixes"), "Android must not depend on the retired v2.7.1 config branch");
 assert.ok(main.includes("private fun isValidGasUrl") &&
   main.includes("端末に保存済みのGAS設定を使用しています"), "Android must fall back to its last valid GAS URL if GitHub config fetch fails");
-assert.ok(androidBuildWorkflow.includes("remote-camera-web2-v2.8.10-expressturn-apk") &&
+assert.ok(androidBuildWorkflow.includes("remote-camera-web2-v3.0.0-release-apk") &&
   androidBuildWorkflow.includes("android/app/build/outputs/apk/debug/app-debug.apk"),
-  "GitHub Actions must upload the v2.8.10 debug APK artifact");
+  "GitHub Actions must upload the v3.0.0 debug APK artifact");
 assert.ok(androidBuildWorkflow.includes(":app:assembleDebug --stacktrace"), "Android CI must build the APK and preserve Gradle diagnostics");
-console.log("Web2 v2.8.10 Android config, version metadata, fallback, and APK artifact checks passed.");
+console.log("Web2 v3.0.0 Android config, version metadata, fallback, and APK artifact checks passed.");
