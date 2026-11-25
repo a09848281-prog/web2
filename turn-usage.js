@@ -31,9 +31,13 @@
   }
 
   function calculateDelta(previous, current) {
-    if (!previous || !current || !previous.relay || !current.relay ||
-        previous.id !== current.id || previous.sessionKey !== current.sessionKey) {
-      return { sent: 0, received: 0 };
+    if (!current || !current.relay) return { sent: 0, received: 0 };
+    // Count the pair's current counters the first time it becomes selected,
+    // and whenever a new relay pair/session is selected. This prevents the
+    // first polling interval from disappearing from the monthly estimate.
+    if (!previous || !previous.relay || previous.id !== current.id ||
+        previous.sessionKey !== current.sessionKey) {
+      return { sent: current.sent, received: current.received };
     }
     return {
       sent: current.sent >= previous.sent ? current.sent - previous.sent : 0,
