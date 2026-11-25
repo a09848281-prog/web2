@@ -133,8 +133,11 @@ test("Android receives standard ICE server URLs and reads TURN username/password
   assert.ok(!rtc.includes("EXPRESSTURN_CREDENTIAL"));
 });
 
-test("Web retries failed ICE connections with relay-only policy only when valid TURN credentials exist", () => {
+test("Web tries direct-only ICE first, then global IPv6, and enables TURN only as fallback", () => {
   const app = fs.readFileSync("app.js", "utf8");
+  const rtc = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/RtcEngine.kt", "utf8");
+  const monitor = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/MonitorService.kt", "utf8");
+  const gasSource = fs.readFileSync("gas/Code.gs", "utf8");
   assert.ok(app.includes('const relayAttempt = S.iceMode === "relay" && S.turnConfigured;'));
   assert.ok(app.includes("RemoteCameraIce.stunOnlyServers(S.iceServers)"));
   assert.ok(app.includes('iceTransportPolicy = relayAttempt ? "relay" : "all"'));
