@@ -237,6 +237,7 @@ assert.ok(html.includes("./network-ice.js") && serviceWorker.includes("network-i
 assert.ok(js.includes("RemoteCameraIce.filterSdpToGlobalIpv6") && js.includes("prepareIceRetry"), "IPv6 candidate retry path missing");
 assert.ok(networkIce.includes("function filterSdpToGlobalIpv6(") && networkIce.includes("function summarizeSdp("), "IPv6 candidate parser and filter missing");
 assert.ok(html.includes('id="iceDiagnosticsOutput"') && js.includes("function renderIceDiagnostics("), "Bookmarklet ICE diagnostics panel missing");
+assert.ok(js.includes("function sanitizeIceDiagnosticText(") && js.includes("sanitizeIceDiagnosticText(message)") && js.includes("safePatch.lastError = sanitizeIceDiagnosticText"), "ICE diagnostics must redact IP addresses before display and copy");
 assert.ok(js.includes("function refreshIceDiagnostics(") && js.includes("function copyIceDiagnostics("), "ICE diagnostics refresh/copy actions missing");
 assert.ok(gas.includes('micMode: ["ambient", "balanced", "voice"]'), "GAS microphone preset validation missing");
 assert.ok(gas.includes('const version = "1.4.0"'), "GAS API version must be 1.4.0");
