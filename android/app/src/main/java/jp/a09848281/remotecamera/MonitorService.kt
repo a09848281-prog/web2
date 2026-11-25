@@ -450,8 +450,12 @@ class MonitorService : Service() {
                                         rtc?.setMicSensitivity(prefs.getInt("micSensitivity", 70))
                                         rtc?.setMicGain(prefs.getInt("micGain", 100))
                                         rtc?.setNightMode(prefs.getBoolean("nightMode", false))
-                                        rtc?.handleOffer(session, signal.optString("sdp"))
+                                        // Apply camera profile before ensureMedia() creates the capturer
+                                        // and attaches it to the new PeerConnection.
                                         rtc?.setQuality(currentQuality, currentDataMode, currentFps, prefs.getString("aspectRatio", "original") ?: "16:9")
+                                        val iceMode = signal.optJSONObject("metadata")?.optString("iceMode", "all") ?: "all"
+                                        val allowTurn = iceMode != "direct" && iceMode != "ipv6"
+                                        rtc?.handleOffer(session, signal.optString("sdp"), allowTurn)
                                         notifyState("接続要求を処理しています")
                                     } catch (e: Exception) {
                                         Log.e("RemoteCameraService", "Offer handling failed; keep foreground service alive", e)
