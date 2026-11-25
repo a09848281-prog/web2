@@ -222,7 +222,7 @@ assert.ok(js.includes("S.deviceTelemetry?.cameraRecoveryActive === true"), "Came
 assert.ok(serviceWorker.includes("noise-suppressor-processor.js"), "Audio worklet must be precached");
 assert.ok(serviceWorker.includes("key.startsWith(CACHE_PREFIX)"), "Service worker must only delete its own cache namespace");
 assert.ok(!serviceWorker.includes("keys.filter(key => key !== CACHE)"), "Service worker must not delete unrelated origin caches");
-assert.ok(serviceWorker.includes("caches.open(CACHE).then(cache => cache.match(event.request))"), "Offline fallback must only read this PWA cache");
+assert.ok(serviceWorker.includes("caches.open(CACHE).then(cache => cache.match(event.request, { ignoreSearch: true }))"), "Offline fallback must only read this PWA cache and support versioned asset URLs");
 assert.ok(js.includes("viewportRestoreTimer"), "Viewport restore debounce timer missing");
 assert.ok(!js.includes('window.dispatchEvent(new Event("resize"))'), "Viewport restore must not recursively dispatch resize");
 assert.ok(js.includes('$("camera").disabled = !open || !S.androidCameraEnabled;'), "Camera selector must be disabled when Android camera is OFF");
