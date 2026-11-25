@@ -16,7 +16,7 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 
 - Branch: `release/v3.0`
 - PWA: `https://a09848281-prog.github.io/web2/v3.0/`
-- Android: `3.0.0` / versionCode `437` / package `jp.a09848281.remotecamera.v31` (updates the existing `.v31` package).
+- Android: `3.0.0` / versionCode `438` / package `jp.a09848281.remotecamera.v32` (installs alongside v2.8.10 `.v31`; fresh pairing is required).
 - Direct-first ICE: STUN-only direct IPv4/IPv6 attempt, global IPv6 direct retry, then ExpressTURN relay only after direct attempts fail.
 - Monthly TURN meter: browser-local monthly estimate from selected relay candidate-pair byte counters. Not ExpressTURN's official billing figure and not aggregated across browsers.
 - Camera original aspect ratio now uses the Camera2 active sensor area; unsupported sizes are selected by closest aspect ratio before resolution.
