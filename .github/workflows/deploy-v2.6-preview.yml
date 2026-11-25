@@ -14,6 +14,7 @@ on:
       - preview/v2.8.4-battery-pairing-layout-stability
       - preview/v2.8.5-reconnect-watchdog
       - preview/v2.8.6-lockscreen-camera-battery
+      - preview/v2.8.10-expressturn-stability
     paths:
       - "index.html"
       - "app.js"
@@ -25,6 +26,7 @@ on:
       - "manifest.webmanifest"
       - "sw.js"
       - "config.json"
+      - "icon.svg"
       - "noise-suppressor-processor.js"
       - "recovery-core.js"
       - "V2.7-AUTO-RECOVERY.md"
@@ -130,8 +132,13 @@ jobs:
         with:
           ref: preview/v2.8.6-lockscreen-camera-battery
           path: v286-source
+      - name: Checkout v2.8.10 ExpressTURN stability preview
+        uses: actions/checkout@v4
+        with:
+          ref: preview/v2.8.10-expressturn-stability
+          path: v2810-source
       - name: Run JavaScript regression and project checks
-        working-directory: v286-source
+        working-directory: v2810-source
         run: |
           node --check app.js
           node --check recovery-core.js
@@ -139,7 +146,7 @@ jobs:
           node scripts/check-project.mjs
       - name: Assemble site without replacing the homepage
         run: |
-          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6 _site/v2.6.1 _site/v2.7 _site/v2.7.1 _site/v2.8.0 _site/v2.8.1 _site/v2.8.2 _site/v2.8.3 _site/v2.8.4 _site/v2.8.5 _site/v2.8.6
+          mkdir -p _site/v2.1 _site/v2.5 _site/v2.6 _site/v2.6.1 _site/v2.7 _site/v2.7.1 _site/v2.8.0 _site/v2.8.1 _site/v2.8.2 _site/v2.8.3 _site/v2.8.4 _site/v2.8.5 _site/v2.8.6 _site/v2.8.10
           rsync -a --exclude='.git' base-site/ _site/
           rsync -a --exclude='.git' --exclude='.github' v21-source/ _site/v2.1/
           rsync -a --exclude='.git' --exclude='.github' v25-source/ _site/v2.5/
@@ -154,12 +161,13 @@ jobs:
           rsync -a --exclude='.git' --exclude='.github' v284-source/ _site/v2.8.4/
           rsync -a --exclude='.git' --exclude='.github' v285-source/ _site/v2.8.5/
           rsync -a --exclude='.git' --exclude='.github' v286-source/ _site/v2.8.6/
+          rsync -a --exclude='.git' --exclude='.github' v2810-source/ _site/v2.8.10/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           name: github-pages
           path: _site
-      - name: Deploy v2.8.6 lock-screen and battery preview
+      - name: Deploy versioned previews including v2.8.10 ExpressTURN
         id: deployment
         uses: actions/deploy-pages@v4
         with:
