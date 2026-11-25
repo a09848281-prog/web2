@@ -9,15 +9,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Remote Camera Web2 v2.8.10 Preview</title>
-<link rel="stylesheet" href="./app.css?v=2.8.10-preview">
+<link rel="stylesheet" href="./app.css?v=2.8.10-bookmarklet-1">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous">
 <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
-<script defer src="./motion-core.js?v=2.8.10-preview"></script>
-<script defer src="./audio-utils.js?v=2.8.10-preview"></script>
-<script defer src="./location-utils.js?v=2.8.10-preview"></script>
-<script defer src="./recovery-core.js?v=2.8.10-preview"></script>
-<script defer src="./network-ice.js?v=2.8.10-preview"></script>
-<script defer src="./app.js?v=2.8.10-preview"></script>
+<script defer src="./motion-core.js?v=2.8.10-bookmarklet-1"></script>
+<script defer src="./audio-utils.js?v=2.8.10-bookmarklet-1"></script>
+<script defer src="./location-utils.js?v=2.8.10-bookmarklet-1"></script>
+<script defer src="./recovery-core.js?v=2.8.10-bookmarklet-1"></script>
+<script defer src="./network-ice.js?v=2.8.10-bookmarklet-1"></script>
+<script defer src="./app.js?v=2.8.10-bookmarklet-1"></script>
 </head>
 <body>
 <header class="top">
@@ -231,7 +231,7 @@
 
 <dialog id="bookmarkDialog"><form method="dialog" class="dialog">
   <button class="close" aria-label="閉じる">×</button><h2>ブックマークレット</h2>
-  <p>下のコードをブックマークのURL欄へ登録すると、どのページからでもWeb2を開けます。認証情報はコードに含まれません。</p>
+  <p>下のコードをブックマークのURL欄へ登録すると、今見ているページの上にWeb2を表示できます。上部バーで移動、右下をドラッグして大きさを調整できます。Escキーまたは×で閉じます。カメラ・マイク・位置情報が許可されない場合は、パネル上部の「別タブ」を使ってください。認証情報はコードに含まれません。</p>
   <textarea id="bookmarkletCode" rows="4" readonly></textarea>
   <button id="copyBookmarklet" type="button" class="primary wide">コードをコピー</button>
   <p id="bookmarkMessage" aria-live="polite">ブックマーク名は「Remote Camera Web2」などにしてください。</p>
