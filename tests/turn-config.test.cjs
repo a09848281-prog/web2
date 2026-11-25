@@ -169,3 +169,9 @@ test("Web retries failed ICE connections with TURN relay-only policy", () => {
   assert.ok(app.includes('S.forceTurnRelay = true'));
   assert.ok(app.includes('次の接続でTURN中継のみを試します'));
 });
+
+test("Web status text does not claim a direct path when TURN relay can be selected", () => {
+  const app = fs.readFileSync("app.js", "utf8");
+  assert.ok(app.includes("監視中・DataChannel接続"));
+  assert.ok(!app.includes("監視中・DataChannel直接接続"));
+});
