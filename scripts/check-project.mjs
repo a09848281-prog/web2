@@ -70,7 +70,7 @@ assert.ok(js.includes("function exportMotionCsv("), "Motion CSV export missing")
 assert.ok(js.includes("function maybeAdaptQuality("), "Adaptive quality policy missing");
 assert.ok(js.includes("function recordTurnUsage(stats, peer)"), "TURN usage meter must use WebRTC selected candidate-pair statistics");
 assert.ok(js.includes('localStorage.setItem(TURN_USAGE_STORAGE_PREFIX + usage.month'), "TURN usage totals must persist per local calendar month");
-assert.ok(js.includes('local?.candidateType === "relay" || remote?.candidateType === "relay"'), "TURN meter must count only selected relay routes");
+assert.ok(turnUsage.includes('local?.candidateType === "relay" || remote?.candidateType === "relay"'), "TURN meter must count only selected relay routes");
 assert.ok(html.includes("ExpressTURN中継通信量（推定）") && html.includes("公式の課金・集計値とは異なる"), "TURN meter must disclose estimated local-only accounting");
 assert.ok(serviceWorker.includes("v3-0-0-release-1"), "TURN meter cache version missing");
 assert.ok(js.includes('api("get_ice_config"'), "Web ICE configuration fetch missing");
