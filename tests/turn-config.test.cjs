@@ -30,7 +30,13 @@ test("ExpressTURN free-plan credentials are returned only with the documented UD
   assert.equal(config.turnProvider, "expressturn");
   assert.equal(config.turnStatus, "ready");
   assert.deepEqual(JSON.parse(JSON.stringify(config.iceServers)), [
-    { urls: ["stun:stun.l.google.com:19302"] },
+    { urls: [
+      "stun:stun.l.google.com:19302",
+      "stun:stun1.l.google.com:19302",
+      "stun:stun2.l.google.com:19302",
+      "stun:stun3.l.google.com:19302",
+      "stun:stun4.l.google.com:19302"
+    ] },
     {
       urls: [
         "turn:free.expressturn.com:3478?transport=udp",
@@ -50,7 +56,13 @@ test("missing ExpressTURN credentials safely fall back to Google STUN only", () 
   assert.equal(config.turnProvider, "stun-only");
   assert.equal(config.turnStatus, "not-configured");
   assert.deepEqual(JSON.parse(JSON.stringify(config.iceServers)), [
-    { urls: ["stun:stun.l.google.com:19302"] }
+    { urls: [
+      "stun:stun.l.google.com:19302",
+      "stun:stun1.l.google.com:19302",
+      "stun:stun2.l.google.com:19302",
+      "stun:stun3.l.google.com:19302",
+      "stun:stun4.l.google.com:19302"
+    ] }
   ]);
 });
 
