@@ -15,6 +15,9 @@ test("classifies IPv4, global IPv6, private IPv6 and obfuscated addresses withou
   assert.equal(Ice.classifyAddress("fd12:3456:789a::1"), "ipv6-non-global");
   assert.equal(Ice.classifyAddress("fe80::1"), "ipv6-non-global");
   assert.equal(Ice.classifyAddress("2001:db8::1"), "ipv6-non-global");
+  assert.equal(Ice.classifyAddress("2001:0:1::1"), "ipv6-non-global");
+  assert.equal(Ice.classifyAddress("2002::1"), "ipv6-non-global");
+  assert.equal(Ice.classifyAddress("3fff::1"), "ipv6-non-global");
   assert.equal(Ice.classifyAddress("camera.local"), "unknown");
 });
 
