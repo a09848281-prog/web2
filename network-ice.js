@@ -45,12 +45,14 @@
   function isGlobalIpv6(value) {
     const groups = parseIpv6Groups(value);
     if (!groups) return false;
-    // Global unicast currently uses 2000::/3. Exclude the documentation block.
+    // Global unicast currently uses 2000::/3. Exclude known special-use ranges.
     if ((groups[0] & 0xe000) !== 0x2000) return false;
-    // Exclude special-purpose, documentation, deprecated 6to4 and reserved ranges.
-    if (groups[0] === 0x2001 && groups[1] <= 0x01ff) return false; // 2001::/23
-    if (groups[0] === 0x2002) return false; // 6to4
-    if (groups[0] === 0x3fff) return false; // 3fff::/20 documentation prefix
+    // IANA special-purpose 2001::/23 and documentation 2001:db8::/32.
+    if (groups[0] === 0x2001 &&
+        (groups[1] <= 0x01ff || groups[1] === 0x0db8)) return false;
+    if (groups[0] === 0x2002) return false; // Deprecated 6to4 transition prefix.
+    // Documentation 3fff::/20: first 16 bits 3fff and next four bits zero.
+    if (groups[0] === 0x3fff && (groups[1] & 0xf000) === 0x0000) return false;
     return true;
   }
 

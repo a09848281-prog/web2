@@ -2,12 +2,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 
-test("v2.8.9 embed mode routes GAS replies through the parent page", () => {
+test("v2.8.10 embed mode routes GAS replies through the parent page", () => {
   const app = fs.readFileSync("app.js", "utf8");
   const gas = fs.readFileSync("gas/Code.gs", "utf8");
   const config = JSON.parse(fs.readFileSync("config.json", "utf8"));
 
-  assert.equal(config.appVersion, "2.8.9-preview");
+  assert.equal(config.appVersion, "2.8.10-preview");
   assert.ok(app.includes('params.get("embed") === "1"'));
   assert.ok(app.includes("responseOrigin: S.embedHostOrigin"));
   assert.ok(app.includes("event.source === window.parent"));

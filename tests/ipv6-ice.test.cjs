@@ -2,6 +2,8 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
 const Ice = require("../network-ice.js");
 
 const candidate = (address, type = "host") =>
