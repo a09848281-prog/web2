@@ -2326,6 +2326,7 @@ function startRtcStats() {
       const stats = await peer.getStats();
       if (peer !== S.pc) return;
       let sent = 0, received = 0, rtt = null, lost = 0, packets = 0, fps = null;
+      let route = "未確定";
       let decodedVideoFrames = null;
       stats.forEach(item => {
         if (item.type === "outbound-rtp" && !item.isRemote && item.kind === "video") sent += Number(item.bytesSent || 0);
@@ -2340,8 +2341,13 @@ function startRtcStats() {
             }
           }
         }
-        if (item.type === "candidate-pair" && item.state === "succeeded" && item.nominated &&
-            Number.isFinite(item.currentRoundTripTime)) rtt = item.currentRoundTripTime;
+        if (item.type === "candidate-pair" && item.state === "succeeded" && item.nominated) {
+          const localCandidate = item.localCandidateId ? stats.get(item.localCandidateId) : null;
+          const remoteCandidate = item.remoteCandidateId ? stats.get(item.remoteCandidateId) : null;
+          const candidateTypes = [localCandidate?.candidateType, remoteCandidate?.candidateType];
+          route = candidateTypes.includes("relay") ? "TURN中継" : "直接経路";
+          if (Number.isFinite(item.currentRoundTripTime)) rtt = item.currentRoundTripTime;
+        }
       });
       const now = performance.now();
       if (decodedVideoFrames !== null) {
@@ -2372,6 +2378,7 @@ function startRtcStats() {
       metricParts.push("速度 " + (bitrateKbps === null ? "--" : bitrateKbps + "kbps"));
       metricParts.push("RTT " + (rtt === null ? "--" : Math.round(rtt * 1000) + "ms"));
       metricParts.push("損失 " + (lossPercent === null ? "--" : lossPercent.toFixed(1) + "%"));
+      metricParts.push("経路 " + route);
       $("connectionMetrics").textContent = metricParts.join(" / ");
       maybeAdaptQuality(rtt === null ? null : rtt * 1000, lossPercent);
     } catch (_) {
