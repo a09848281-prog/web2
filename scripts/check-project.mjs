@@ -309,7 +309,7 @@ assert.ok(connectFunction.includes("void setWebMicEnabled(true)"), "Browser micr
 assert.ok(js.includes("connectionAttemptWatchdog") && js.includes("abortStalledConnectAttempt(attemptId)"),
   "A stuck WebRTC setup must be force-reset by a hard connection-attempt watchdog");
 assert.ok(js.includes("assertConnectAttempt(attemptId, device.deviceId)") &&
-  js.includes("withTimeout(pc.createOffer(), 8000"),
+  js.includes("withTimeout(pc.createOffer(), 10000"),
   "Connection stages must have stale-attempt guards and bounded promise waits");
 assert.ok(js.includes("consecutiveFailures >= 3") && js.includes("if (S.connecting)"),
   "Signal polling must trigger recovery after repeated failures without stacking reconnect timers");
