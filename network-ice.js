@@ -143,12 +143,29 @@
     return { ok: true, sdp: filtered, removed: removed, summary: summary, reason: "" };
   }
 
+  function stunOnlyServers(servers) {
+    const result = [];
+    if (Array.isArray(servers)) {
+      servers.forEach(server => {
+        if (!server || typeof server !== "object") return;
+        const rawUrls = server.urls;
+        const urls = Array.isArray(rawUrls) ? rawUrls : (typeof rawUrls === "string" ? [rawUrls] : []);
+        const stunUrls = urls.map(value => String(value || "").trim())
+          .filter(value => /^stuns?:[a-z0-9.-]+(?::[0-9]{1,5})?$/i.test(value));
+        if (stunUrls.length) result.push({ urls: [...new Set(stunUrls)] });
+      });
+    }
+    if (!result.length) result.push({ urls: ["stun:stun.l.google.com:19302"] });
+    return result;
+  }
+
   return {
     classifyAddress: classifyAddress,
     isGlobalIpv6: isGlobalIpv6,
     parseCandidateLine: parseCandidateLine,
     summarizeSdp: summarizeSdp,
     filterSdpToGlobalIpv6: filterSdpToGlobalIpv6,
-    hasUsableTurnServers: hasUsableTurnServers
+    hasUsableTurnServers: hasUsableTurnServers,
+    stunOnlyServers: stunOnlyServers
   };
 });
