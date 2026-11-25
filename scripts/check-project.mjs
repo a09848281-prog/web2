@@ -207,7 +207,7 @@ assert.ok(webConfig.includes('"appVersion": "2.8.10-preview"'), "Web config vers
 assert.ok(html.includes("v2.8.10 Preview"), "PWA display version must be v2.8.10");
 assert.ok(serviceWorker.includes('const CACHE = CACHE_PREFIX + "v2-8-10"'), "PWA cache key must be bumped to v2.8.10");
 
-const assetCacheVersions = [...html.matchAll(/(?:src|href)="\\.\\/[^"]+\\?v=([^"]+)"/g)].map(match => match[1]);
+const assetCacheVersions = [...html.matchAll(/\?v=([^"]+)"/g)].map(match => match[1]);
 assert.ok(assetCacheVersions.length >= 6 && assetCacheVersions.every(version => version === "2.8.10-preview"), "All versioned Web assets must use the v2.8.10 cache key");
 assert.ok(serviceWorker.includes("cache.match(event.request, { ignoreSearch: true })"), "PWA offline fallback must match precached assets with query strings");
 assert.ok(pagesWorkflow.includes("preview/v2.8.10-expressturn-stability") &&
