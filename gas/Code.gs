@@ -780,7 +780,93 @@ function deleteMotionEvents_(r) {
   return { ok: true, deleted: deleted };
 }
 
-function iceServers_() {
+function validateCloudflareIceServers_(value) {
+  if (!Array.isArray(value)) return null;
+  let stunUrls = [];
+  let turnUrls = [];
+  let username = "";
+  let credential = "";
+  value.forEach(function(item) {
+    if (!item || typeof item !== "object") return;
+    const rawUrls = item.urls;
+    const urls = Array.isArray(rawUrls) ? rawUrls : (typeof rawUrls === "string" ? [rawUrls] : []);
+    urls.forEach(function(rawUrl) {
+      const url = String(rawUrl || "").trim();
+      if (!url || /:53(?:\\?|$)/i.test(url)) return;
+      if (/^stun:stun\\.cloudflare\\.com:3478$/i.test(url)) stunUrls.push(url);
+      if (/^turns?:turn\\.cloudflare\\.com:\\d+(?:\\?transport=(?:udp|tcp))?$/i.test(url)) turnUrls.push(url);
+    });
+    if (turnUrls.length && !username && !credential) {
+      username = String(item.username || "").trim();
+      credential = String(item.credential || "").trim();
+    }
+  });
+  turnUrls = Array.from(new Set(turnUrls)).slice(0, 8);
+  stunUrls = Array.from(new Set(stunUrls));
+  if (!turnUrls.length || !username || !credential) return null;
+  if (!stunUrls.length) stunUrls.push("stun:stun.l.google.com:19302");
+  return [
+    { urls: stunUrls },
+    { urls: turnUrls, username: username, credential: credential }
+  ];
+}
+
+function cloudflareTurnIceConfig_() {
+  const props = PropertiesService.getScriptProperties();
+  const keyId = String(props.getProperty("CF_TURN_KEY_ID") || "").trim();
+  const apiToken = String(props.getProperty("CF_TURN_API_TOKEN") || "").trim();
+  if (!keyId || !apiToken) return { configured: false, iceServers: null, error: "" };
+
+  const cache = CacheService.getScriptCache();
+  const cacheKey = "CF_TURN_ICE_SERVERS_V1";
+  const readCache = function() {
+    const raw = cache.get(cacheKey);
+    if (!raw) return null;
+    try { return validateCloudflareIceServers_(JSON.parse(raw)); }
+    catch (error) { return null; }
+  };
+  const cached = readCache();
+  if (cached) return { configured: true, iceServers: cached, error: "" };
+
+  const lock = LockService.getScriptLock();
+  let locked = false;
+  try {
+    locked = lock.tryLock(5000);
+    if (!locked) {
+      const secondLook = readCache();
+      return { configured: true, iceServers: secondLook, error: secondLook ? "" : "TURN認証情報の更新が混み合っています。" };
+    }
+    const afterLock = readCache();
+    if (afterLock) return { configured: true, iceServers: afterLock, error: "" };
+
+    const endpoint = "https://rtc.live.cloudflare.com/v1/turn/keys/" +
+      encodeURIComponent(keyId) + "/credentials/generate-ice-servers";
+    const response = UrlFetchApp.fetch(endpoint, {
+      method: "post",
+      contentType: "application/json",
+      headers: { Authorization: "Bearer " + apiToken },
+      payload: JSON.stringify({ ttl: 172800 }),
+      muteHttpExceptions: true
+    });
+    const status = response.getResponseCode();
+    if (status < 200 || status >= 300) {
+      throw new Error("Cloudflare TURN API returned HTTP " + status);
+    }
+    const data = JSON.parse(response.getContentText() || "{}");
+    const servers = validateCloudflareIceServers_(data.iceServers);
+    if (!servers) throw new Error("Cloudflare TURN response did not contain valid ICE credentials");
+    cache.put(cacheKey, JSON.stringify(servers), 21600);
+    return { configured: true, iceServers: servers, error: "" };
+  } catch (error) {
+    const message = String(error && error.message ? error.message : error).slice(0, 180);
+    console.warn("Cloudflare TURN credential generation failed: " + message);
+    return { configured: true, iceServers: null, error: message };
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+function legacyIceServers_() {
   const props = PropertiesService.getScriptProperties();
   const servers = [{ urls: ["stun:stun.l.google.com:19302"] }];
   const rawUrls = String(props.getProperty("TURN_URLS") || "").trim();
@@ -791,7 +877,7 @@ function iceServers_() {
   try {
     const parsed = JSON.parse(rawUrls);
     urls = Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
-  } catch (err) {
+  } catch (error) {
     urls = rawUrls.split(",").map(function(value) { return value.trim(); });
   }
   urls = urls.filter(function(url) { return /^(turn|turns):/i.test(url); }).slice(0, 8);
@@ -799,7 +885,32 @@ function iceServers_() {
   return servers;
 }
 
+function iceConfig_() {
+  const cloudflare = cloudflareTurnIceConfig_();
+  if (cloudflare.iceServers) {
+    return { iceServers: cloudflare.iceServers, turnConfigured: true, turnProvider: "cloudflare", turnStatus: "ready", turnError: "" };
+  }
+  const legacy = legacyIceServers_();
+  const hasLegacyTurn = legacy.some(function(server) {
+    const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+    return urls.some(function(url) { return /^(turn|turns):/i.test(String(url || "")); });
+  });
+  return {
+    iceServers: legacy,
+    turnConfigured: hasLegacyTurn,
+    turnProvider: hasLegacyTurn ? "custom" : "stun-only",
+    turnStatus: hasLegacyTurn ? "custom" : (cloudflare.configured ? "cloudflare-unavailable" : "not-configured"),
+    turnError: cloudflare.error || ""
+  };
+}
+
+function iceServers_() {
+  return iceConfig_().iceServers;
+}
+
 function getIceConfig_(r) {
-  const controller = authController_(r);
-  return { ok: true, iceServers: iceServers_(), turnConfigured: iceServers_().length > 1 };
+  authController_(r);
+  const config = iceConfig_();
+  return { ok: true, iceServers: config.iceServers, turnConfigured: config.turnConfigured,
+    turnProvider: config.turnProvider, turnStatus: config.turnStatus, turnError: config.turnError };
 }
