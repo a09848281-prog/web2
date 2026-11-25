@@ -37,7 +37,7 @@ for (const id of referencedIds) {
   assert.ok(htmlIds.has(id), "JavaScript references missing HTML id: " + id);
 }
 
-for (const id of ["micNoise", "micSensitivity", "micGain", "androidSpeakerVolume", "androidSpeakerVolumeValue", "receiveVolume", "receiveVolumeValue", "micMode", "audioLevel", "audioLevelText", "remoteMute", "keepAwake", "fitMode", "videoState", "audioState", "cameraFacing", "flashState", "connectionMetrics", "gasTiming", "sessionDuration", "deviceInfo", "deviceInfoDialog", "deviceInfoOutput", "followLocation", "copyCoordinates", "diagnostics", "deviceTotal", "networkSummary", "deviceHealth", "deviceTxSpeed", "deviceRxSpeed", "torch", "reserveConnection", "cancelReservation", "reservationStatus", "androidScheduleStart", "androidScheduleEnd", "androidScheduleStatus", "refreshAndroidSchedule", "fps", "aspectRatio", "fullscreen", "bookmarkletOpen", "bookmarkletCode", "bookmarkDialog", "copyBookmarklet", "iceDiagnosticsOutput", "refreshIceDiagnostics", "copyIceDiagnostics", "zoom", "zoomValue", "zoomReset", "motionEnabled", "motionSensitivity", "motionNotify", "motionHistory", "motionExport", "motionClear", "motionDialog", "motionRows", "motionStatus"]) {
+for (const id of ["micNoise", "micSensitivity", "micGain", "androidSpeakerVolume", "androidSpeakerVolumeValue", "receiveVolume", "receiveVolumeValue", "micMode", "audioLevel", "audioLevelText", "remoteMute", "keepAwake", "fitMode", "videoState", "audioState", "cameraFacing", "flashState", "connectionMetrics", "gasTiming", "sessionDuration", "deviceInfo", "deviceInfoDialog", "deviceInfoOutput", "followLocation", "copyCoordinates", "diagnostics", "deviceTotal", "networkSummary", "deviceHealth", "deviceTxSpeed", "deviceRxSpeed", "turnUsageMonth", "turnUsageSent", "turnUsageReceived", "turnUsageTotal", "turnUsageNote", "torch", "reserveConnection", "cancelReservation", "reservationStatus", "androidScheduleStart", "androidScheduleEnd", "androidScheduleStatus", "refreshAndroidSchedule", "fps", "aspectRatio", "fullscreen", "bookmarkletOpen", "bookmarkletCode", "bookmarkDialog", "copyBookmarklet", "iceDiagnosticsOutput", "refreshIceDiagnostics", "copyIceDiagnostics", "zoom", "zoomValue", "zoomReset", "motionEnabled", "motionSensitivity", "motionNotify", "motionHistory", "motionExport", "motionClear", "motionDialog", "motionRows", "motionStatus"]) {
   assert.ok(html.includes('id="' + id + '"'), "Missing HTML element: " + id);
   assert.ok(js.includes('$("' + id + '")'), "Missing JavaScript reference: " + id);
 }
@@ -66,6 +66,11 @@ assert.ok(js.includes("function startMotionDetection("), "Motion detector missin
 assert.ok(js.includes("function loadMotionHistory("), "Motion event history UI missing");
 assert.ok(js.includes("function exportMotionCsv("), "Motion CSV export missing");
 assert.ok(js.includes("function maybeAdaptQuality("), "Adaptive quality policy missing");
+assert.ok(js.includes("function recordTurnUsage(stats, peer)"), "TURN usage meter must use WebRTC selected candidate-pair statistics");
+assert.ok(js.includes('localStorage.setItem(TURN_USAGE_STORAGE_PREFIX + usage.month'), "TURN usage totals must persist per local calendar month");
+assert.ok(js.includes('local?.candidateType === "relay" || remote?.candidateType === "relay"'), "TURN meter must count only selected relay routes");
+assert.ok(html.includes("ExpressTURN中継通信量（推定）") && html.includes("公式の課金・集計値とは異なる"), "TURN meter must disclose estimated local-only accounting");
+assert.ok(sw.includes("v2-8-10-turn-meter-1"), "TURN meter cache version missing");
 assert.ok(js.includes('api("get_ice_config"'), "Web ICE configuration fetch missing");
 assert.ok(js.includes("function applyViewerZoom("), "Viewer zoom control missing");
 assert.ok(js.includes("function attachRemoteAudio("), "Web Audio receive routing missing");
