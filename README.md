@@ -3,13 +3,25 @@
 Android・iPad・PC対応の個人利用向け遠隔監視カメラシステムです。
 旧web v3.8〜v4.1の画面構成とWeb2の機能を統合した独立プレビューです。
 
-- Current Web / Android stability preview: `preview/v2.8.5-reconnect-watchdog`
+- Current release: `release/v3.0` (v3.0.0)
 - PWA: GitHub Pages（iPad Safari / PC browser）
 - Android: Kotlin / Foreground Service / WebRTC
 - Signaling and history: Google Apps Script + Google Sheets
 - Live controls and media: WebRTC + DataChannel
 - Firebase / FCM / paid AI API / VPS: not used
 - No video recording, audio recording, or still-image saving
+
+
+## v3.0.0 Release
+
+- Branch: `release/v3.0`
+- PWA: `https://a09848281-prog.github.io/web2/v3.0/`
+- Android: `3.0.0` / versionCode `437` / package `jp.a09848281.remotecamera.v31` (updates the existing `.v31` package).
+- Direct-first ICE: STUN-only direct IPv4/IPv6 attempt, global IPv6 direct retry, then ExpressTURN relay only after direct attempts fail.
+- Monthly TURN meter: browser-local monthly estimate from selected relay candidate-pair byte counters. Not ExpressTURN's official billing figure and not aggregated across browsers.
+- Camera original aspect ratio now uses the Camera2 active sensor area; unsupported sizes are selected by closest aspect ratio before resolution.
+- Camera settings are applied before first media initialization to avoid replacing the capture profile during startup.
+- GAS `Code.gs` must be redeployed once; it adds a trailing `metadataJson` column without deleting existing sheet data.
 
 ## Previous stability baseline (v2.8.3)
 
@@ -86,8 +98,8 @@ Android・iPad・PC対応の個人利用向け遠隔監視カメラシステム�
 
 1. Deploy `gas/Code.gs` as a Google Apps Script Web App.
 2. Confirm `gasUrl` in `config.json` points to the deployed `/exec` URL. Do not commit TURN credentials or other secrets.
-3. Publish the PWA with the `Deploy Remote Camera Web2 Previews to GitHub Pages` workflow. It publishes versioned preview folders including `/v2.8.10/` alongside older versions without replacing the repository homepage.
-4. Build the Android APK with the `Android APK Build` workflow. Download the `remote-camera-web2-preview-v2.8.3-apk` artifact.
+3. Publish the PWA with the `Deploy Remote Camera Web2 Previews to GitHub Pages` workflow. It publishes versioned preview folders including `/v3.0/` and preserved `/v2.8.10/` alongside older versions without replacing the repository homepage.
+4. Build the Android APK with the `Android APK Build` workflow. Download the `remote-camera-web2-v3.0.0-release-apk` artifact.
 5. Follow `docs/WEB2-V2.1.0-CHECKLIST.md` for Galaxy A22 5G / Android 13 and iPad Safari tests.
 
 ## v2.7.1 Fixes Preview
