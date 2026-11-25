@@ -12,7 +12,8 @@ function createRuntime({ properties = {}, response = null, httpStatus = 201 } = 
     PropertiesService: { getScriptProperties: () => ({ getProperty: key => properties[key] ?? null }) },
     CacheService: { getScriptCache: () => ({
       get: key => cache.get(key) ?? null,
-      put: (key, value, ttl) => { cache.set(key, value); cacheTtl = ttl; }
+      put: (key, value, ttl) => { cache.set(key, value); cacheTtl = ttl; },
+      remove: key => cache.delete(key)
     }) },
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) },
     UrlFetchApp: { fetch: (url, options) => {
@@ -124,4 +125,16 @@ test("invalid Cloudflare response never leaks a secret or becomes a fake TURN se
   assert.equal(config.turnConfigured, false);
   assert.equal(config.turnStatus, "cloudflare-unavailable");
   assert.ok(!JSON.stringify(config).includes("server-only-api-token"));
+});
+
+test("Cloudflare API failures are briefly cached to protect Apps Script quotas", () => {
+  const runtime = createRuntime({
+    properties: { CF_TURN_KEY_ID: "turn-key-id", CF_TURN_API_TOKEN: "server-only-api-token" },
+    response: { errors: [{ message: "unavailable" }] },
+    httpStatus: 503
+  });
+  runtime.sandbox.iceConfig_();
+  runtime.sandbox.iceConfig_();
+  runtime.sandbox.iceConfig_();
+  assert.equal(runtime.requests.length, 1);
 });
