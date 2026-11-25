@@ -819,6 +819,7 @@ function cloudflareTurnIceConfig_() {
 
   const cache = CacheService.getScriptCache();
   const cacheKey = "CF_TURN_ICE_SERVERS_V1_" + keyId;
+  const failureKey = cacheKey + "_ERROR";
   const readCache = function() {
     const raw = cache.get(cacheKey);
     if (!raw) return null;
@@ -827,6 +828,8 @@ function cloudflareTurnIceConfig_() {
   };
   const cached = readCache();
   if (cached) return { configured: true, iceServers: cached, error: "" };
+  const previousError = cache.get(failureKey);
+  if (previousError) return { configured: true, iceServers: null, error: String(previousError) };
 
   const lock = LockService.getScriptLock();
   let locked = false;
@@ -856,10 +859,12 @@ function cloudflareTurnIceConfig_() {
     const servers = validateCloudflareIceServers_(data.iceServers);
     if (!servers) throw new Error("Cloudflare TURN response did not contain valid ICE credentials");
     cache.put(cacheKey, JSON.stringify(servers), 21600);
+    cache.remove(failureKey);
     return { configured: true, iceServers: servers, error: "" };
   } catch (error) {
     const message = String(error && error.message ? error.message : error).slice(0, 180);
     console.warn("Cloudflare TURN credential generation failed: " + message);
+    cache.put(failureKey, message, 60);
     return { configured: true, iceServers: null, error: message };
   } finally {
     if (locked) lock.releaseLock();
