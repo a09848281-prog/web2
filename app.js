@@ -228,7 +228,7 @@ async function copyIceDiagnostics() {
 
 function prepareIceRetry(reason) {
   const retryable = [
-    "failed", "disconnected", "setup-timeout", "connect-error", "android-answer-error",
+    "failed", "disconnected", "setup-timeout", "connect-error", "connect-timeout", "datachannel", "datachannel-error", "android-answer-error",
     "ice-gathering-failed", "ipv6-gathering-failed"
   ].includes(String(reason));
   if (!retryable) return;
