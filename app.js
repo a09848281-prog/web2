@@ -1581,6 +1581,14 @@ async function connect(automatic = false) {
         console.warn("TURN relay is not configured or unavailable; cross-Wi-Fi success may be limited.",
           turnStatus, String(iceConfig.turnError || ""));
       }
+      if (S.iceMode === "relay" && !S.turnConfigured) {
+        S.iceMode = "normal";
+        S.forceTurnRelay = false;
+        recordIceDiagnostic("TURN認証情報が取得できないため、通常のIPv4/IPv6方式へ戻します。", {
+          phase: "通常接続へフォールバック",
+          mode: "normal"
+        });
+      }
       recordIceDiagnostic("GASからICE設定を取得しました。", {
         phase: "PeerConnectionを作成中",
         turnStatus: turnStatus,
