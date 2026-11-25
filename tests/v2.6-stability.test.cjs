@@ -196,8 +196,8 @@ test("stalled WebRTC setup is bounded, invalidated and retried without stacked t
   assert.match(web, /connectionAttemptWatchdog/);
   assert.match(web, /abortStalledConnectAttempt\(attemptId\)/);
   assert.match(web, /assertConnectAttempt\(attemptId, device\.deviceId\)/);
-  assert.match(web, /withTimeout\(pc\.createOffer\(\), 8000/);
-  assert.match(web, /withTimeout\(pc\.setLocalDescription\(offer\), 8000/);
+  assert.match(web, /withTimeout\(pc\.createOffer\(\), 10000/);
+  assert.match(web, /withTimeout\(pc\.setLocalDescription\(offer\), 10000/);
   assert.match(web, /function api\(action, data = \{\}, timeoutMs = null\)/);
   assert.match(web, /consecutiveFailures >= 3/);
   assert.match(web, /if \(S\.connecting\) \{/);
