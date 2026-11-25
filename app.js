@@ -1,6 +1,16 @@
 "use strict";
 
 const $ = id => document.getElementById(id);
+
+function defaultIceServers() {
+  return [{ urls: [
+    "stun:stun.l.google.com:19302",
+    "stun:stun1.l.google.com:19302",
+    "stun:stun2.l.google.com:19302",
+    "stun:stun3.l.google.com:19302",
+    "stun:stun4.l.google.com:19302"
+  ] }];
+}
 const STORAGE_KEY = "rc_paired_devices_v1";
 const SELECTED_KEY = "rc_selected_device_v1";
 const AUTO_RECONNECT_PREFIX = "rc_auto_reconnect_v1_";
@@ -136,7 +146,7 @@ function renderIceDiagnostics() {
     ? (pair.family || "アドレス種別不明") + " / " + (pair.localType || "不明") + " ⇄ " + (pair.remoteType || "不明")
     : "未選択・未接続";
   const lines = [
-    "Remote Camera Web2 v2.8.9 — ICE / IPv6診断",
+    "Remote Camera Web2 v2.8.10 — ICE / IPv6診断",
     "更新: " + (ICE_DIAG.updatedAt ? new Date(ICE_DIAG.updatedAt).toLocaleString() : "まだありません"),
     "",
     "段階: " + ICE_DIAG.phase,
@@ -246,6 +256,7 @@ function prepareIceRetry(reason) {
   if (!retryable) return;
 
   if (S.iceMode === "relay") {
+    S.forceTurnRelay = false;
     S.nextIceMode = "normal";
     recordIceDiagnostic("TURN中継でも接続できませんでした。ネットワーク状態を確認して通常方式へ戻します。", {
       phase: "TURN接続失敗・通常方式へ戻す",
@@ -1578,6 +1589,10 @@ async function connect(automatic = false) {
     S.videoWatchdogGraceUntil = 0;
     S.statsFrameLast = null;
 
+    // Never reuse credentials from an earlier attempt if GAS is offline or misconfigured.
+    S.iceServers = defaultIceServers();
+    S.turnConfigured = false;
+    S.turnProvider = "stun-only";
     try {
       const iceConfig = await api("get_ice_config", {
         controllerToken: device.controllerToken, deviceId: device.deviceId
@@ -1586,17 +1601,23 @@ async function connect(automatic = false) {
       if (Array.isArray(iceConfig.iceServers) && iceConfig.iceServers.length) {
         S.iceServers = iceConfig.iceServers;
       }
-      S.turnConfigured = iceConfig.turnConfigured === true;
-      S.turnProvider = String(iceConfig.turnProvider || (S.turnConfigured ? "custom" : "stun-only"));
-      const turnStatus = String(iceConfig.turnStatus || (S.turnConfigured ? "ready" : "not-configured"));
+      const serverReportedTurn = iceConfig.turnConfigured === true;
+      S.turnConfigured = serverReportedTurn &&
+        window.RemoteCameraIce?.hasUsableTurnServers?.(S.iceServers) === true;
+      S.turnProvider = S.turnConfigured
+        ? String(iceConfig.turnProvider || "custom") : "stun-only";
+      const turnStatus = serverReportedTurn && !S.turnConfigured
+        ? "invalid-ice-config"
+        : String(iceConfig.turnStatus || (S.turnConfigured ? "ready" : "not-configured"));
       if (!S.turnConfigured) {
         console.warn("TURN relay is not configured or unavailable; cross-Wi-Fi success may be limited.",
           turnStatus, String(iceConfig.turnError || ""));
       }
       if (S.iceMode === "relay" && !S.turnConfigured) {
         S.iceMode = "normal";
+        S.nextIceMode = "normal";
         S.forceTurnRelay = false;
-        recordIceDiagnostic("TURN認証情報が取得できないため、通常のIPv4/IPv6方式へ戻します。", {
+        recordIceDiagnostic("有効なTURN設定を確認できないため、通常のIPv4/IPv6方式へ戻します。", {
           phase: "通常接続へフォールバック",
           mode: "normal"
         });
@@ -1612,13 +1633,12 @@ async function connect(automatic = false) {
       console.warn("ICE configuration unavailable; continue with built-in public STUN", iceError);
       S.turnConfigured = false;
       S.turnProvider = "stun-only";
-      S.iceServers = [{ urls: [
-        "stun:stun.l.google.com:19302",
-        "stun:stun1.l.google.com:19302",
-        "stun:stun2.l.google.com:19302",
-        "stun:stun3.l.google.com:19302",
-        "stun:stun4.l.google.com:19302"
-      ] }];
+      S.iceServers = defaultIceServers();
+      if (S.iceMode === "relay") {
+        S.iceMode = "normal";
+        S.nextIceMode = "normal";
+        S.forceTurnRelay = false;
+      }
       recordIceDiagnostic("GASのICE設定を取得できず、内蔵STUNで続行します。", {
         phase: "内蔵STUNでPeerConnectionを作成中",
         turnStatus: "GAS接続不可",
