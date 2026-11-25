@@ -1354,7 +1354,7 @@ async function connect(automatic = false) {
       if (S.pc !== pc) return;
       $("diagnostics").disabled = false;
       $("torch").disabled = !S.flashAvailable;
-      status("監視中・DataChannel直接接続", true);
+      status("監視中・DataChannel接続", true);
       $("streamState").textContent = "映像・音声・DataChannel接続中";
       markRtcStable(pc);
       updateWideCameraButton();
