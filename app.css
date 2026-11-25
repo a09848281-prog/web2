@@ -250,3 +250,5 @@
 .batteryForecastTarget select{min-width:105px;padding:6px 8px;border:1px solid #dce5ef;border-radius:8px;background:#fff;color:#26364b;font:inherit}
 .batteryForecastTarget select:disabled{opacity:.55}
 .batteryForecastHint{display:block;margin:0 0 8px}
+
+.iceDiagnosticsPanel{margin-top:14px;padding-top:12px;border-top:1px solid #e5eaf1}.iceDiagnosticsHead{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}.iceDiagnosticsHead h3{font-size:14px;margin:4px 0}.iceDiagnosticsHead button{font-size:11px;padding:7px 9px;min-height:32px}.iceDiagnosticsOutput{white-space:pre-wrap;overflow-wrap:anywhere;max-height:38vh;min-height:130px;overflow:auto;background:#f4f7fa;color:#34445b;border:1px solid #e0e7f0;border-radius:8px;padding:11px;font:11px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
