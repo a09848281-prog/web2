@@ -1,7 +1,7 @@
-name: Android APK Build (v2.8.10)
+name: Android APK Build (v3.0.0)
 on:
   push:
-    branches: [main, "preview/v2.0-stability", "preview/v2.0.1-location-rtc", "preview/v2.1.0-stability", "preview/v2.1.2-stability", "preview/v2.5-remote-screen", "preview/v2.6-stability", "preview/v2.6.1-stability", "preview/v2.7-auto-recovery", "preview/v2.7.1-fixes", "preview/v2.8.0-stable-reconnect", "preview/v2.8.3-fps-reconnect-stability", "preview/v2.8.4-battery-pairing-layout-stability", "preview/v2.8.5-reconnect-watchdog", "preview/v2.8.6-lockscreen-camera-battery", "preview/v2.8.9-ipv6-ice-diagnostics", "preview/v2.8.10-expressturn-stability"]
+    branches: [main, "preview/v2.0-stability", "preview/v2.0.1-location-rtc", "preview/v2.1.0-stability", "preview/v2.1.2-stability", "preview/v2.5-remote-screen", "preview/v2.6-stability", "preview/v2.6.1-stability", "preview/v2.7-auto-recovery", "preview/v2.7.1-fixes", "preview/v2.8.0-stable-reconnect", "preview/v2.8.3-fps-reconnect-stability", "preview/v2.8.4-battery-pairing-layout-stability", "preview/v2.8.5-reconnect-watchdog", "preview/v2.8.6-lockscreen-camera-battery", "preview/v2.8.9-ipv6-ice-diagnostics", "preview/v2.8.10-expressturn-stability", "release/v3.0"]
   pull_request:
     branches: [main, "preview/v2.0-stability", "preview/v2.1.0-stability", "preview/v2.5-remote-screen", "preview/v2.6-stability", "preview/v2.6.1-stability", "preview/v2.7-auto-recovery", "preview/v2.7.1-fixes", "preview/v2.8.0-stable-reconnect"]
   workflow_dispatch:
@@ -40,7 +40,7 @@ jobs:
         run: gradle --no-daemon :app:assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
         with:
-          name: remote-camera-web2-v2.8.10-expressturn-apk
+          name: remote-camera-web2-v3.0.0-release-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
