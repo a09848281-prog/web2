@@ -137,9 +137,9 @@ test("v3.0.0 version metadata and PWA cache stay synchronized", () => {
   const config = read("config.json");
   const sw = read("sw.js");
   const pwa = JSON.parse(read("manifest.webmanifest"));
-  assert.ok(build.includes("versionCode = 437"));
+  assert.ok(build.includes("versionCode = 438"));
   assert.ok(build.includes('versionName = "3.0.0"'));
-  assert.ok(build.includes('applicationId = "jp.a09848281.remotecamera.v31"'));
+  assert.ok(build.includes('applicationId = "jp.a09848281.remotecamera.v32"'));
   assert.ok(config.includes('"appVersion": "3.0.0"'));
   assert.ok(sw.includes("v3-0-0"));
   assert.ok(sw.includes("noise-suppressor-processor.js"));
