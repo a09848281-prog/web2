@@ -48,6 +48,7 @@ assert.ok(js.includes("function toggleFullscreen("), "Fullscreen handler missing
 assert.ok(js.includes("function bookmarkletPanelLauncher()"), "Resizable bookmarklet panel launcher missing");
 assert.ok(js.includes("bookmarkletPanelLauncher.toString()"), "Bookmarklet must serialize a self-contained launcher");
 assert.ok(js.includes("setPointerCapture") && js.includes("pointermove"), "Bookmarklet drag and touch resize handlers missing");
+assert.ok(js.includes("z-index:2147483647") && js.includes("document.documentElement.appendChild(host)"), "Bookmarklet overlay must stay above host page UI");
 assert.ok(js.includes('event.key !== "Escape"') && js.includes('data.type === "remote-camera-web2:close"'), "Escape close bridge missing");
 assert.ok(js.includes('frame.setAttribute("allow", "camera; microphone; geolocation; autoplay; fullscreen; picture-in-picture")'), "Embedded Web2 permissions must be delegated");
 assert.ok(js.includes('window.open(appUrl, "_blank", "noopener,noreferrer")'), "Separate-tab fallback missing");
