@@ -45,9 +45,13 @@ const S = {
     "stun:stun3.l.google.com:19302",
     "stun:stun4.l.google.com:19302"
   ] }],
+  turnConfigured: false,
+  turnProvider: "stun-only",
+  forceTurnRelay: false,
   iceMode: "normal",
   nextIceMode: "normal",
   ipv6RetryUsed: false,
+  relayRetryUsed: false,
   lastSuccessfulIceMode: "normal",
   motion: { enabled: false, sensitivity: 3, timer: null, previous: null, streak: 0, lastEventAt: 0, sendingDevices: new Set(), retryTimer: null },
   adaptive: { tier: 2, bad: 0, good: 0, lastChange: 0 },
@@ -81,6 +85,8 @@ const ICE_DIAG = {
   remoteSummary: null,
   selectedPair: null,
   lastError: "",
+  turnStatus: "未確認",
+  turnProvider: "未確認",
   events: [],
   updatedAt: 0
 };
@@ -122,7 +128,8 @@ function renderIceDiagnostics() {
     "更新: " + (ICE_DIAG.updatedAt ? new Date(ICE_DIAG.updatedAt).toLocaleString() : "まだありません"),
     "",
     "段階: " + ICE_DIAG.phase,
-    "接続試行: " + (ICE_DIAG.mode === "ipv6" ? "IPv6優先（グローバルIPv6候補のみ送信）" : "通常（IPv4・IPv6自動）"),
+    "接続試行: " + (ICE_DIAG.mode === "ipv6" ? "IPv6優先（グローバルIPv6候補のみ送信）" : (ICE_DIAG.mode === "relay" ? "TURN中継優先" : "通常（IPv4・IPv6自動）")),
+    "TURN: " + (ICE_DIAG.turnStatus || "未確認") + " / " + (ICE_DIAG.turnProvider || "未確認"),
     "ICE gathering: " + ICE_DIAG.gatheringState,
     "ICE connection: " + ICE_DIAG.iceConnectionState,
     "Peer connection: " + ICE_DIAG.connectionState,
@@ -221,27 +228,54 @@ async function copyIceDiagnostics() {
 
 function prepareIceRetry(reason) {
   const retryable = [
-    "failed", "disconnected", "setup-timeout", "android-answer-error",
+    "failed", "disconnected", "setup-timeout", "connect-error", "android-answer-error",
     "ice-gathering-failed", "ipv6-gathering-failed"
   ].includes(String(reason));
   if (!retryable) return;
-  if (S.iceMode === "ipv6") {
+
+  if (S.iceMode === "relay") {
     S.nextIceMode = "normal";
-    recordIceDiagnostic("IPv6優先接続が失敗したため、次はIPv4/IPv6通常方式へ戻します。", {
-      phase: "IPv6失敗・通常方式へフォールバック",
-      lastError: ICE_DIAG.lastError || "IPv6候補で接続を確立できませんでした。"
+    recordIceDiagnostic("TURN中継でも接続できませんでした。ネットワーク状態を確認して通常方式へ戻します。", {
+      phase: "TURN接続失敗・通常方式へ戻す",
+      lastError: ICE_DIAG.lastError || "TURN候補ペアを確立できませんでした。"
     });
     return;
   }
-  if (!S.ipv6RetryUsed) {
+
+  if (S.iceMode === "ipv6") {
+    if (S.turnConfigured && !S.relayRetryUsed) {
+      S.relayRetryUsed = true;
+      S.forceTurnRelay = true;
+      S.nextIceMode = "relay";
+      recordIceDiagnostic("IPv6優先接続が失敗したため、TURN中継で再試行します。", {
+        phase: "TURN中継の再試行を準備中"
+      });
+    } else {
+      S.nextIceMode = "normal";
+    }
+    return;
+  }
+
+  if (!S.ipv6RetryUsed && Number(ICE_DIAG.localSummary?.ipv6GlobalCount || 0) > 0) {
     S.ipv6RetryUsed = true;
     S.nextIceMode = "ipv6";
-    recordIceDiagnostic("通常接続に失敗。グローバルIPv6候補だけで1回再試行します。", {
+    recordIceDiagnostic("通常接続に失敗。取得済みグローバルIPv6候補で1回再試行します。", {
       phase: "IPv6優先の再試行を準備中",
       lastError: ICE_DIAG.lastError || ""
     });
     return;
   }
+
+  if (S.turnConfigured && !S.relayRetryUsed) {
+    S.relayRetryUsed = true;
+    S.forceTurnRelay = true;
+    S.nextIceMode = "relay";
+    recordIceDiagnostic("IPv6候補がない、または使用できないためTURN中継で再試行します。", {
+      phase: "TURN中継の再試行を準備中"
+    });
+    return;
+  }
+
   S.nextIceMode = "normal";
 }
 
@@ -1401,6 +1435,8 @@ function markRtcStable(peer) {
       S.reconnectAttempts = 0;
       S.lastSuccessfulIceMode = S.iceMode;
       S.ipv6RetryUsed = false;
+      S.relayRetryUsed = false;
+      S.forceTurnRelay = false;
     }
     S.reconnectResetTimer = null;
   }, 30000);
@@ -1476,6 +1512,8 @@ async function connect(automatic = false) {
     S.manualDisconnect = false;
     S.nextIceMode = "normal";
     S.ipv6RetryUsed = false;
+    S.relayRetryUsed = false;
+    S.forceTurnRelay = false;
     S.autoConnectWanted = true;
     setAutoReconnectIntent(device, true);
     S.reconnectAttempts = 0;
@@ -1507,11 +1545,13 @@ async function connect(automatic = false) {
     S.pttActive = false;
     const sessionId = rid();
     S.session = sessionId;
-    S.iceMode = automatic && S.nextIceMode === "ipv6" ? "ipv6" : "normal";
+    S.iceMode = automatic && ["ipv6", "relay"].includes(S.nextIceMode) ? S.nextIceMode : "normal";
     S.nextIceMode = "normal";
     recordIceDiagnostic("接続試行を開始します。", {
-      phase: "GASからSTUN設定を取得中",
+      phase: "GASからICE設定を取得中",
       mode: S.iceMode,
+      turnStatus: "取得中",
+      turnProvider: "未確認",
       gatheringState: "new",
       iceConnectionState: "new",
       connectionState: "new",
@@ -1534,25 +1574,42 @@ async function connect(automatic = false) {
       if (Array.isArray(iceConfig.iceServers) && iceConfig.iceServers.length) {
         S.iceServers = iceConfig.iceServers;
       }
-      recordIceDiagnostic("GASから無料STUN設定を取得しました。", {
-        phase: "PeerConnectionを作成中"
+      S.turnConfigured = iceConfig.turnConfigured === true;
+      S.turnProvider = String(iceConfig.turnProvider || (S.turnConfigured ? "custom" : "stun-only"));
+      const turnStatus = String(iceConfig.turnStatus || (S.turnConfigured ? "ready" : "not-configured"));
+      if (!S.turnConfigured) {
+        console.warn("TURN relay is not configured or unavailable; cross-Wi-Fi success may be limited.",
+          turnStatus, String(iceConfig.turnError || ""));
+      }
+      recordIceDiagnostic("GASからICE設定を取得しました。", {
+        phase: "PeerConnectionを作成中",
+        turnStatus: turnStatus,
+        turnProvider: S.turnProvider,
+        lastError: iceConfig.turnError ? String(iceConfig.turnError) : ""
       });
     } catch (iceError) {
       assertConnectAttempt(attemptId, device.deviceId);
-      console.warn("STUN configuration unavailable; continue with built-in Google STUN", iceError);
+      console.warn("ICE configuration unavailable; continue with built-in public STUN", iceError);
+      S.turnConfigured = false;
+      S.turnProvider = "stun-only";
       S.iceServers = [{ urls: [
         "stun:stun.l.google.com:19302",
         "stun:stun1.l.google.com:19302",
-        "stun:stun2.l.google.com:19302"
+        "stun:stun2.l.google.com:19302",
+        "stun:stun3.l.google.com:19302",
+        "stun:stun4.l.google.com:19302"
       ] }];
-      recordIceDiagnostic("GASのSTUN設定取得に失敗したため、内蔵STUN設定で続行します。", {
+      recordIceDiagnostic("GASのICE設定を取得できず、内蔵STUNで続行します。", {
         phase: "内蔵STUNでPeerConnectionを作成中",
-        lastError: "STUN設定取得: " + (iceError?.message || String(iceError))
+        turnStatus: "GAS接続不可",
+        turnProvider: "stun-only",
+        lastError: "ICE設定取得: " + (iceError?.message || String(iceError))
       });
     }
 
     assertConnectAttempt(attemptId, device.deviceId);
-    const pc = new RTCPeerConnection({ iceServers: S.iceServers });
+    const iceTransportPolicy = S.iceMode === "relay" && S.turnConfigured ? "relay" : "all";
+    const pc = new RTCPeerConnection({ iceServers: S.iceServers, iceTransportPolicy });
     S.pc = pc;
     pc.onicegatheringstatechange = () => {
       if (S.pc !== pc) return;
