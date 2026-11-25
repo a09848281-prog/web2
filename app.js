@@ -1466,8 +1466,12 @@ async function connect(automatic = false) {
     const iceReady = await withTimeout(waitIce(pc, 20000), 21000, "通信経路の準備");
     assertConnectAttempt(attemptId, device.deviceId);
     if (!iceReady) {
+      if (S.turnConfigured) {
+        S.forceTurnRelay = true;
+        $("streamState").textContent = "ICE候補収集に失敗・次の接続でTURN中継のみを試します";
+      }
       throw new Error(S.turnConfigured
-        ? "ICE候補の収集が20秒以内に完了しませんでした。ネットワークまたはTURNサーバーへの通信を確認してください。"
+        ? "ICE候補の収集が20秒以内に完了しませんでした。次の自動再接続ではTURN中継のみを試します。"
         : "TURN中継が未設定のため、別のWi-Fi間では接続できない可能性があります。GASのCloudflare TURN設定を確認してください。");
     }
 
