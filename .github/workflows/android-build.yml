@@ -1,7 +1,7 @@
 name: Android APK Build
 on:
   push:
-    branches: [main, "preview/v2.0-stability", "preview/v2.0.1-location-rtc", "preview/v2.1.0-stability", "preview/v2.1.2-stability", "preview/v2.5-remote-screen", "preview/v2.6-stability", "preview/v2.6.1-stability", "preview/v2.7-auto-recovery", "preview/v2.7.1-fixes", "preview/v2.8.0-stable-reconnect", "preview/v2.8.3-fps-reconnect-stability", "preview/v2.8.4-battery-pairing-layout-stability", "preview/v2.8.5-reconnect-watchdog", "preview/v2.8.6-lockscreen-camera-battery", "preview/v2.8.8-cloudflare-turn-ice", "preview/v2.8.9-ipv6-ice-diagnostics"]
+    branches: [main, "preview/v2.0-stability", "preview/v2.0.1-location-rtc", "preview/v2.1.0-stability", "preview/v2.1.2-stability", "preview/v2.5-remote-screen", "preview/v2.6-stability", "preview/v2.6.1-stability", "preview/v2.7-auto-recovery", "preview/v2.7.1-fixes", "preview/v2.8.0-stable-reconnect", "preview/v2.8.3-fps-reconnect-stability", "preview/v2.8.4-battery-pairing-layout-stability", "preview/v2.8.5-reconnect-watchdog", "preview/v2.8.6-lockscreen-camera-battery", "preview/v2.8.9-ipv6-ice-diagnostics", "preview/v2.8.10-expressturn-stability"]
   pull_request:
     branches: [main, "preview/v2.0-stability", "preview/v2.1.0-stability", "preview/v2.5-remote-screen", "preview/v2.6-stability", "preview/v2.6.1-stability", "preview/v2.7-auto-recovery", "preview/v2.7.1-fixes", "preview/v2.8.0-stable-reconnect"]
   workflow_dispatch:
