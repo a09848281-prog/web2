@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "remote-camera-web2-preview-";
-const CACHE = CACHE_PREFIX + "v2-8-7";
+const CACHE = CACHE_PREFIX + "v2-8-8";
 const SHELL = ["./", "./index.html", "./app.css", "./motion-core.js", "./audio-utils.js", "./location-utils.js", "./recovery-core.js", "./app.js", "./noise-suppressor-processor.js", "./manifest.webmanifest", "./icon.svg"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
