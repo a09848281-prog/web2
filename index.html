@@ -9,15 +9,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Remote Camera Web2 v2.8.10 Preview</title>
-<link rel="stylesheet" href="./app.css?v=2.8.10-bookmarklet-2">
+<link rel="stylesheet" href="./app.css?v=2.8.10-turn-meter-1">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous">
 <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
-<script defer src="./motion-core.js?v=2.8.10-bookmarklet-2"></script>
-<script defer src="./audio-utils.js?v=2.8.10-bookmarklet-2"></script>
-<script defer src="./location-utils.js?v=2.8.10-bookmarklet-2"></script>
-<script defer src="./recovery-core.js?v=2.8.10-bookmarklet-2"></script>
-<script defer src="./network-ice.js?v=2.8.10-bookmarklet-2"></script>
-<script defer src="./app.js?v=2.8.10-bookmarklet-2"></script>
+<script defer src="./motion-core.js?v=2.8.10-turn-meter-1"></script>
+<script defer src="./audio-utils.js?v=2.8.10-turn-meter-1"></script>
+<script defer src="./location-utils.js?v=2.8.10-turn-meter-1"></script>
+<script defer src="./recovery-core.js?v=2.8.10-turn-meter-1"></script>
+<script defer src="./network-ice.js?v=2.8.10-turn-meter-1"></script>
+<script defer src="./app.js?v=2.8.10-turn-meter-1"></script>
 </head>
 <body>
 <header class="top">
@@ -200,6 +200,7 @@
     <section class="telemetry">
       <div><b>Android通信量（接続開始から）</b><span id="deviceTx">送信 --</span><span id="deviceRx">受信 --</span><span id="deviceTxSpeed">送信速度 --</span><span id="deviceRxSpeed">受信速度 --</span><strong id="deviceTotal">合計 --</strong></div>
       <div><b>WebRTC通信</b><span id="rtcStats">RTT -- / 損失 --</span><span id="networkSummary">ネットワーク情報待ち</span></div>
+      <div><b>ExpressTURN中継通信量（推定）</b><span id="turnUsageMonth">----</span><span id="turnUsageSent">送信 --</span><span id="turnUsageReceived">受信 --</span><strong id="turnUsageTotal">合計 --</strong><small id="turnUsageNote" class="hint">このブラウザーのWebRTC統計から推定。ExpressTURN公式の課金・集計値とは異なる場合があります。</small></div>
       <div><b>Android端末</b><span id="deviceHealth">バッテリー -- / 温度 --</span><span class="hint">詳細は上部ツールバーの「端末情報」から確認できます。</span></div>
       <div><b>Androidアプリ通信量（このアプリのみ）</b><span id="deviceTx7d">過去7日・送信 --</span><span id="deviceRx7d">過去7日・受信 --</span><strong id="deviceTotal7d">過去7日・合計 --</strong><span id="deviceTx30d">過去30日・送信 --</span><span id="deviceRx30d">過去30日・受信 --</span><strong id="deviceTotal30d">過去30日・合計 --</strong><small class="hint">Android本体の全アプリ合計ではなく、Remote Cameraアプリの通信量です。待機サービスが動作中に計測します。</small></div>
       <div><b>ネットワーク診断</b><pre id="diagnosticOutput">接続後に診断情報を表示します。</pre></div>
