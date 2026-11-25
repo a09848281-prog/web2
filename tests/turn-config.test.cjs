@@ -151,8 +151,8 @@ test("Android receives TURN ICE servers from GAS without embedding Cloudflare AP
   const web = fs.readFileSync("app.js", "utf8");
   const config = fs.readFileSync("config.json", "utf8");
   assert.ok(monitor.includes("rtc?.setIceServers(response.optJSONArray(\"iceServers\"))"));
-  assert.ok(rtc.includes('url.startsWith("turn:", true)'));
-  assert.ok(rtc.includes('url.startsWith("turns:", true)'));
+  assert.ok(rtc.includes('it.startsWith("turn:", true)'));
+  assert.ok(rtc.includes('it.startsWith("turns:", true)'));
   assert.ok(rtc.includes("builder.setUsername(username)"));
   assert.ok(rtc.includes("builder.setPassword(credential)"));
   assert.ok(!web.includes("CF_TURN_API_TOKEN"));
