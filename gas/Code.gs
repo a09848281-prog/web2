@@ -814,8 +814,8 @@ function validateCloudflareIceServers_(value) {
 function cloudflareTurnIceConfig_() {
   const props = PropertiesService.getScriptProperties();
   const keyId = String(props.getProperty("CF_TURN_KEY_ID") || "").trim();
-  const apiToken = String(props.getProperty("CF_TURN_API_TOKEN") || "").trim();
-  if (!keyId || !apiToken) return { configured: false, iceServers: null, error: "" };
+  const keySecret = String(props.getProperty("CF_TURN_KEY_SECRET") || "").trim();
+  if (!keyId || !keySecret) return { configured: false, iceServers: null, error: "" };
 
   const cache = CacheService.getScriptCache();
   const cacheKey = "CF_TURN_ICE_SERVERS_V1_" + keyId;
@@ -849,7 +849,7 @@ function cloudflareTurnIceConfig_() {
     const response = UrlFetchApp.fetch(endpoint, {
       method: "post",
       contentType: "application/json",
-      headers: { Authorization: "Bearer " + apiToken },
+      headers: { Authorization: "Bearer " + keySecret },
       payload: JSON.stringify({ ttl: 172800 }),
       muteHttpExceptions: true
     });
