@@ -68,6 +68,7 @@ test("Cloudflare TURN credentials are generated server-side and sanitized", () =
   assert.deepEqual(JSON.parse(runtime.requests[0].options.payload), { ttl: 172800 });
   assert.equal(runtime.cacheTtl, 21600);
   assert.ok(!JSON.stringify(config).includes("server-only-api-token"));
+  assert.ok(runtime.sandbox.testCloudflareTurnSetup);
 });
 
 test("Cloudflare TURN credentials are cached to avoid API calls on every device poll", () => {
