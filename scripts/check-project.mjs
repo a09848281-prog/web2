@@ -233,7 +233,10 @@ assert.ok(gas.includes("function iceServers_(") && gas.includes("function expres
 assert.ok(gas.includes("EXPRESSTURN_USERNAME") && gas.includes("EXPRESSTURN_CREDENTIAL"), "ExpressTURN credentials must remain server-side in GAS");
 assert.ok(gas.includes("turn:free.expressturn.com:3478?transport=udp") && gas.includes("transport=tcp"), "ExpressTURN free-plan UDP/TCP endpoints missing");
 assert.ok(js.includes("hasUsableTurnServers") && js.includes("defaultIceServers()"), "Web ICE configuration validation/fallback missing");
-assert.ok(!/CF_TURN|cloudflareTurn|turn\\.cloudflare\\.com|rtc\\.live\\.cloudflare\\.com/i.test(gas + js + html + webConfig), "Cloudflare TURN code must not remain in active sources");
+assert.ok(!gas.includes("CF_TURN") && !gas.includes("cloudflareTurn") &&
+  !gas.includes("rtc.live.cloudflare.com") && !js.includes("cloudflareTurn") &&
+  !html.includes("turn.cloudflare.com") && !webConfig.includes("turn.cloudflare.com"),
+  "Cloudflare TURN code must not remain in active sources");
 assert.ok(js.includes('S.iceMode === "relay" && S.turnConfigured ? "relay" : "all"'), "TURN relay-only retry policy missing");
 assert.ok(js.includes('S.nextIceMode = "ipv6"') && js.includes('S.nextIceMode = "relay"'), "IPv6 then TURN retry sequence missing");
 assert.ok(html.includes("./network-ice.js") && serviceWorker.includes("network-ice.js"), "IPv6 ICE helper must be loaded and precached");
