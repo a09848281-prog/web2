@@ -122,9 +122,10 @@ test("Android receives standard ICE server URLs and reads TURN username/password
   const rtc = fs.readFileSync("android/app/src/main/java/jp/a09848281/remotecamera/RtcEngine.kt", "utf8");
   const web = fs.readFileSync("app.js", "utf8");
   const config = fs.readFileSync("config.json", "utf8");
+  const gasSource = fs.readFileSync("gas/Code.gs", "utf8");
   assert.ok(monitor.includes("rtc?.setIceServers(response.optJSONArray(\"iceServers\"))"));
-  assert.ok(rtc.includes('it.startsWith("turn:", true)'));
-  assert.ok(rtc.includes('it.startsWith("turns:", true)'));
+  assert.ok(rtc.includes('url.startsWith("turn:", true)'));
+  assert.ok(rtc.includes('url.startsWith("turns:", true)'));
   assert.ok(rtc.includes("builder.setUsername(username)"));
   assert.ok(rtc.includes("builder.setPassword(credential)"));
   assert.ok(!web.includes("EXPRESSTURN_CREDENTIAL"));
@@ -134,7 +135,12 @@ test("Android receives standard ICE server URLs and reads TURN username/password
 
 test("Web retries failed ICE connections with relay-only policy only when valid TURN credentials exist", () => {
   const app = fs.readFileSync("app.js", "utf8");
-  assert.ok(app.includes('S.iceMode === "relay" && S.turnConfigured ? "relay" : "all"'));
+  assert.ok(app.includes('const relayAttempt = S.iceMode === "relay" && S.turnConfigured;'));
+  assert.ok(app.includes("RemoteCameraIce.stunOnlyServers(S.iceServers)"));
+  assert.ok(app.includes('iceTransportPolicy = relayAttempt ? "relay" : "all"'));
+  assert.ok(rtc.includes("buildIceServers(allowTurn)") && rtc.includes("allowTurn &&"));
+  assert.ok(monitor.includes('signal.optJSONObject("metadata")?.optString("iceMode", "all")'));
+  assert.ok(gasSource.includes("metadataJson") && gasSource.includes("parseSignalMetadata_"));
   assert.ok(app.includes('S.nextIceMode = "ipv6"'));
   assert.ok(app.includes('S.nextIceMode = "relay"'));
   assert.ok(app.includes("hasUsableTurnServers"));
