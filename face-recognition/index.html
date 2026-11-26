@@ -45,12 +45,12 @@
       <div class="panelHead"><div><span class="eyebrow">ENROLLMENT</span><h2>顔を登録</h2></div><span class="count" id="sampleCount">0 samples</span></div>
       <label class="field">登録名<input id="personName" maxlength="40" placeholder="例：ユーザーA"></label>
       <label class="consent"><input id="consent" type="checkbox"> 登録する本人の同意を得ています</label>
-      <p class="hint">カメラを開始し、正面を向いてから撮影してください。顔画像は保存せず、特徴量のみをこのブラウザー内に保存します。同じ人を角度や表情を変えて3〜5回登録すると照合が安定しやすくなります。</p>
+      <p class="hint">カメラを開始し、正面を向いてから撮影してください。顔画像は保存せず、特徴量のみをこのブラウザー内に保存します。正面・少し左・少し右の3方向以上で登録してください。3サンプル以上が必要です。</p>
       <button class="btn primary full" id="captureSample" disabled>顔特徴量を追加</button>
       <button class="btn soft full" id="finishEnrollment" disabled>登録を確定</button>
       <div class="divider"></div>
       <div class="subhead"><h3>認識設定</h3></div>
-      <label class="field">照合感度 <output id="thresholdValue">標準 · 0.52</output><input id="threshold" type="range" min="40" max="70" value="52"></label>
+      <label class="field">照合しきい値 <output id="thresholdValue">標準 · 0.60</output><input id="threshold" type="range" min="45" max="75" value="60"></label>
       <p class="hint">数値を小さくすると誤認識を抑えやすくなりますが、本人を認識しにくくなる場合があります。一致率は確率ではなく、距離から算出した参考スコアです。</p>
       <label class="check"><input id="blinkCheck" type="checkbox"> まばたき状態を補助表示</label>
       <p class="hint warning">まばたき検出は簡易的な補助機能です。写真・動画・ディープフェイクを確実に見破る生体検知ではありません。</p>
