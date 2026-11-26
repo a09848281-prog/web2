@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f4f7fb">
+<meta name="description" content="GitHub Pagesで動く端末内処理の顔認識デモ。顔画像や特徴量を外部サーバーへ送信しません。">
+<title>FaceLab - 顔認識</title>
+<link rel="stylesheet" href="./style.css?v=1.0">
+<script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<script defer src="./app.js?v=1.0"></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="./"><span class="brandMark">F</span><span><b>FaceLab</b><small>ON-DEVICE FACE RECOGNITION</small></span></a>
+  <div class="status"><i id="statusDot"></i><span id="modelStatus">AIモデル未読込</span></div>
+</header>
+<main class="layout">
+  <section class="hero">
+    <div><p class="eyebrow">PRIVATE · LOCAL PROCESSING</p><h1>顔認識ワークスペース</h1><p>ディープラーニングで顔特徴量を抽出し、機械学習方式の近傍照合で登録データと比較します。</p></div>
+    <div class="heroBadge">端末内処理 <b>100%</b><small>外部AI APIなし</small></div>
+  </section>
+  <section class="grid">
+    <article class="panel cameraPanel">
+      <div class="panelHead"><div><span class="eyebrow">LIVE ANALYSIS</span><h2>リアルタイム認識</h2></div><span class="pill" id="cameraState">カメラ停止中</span></div>
+      <div class="videoWrap">
+        <video id="camera" autoplay muted playsinline></video>
+        <canvas id="overlay"></canvas>
+        <div id="cameraPlaceholder"><b>カメラを開始してください</b><span>HTTPS接続とカメラ権限が必要です</span></div>
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="startCamera">カメラを開始</button>
+        <button class="btn" id="stopCamera" disabled>停止</button>
+        <button class="btn soft" id="scanOnce" disabled>1回認識</button>
+      </div>
+      <div class="metrics">
+        <div><small>検出人数</small><b id="faceCount">0</b></div>
+        <div><small>登録済み</small><b id="registeredCount">0</b></div>
+        <div><small>認識状態</small><b id="recognitionState">待機中</b></div>
+      </div>
+      <div class="subhead"><h3>検出結果</h3><span class="muted">未登録者は一覧表示のみ・自動保存なし</span></div>
+      <div id="liveResults" class="resultList"><p class="empty">カメラを開始すると検出結果が表示されます。</p></div>
+    </article>
+    <aside class="panel registerPanel">
+      <div class="panelHead"><div><span class="eyebrow">ENROLLMENT</span><h2>顔を登録</h2></div><span class="count" id="sampleCount">0 samples</span></div>
+      <label class="field">登録名<input id="personName" maxlength="40" placeholder="例：ユーザーA"></label>
+      <label class="consent"><input id="consent" type="checkbox"> 登録する本人の同意を得ています</label>
+      <p class="hint">カメラを開始し、正面を向いてから撮影してください。顔画像は保存せず、特徴量のみをこのブラウザー内に保存します。同じ人を角度や表情を変えて3〜5回登録すると照合が安定しやすくなります。</p>
+      <button class="btn primary full" id="captureSample" disabled>顔特徴量を追加</button>
+      <button class="btn soft full" id="finishEnrollment" disabled>登録を確定</button>
+      <div class="divider"></div>
+      <div class="subhead"><h3>認識設定</h3></div>
+      <label class="field">照合感度 <output id="thresholdValue">標準 · 0.52</output><input id="threshold" type="range" min="40" max="70" value="52"></label>
+      <p class="hint">数値を小さくすると誤認識を抑えやすくなりますが、本人を認識しにくくなる場合があります。一致率は確率ではなく、距離から算出した参考スコアです。</p>
+      <label class="check"><input id="blinkCheck" type="checkbox"> まばたき状態を補助表示</label>
+      <p class="hint warning">まばたき検出は簡易的な補助機能です。写真・動画・ディープフェイクを確実に見破る生体検知ではありません。</p>
+    </aside>
+  </section>
+  <section class="grid lowerGrid">
+    <article class="panel">
+      <div class="panelHead"><div><span class="eyebrow">LOCAL DATABASE</span><h2>登録データ管理</h2></div><span class="count" id="peopleCount">0 人</span></div>
+      <div id="peopleList" class="peopleList"><p class="empty">登録データはありません。</p></div>
+      <div class="actions"><button class="btn" id="exportData">特徴量をJSON出力</button><button class="btn danger" id="clearData">全データ削除</button></div>
+      <p class="hint">JSON出力ファイルには顔特徴量が含まれます。第三者へ渡さず、安全な場所に保管してください。</p>
+    </article>
+    <article class="panel">
+      <div class="panelHead"><div><span class="eyebrow">AUTHENTICATION LOG</span><h2>認証履歴</h2></div><span class="count">最新10件</span></div>
+      <div id="historyList" class="historyList"><p class="empty">履歴はありません。</p></div>
+      <button class="btn" id="clearHistory">履歴を削除</button>
+    </article>
+  </section>
+  <footer class="footnote">FaceLab v1.0 · 顔認識は本人の同意を得たテスト用途に限って使用してください。顔認識結果だけで本人確認・入退室・決済などの重要な判断を行わないでください。<br><a href="../">Remote Camera Web2へ戻る</a></footer>
+</main>
+<div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
